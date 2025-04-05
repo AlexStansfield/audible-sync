@@ -2,7 +2,7 @@
 
 List of tasks to complete by phases
 
-## Milestone 1: Initial Download
+## Milestone 1: Library Sync, Download and Decrypt
 
 ### Requirements
 
@@ -27,23 +27,11 @@ List of tasks to complete by phases
 - [x] Add DockerFile to build a container with requirements
 - [ ] Add Docker Compose file to run container
 
-## Milestone 2: Sync new Books
+## Milestone 2: Download Progress, Metadata and OGA Encoding
 
 ### Requirements
 
-- Sync new books to database
 - Download Progress
-
-### Tasks
-
-- [ ] Add settings table to database
-- [ ] Initialise settings on initial run
-- [ ] Aysnc downloader to monitor progress of download
-
-## Milestone 3: Metadata and OGA Encoding
-
-### Requirements
-
 - Improved Metadata generation to include cover image and asin
 - Fetch Cover, PDF and Annotations data
 - Move settings to database
@@ -52,6 +40,7 @@ List of tasks to complete by phases
 
 ### Tasks
 
+- [ ] Aysnc downloader to monitor progress of download
 - [ ] Download PDF
 - [ ] Download Cover
 - [ ] Download Annotations
@@ -71,5 +60,7 @@ List of tasks to complete by phases
 
 ### Tasks
 
+- [ ] Add settings table to database
+- [ ] Initialise settings on initial run
 - [ ] Convert to an API service
 - [ ] Login and save credentials
