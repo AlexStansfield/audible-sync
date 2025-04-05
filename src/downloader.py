@@ -1,6 +1,7 @@
 import json
 import pathlib
 import httpx
+import ffmpeg
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from src.database import get_books_to_download, mark_book_downloaded
@@ -46,15 +47,83 @@ class Downloader:
             # download book
             dl_link = Downloader.get_download_link(lr)
             filename = pathlib.Path.cwd() / "audiobooks" / title
-            print(f"download link now: {dl_link}")
             status = Downloader.download_file(dl_link, filename)
-            print(f"downloaded file: {status} to {filename}")
 
             # save voucher
             voucher_file = filename.with_suffix(".json")
             decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
             voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
-            print(f"saved voucher to: {voucher_file}")
+
+            return {"book": status, "voucher": voucher_file}
+
+def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
+    input_path = pathlib.Path(input_file)
+    base_path = input_path.with_suffix('')
+    voucher_file = voucher
+    metadata_file = f"{input_file}_metadata_new"
+    output_file = f"{input_file}.m4b"
+
+    # Load key and iv from .voucher JSON
+    with open(voucher_file, 'r') as f:
+        voucher_data = json.load(f)
+    
+    key = voucher_data['content_license']['license_response']['key']
+    iv = voucher_data['content_license']['license_response']['iv']
+
+    # Build ffmpeg input with custom decryption options
+    input_args = {
+        'audible_key': key,
+        'audible_iv': iv
+    }
+
+    # Create the ffmpeg command
+    (
+        ffmpeg
+        .input(input_file, **input_args)
+        .input(metadata_file)
+        .output(
+            output_file,
+            map='0:a:0',
+            c='copy',
+            dn=None,
+            map_metadata=1,
+            map_chapters=1,
+            movflags='use_metadata_tags',
+            loglevel='warning',
+            y=None  # Overwrite output file if it exists
+        )
+        .run()
+    )
+
+    print(f"Conversion complete: {output_file}")
+
+def decrypt_aaxc(book: str, voucher: str):
+    output_file = f"{book}.m4b"
+
+    # Load key and iv from .voucher JSON
+    with open(voucher, 'r') as f:
+        voucher_data = json.load(f)
+    
+    key = voucher_data['key']
+    iv = voucher_data['iv']
+
+    # Build ffmpeg command
+    (
+        ffmpeg
+        .input(book, audible_key=key, audible_iv=iv)
+        .output(
+            output_file,
+            map='0:a',
+            c='copy',
+            dn=None,
+            loglevel='warning',
+            y=None  # Overwrite existing file
+        )
+        .run()
+    )
+
+    print(f"Conversion complete: {output_file}")
+
 
 def download_books(audible, max:int=None):
     waiting_download = get_books_to_download();
@@ -68,9 +137,12 @@ def download_books(audible, max:int=None):
     for book in loop:
         print("Downloading {0}".format(book[1]))
         downloader = Downloader(audible)
-        downloader.download_book(book)
+        download = downloader.download_book(book)
         print("Download complete")
-        mark_book_downloaded(book[0]);
+        print("Book: {0}".format(download['book']))
+        print("Voucher: {0}".format(download['voucher']))
+        decrypt_aaxc(download['book'], download['voucher'])
+        mark_book_downloaded(book[0])
 
     print("Completed downloads")
 
