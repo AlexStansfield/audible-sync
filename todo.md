@@ -23,9 +23,14 @@ List of tasks to complete by phases
 - [x] Check for initial sync and get all books
 - [x] Fetch library since last sync
 - [x] Sync configured number of books
-- [ ] Decrypt book to m4b
+- [x] Decrypt book to m4b
 - [x] Add DockerFile to build a container with requirements
+- [ ] Create directory for each download
+- [ ] Move decrypted file to folder
+- [ ] Cleanup files after finished
+- [ ] Audible Auth Json path
 - [ ] Add Docker Compose file to run container
+- [ ] Add github action to build image and push to repo
 
 ## Milestone 2: Download Progress, Metadata and OGA Encoding
 
