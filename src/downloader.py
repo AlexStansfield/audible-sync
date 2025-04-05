@@ -3,6 +3,7 @@ import pathlib
 import httpx
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
+from src.database import get_books_to_download
 
 class Downloader:
     def __init__(self, audible: Audible):
@@ -54,3 +55,8 @@ class Downloader:
             decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
             voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
             print(f"saved voucher to: {voucher_file}")
+
+def download_books(max=None):
+    to_download = get_books_to_download();
+    total_to_download = len(to_download)
+    print("Downloading {0} books of {1} waiting download".format(max if max != None else total_to_download , total_to_download))

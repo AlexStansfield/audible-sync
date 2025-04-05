@@ -6,10 +6,10 @@ def sync_library(audible: Audible):
     latest_book = get_books(1)
     purchased_after = None
     if (len(latest_book) == 0):
-        print("Fetch All Books")
+        print("Fetching all books")
     else:
         purchased_after = latest_book[0][10]
-        print("Fetch Books Since " + purchased_after)
+        print("Fetching books purchased since " + purchased_after)
 
     library = audible.get_library(purchased_after)
     books_synced = update_books(library)

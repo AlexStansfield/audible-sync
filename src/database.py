@@ -67,6 +67,13 @@ def get_books(limit=None):
     cursor.execute(sql)
     return cursor.fetchall()
 
+def get_books_to_download():
+    conn = _get_connection()
+    cursor = conn.cursor()
+    sql = "SELECT * FROM library WHERE status = 'waiting_download' ORDER BY date_added ASC"
+    cursor.execute(sql)
+    return cursor.fetchall()
+
 def get_book_by_asin(asin):
     conn = _get_connection()
     cursor = conn.cursor()
