@@ -1,0 +1,7 @@
+audible.json
+venv
+.idea
+src/__pycache__
+audiobooks
+audible_sync.db
+example-book.json
