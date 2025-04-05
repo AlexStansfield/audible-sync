@@ -17,8 +17,9 @@ List of tasks to complete by phases
 
 - [x] Create Database
 - [x] Create initial Book Model
+- [x] Create Audible model
 - [x] Book download
-- [ ] Settings file
+- [x] Settings file
 - [ ] Check for initial sync and get all books
 - [ ] Decrypt book to m4b
 - [ ] Sync configured number of books

@@ -1,18 +1,16 @@
 import json
 import pathlib
 import httpx
-from src.audible import get_auth
-import audible
+from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
 
 class Downloader:
-    def __init__(self):
-        self.auth = get_auth()
-        self.client = audible.Client(self.auth)
+    def __init__(self, audible: Audible):
+        self.audible = audible
 
     def get_license_response(self, asin, quality):
         try:
-            response = self.client.post(
+            response = self.audible.client.post(
                 f"content/{asin}/licenserequest",
                 body={
                     "drm_type": "Adrm",
@@ -53,6 +51,6 @@ class Downloader:
 
             # save voucher
             voucher_file = filename.with_suffix(".json")
-            decrypted_voucher = decrypt_voucher_from_licenserequest(self.auth, lr)
+            decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
             voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
             print(f"saved voucher to: {voucher_file}")

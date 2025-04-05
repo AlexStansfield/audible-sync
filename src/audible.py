@@ -31,50 +31,37 @@ def _prepare_book(item):
 
     return Book(**data_row)
 
-def get_auth():
-    return audible.Authenticator.from_file(filename="audible.json")
+class Audible:
+    def __init__(self, auth_file):
+        self.auth = audible.Authenticator.from_file(filename=auth_file)
+        self.client = audible.Client(self.auth)
 
-def get_client():
-    auth = get_auth()
-    return audible.Client(auth)
+    def get_library(self):
+        response = self.client.get("library", params={
+            "response_groups": (
+                "contributors, media, price, product_attrs, product_desc, "
+                "product_extended_attrs, product_plan_details, product_plans, "
+                "rating, sample, sku, series, ws4v, origin, "
+                "relationships, review_attrs, categories, badge_types, "
+                "category_ladders, claim_code_url, "
+                "is_finished, origin_asin, pdf_url, "
+                "percent_complete, provided_review"
+                )
+            })
+        
+        return [_prepare_book(item) for item in response["items"]]
 
-def get_library():
-    client = get_client()
-    response = client.get("library", params={
-        "response_groups": (
-            "contributors, media, price, product_attrs, product_desc, "
-            "product_extended_attrs, product_plan_details, product_plans, "
-            "rating, sample, sku, series, ws4v, origin, "
-            "relationships, review_attrs, categories, badge_types, "
-            "category_ladders, claim_code_url, "
-            "is_finished, origin_asin, pdf_url, "
-            "percent_complete, provided_review"
-            )
-        })
-    
-    return [_prepare_book(item) for item in response["items"]]
-
-def get_book(asin):
-    client = get_client()
-
-    response = client.get(path=f"library/{asin}", params={
-        "response_groups": (
-            "contributors, media, price, product_attrs, product_desc, "
-            "product_extended_attrs, product_plan_details, product_plans, "
-            "rating, sample, sku, series, ws4v, origin, "
-            "relationships, review_attrs, categories, badge_types, "
-            "category_ladders, claim_code_url, "
-            "is_finished, origin_asin, pdf_url, "
-            "percent_complete, provided_review"
-            )
-        })
-    
-    return _prepare_book(response)
-
-def get_download_link(asin, quality):
-    client = get_client()
-    data = client.post(
-        path=f"content/{asin}/licenserequest",
-        body={"drm_type": "Adrm", "consumption_type": "Download", "quality": quality},
-    )
-    return data["content_license"]["content_metadata"]["content_url"]["offline_url"]
+    def get_book(self, asin):
+        response = self.client.get(path=f"library/{asin}", params={
+            "response_groups": (
+                "contributors, media, price, product_attrs, product_desc, "
+                "product_extended_attrs, product_plan_details, product_plans, "
+                "rating, sample, sku, series, ws4v, origin, "
+                "relationships, review_attrs, categories, badge_types, "
+                "category_ladders, claim_code_url, "
+                "is_finished, origin_asin, pdf_url, "
+                "percent_complete, provided_review"
+                )
+            })
+        
+        return _prepare_book(response["item"])
