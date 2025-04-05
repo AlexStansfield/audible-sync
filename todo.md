@@ -20,9 +20,10 @@ List of tasks to complete by phases
 - [x] Create Audible model
 - [x] Book download
 - [x] Settings file
-- [ ] Check for initial sync and get all books
-- [ ] Decrypt book to m4b
+- [x] Check for initial sync and get all books
+- [x] Fetch library since last sync
 - [ ] Sync configured number of books
+- [ ] Decrypt book to m4b
 - [ ] Add DockerFile to build a container with requirements
 - [ ] Add Docker Compose file to run container
 
@@ -37,7 +38,6 @@ List of tasks to complete by phases
 
 - [ ] Add settings table to database
 - [ ] Initialise settings on initial run
-- [ ] Fetch library since last sync
 - [ ] Aysnc downloader to monitor progress of download
 
 ## Milestone 3: Metadata and OGA Encoding

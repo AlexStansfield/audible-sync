@@ -25,7 +25,8 @@ def init_db():
             percent_complete REAL,
             date_added TEXT,
             release_date TEXT,
-            cover_url TEXT
+            cover_url TEXT,
+            status TEXT
         )
     """)
     conn.commit()
@@ -44,17 +45,27 @@ def update_books(books: List[Book]):
         if existing_book is None:
             cursor.execute("""
             INSERT INTO library (asin, title, subtitle, authors, narrators, series, genres, 
-                               length, is_finished, percent_complete, date_added, release_date, cover_url)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                               length, is_finished, percent_complete, date_added, release_date, cover_url, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (book.asin, book.title, book.subtitle, json.dumps(book.authors), json.dumps(book.narrators), 
                   json.dumps(book.series), json.dumps(book.genres), book.length, book.is_finished, book.percent_complete, 
-                  book.date_added, book.release_date, book.cover_url))
+                  book.date_added, book.release_date, book.cover_url, "waiting_download"))
             books_synced += 1
     
     conn.commit()
     conn.close()
 
     return books_synced
+
+def get_books(limit=None):
+    conn = _get_connection()
+    cursor = conn.cursor()
+    sql = "SELECT * FROM library ORDER BY date_added DESC"
+    if limit:
+        sql = "{0} LIMIT {1}".format(sql, limit)
+
+    cursor.execute(sql)
+    return cursor.fetchall()
 
 def get_book_by_asin(asin):
     conn = _get_connection()

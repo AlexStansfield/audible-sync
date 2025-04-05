@@ -36,8 +36,8 @@ class Audible:
         self.auth = audible.Authenticator.from_file(filename=auth_file)
         self.client = audible.Client(self.auth)
 
-    def get_library(self):
-        response = self.client.get("library", params={
+    def get_library(self, purchased_after=None):
+        params = {
             "response_groups": (
                 "contributors, media, price, product_attrs, product_desc, "
                 "product_extended_attrs, product_plan_details, product_plans, "
@@ -46,8 +46,15 @@ class Audible:
                 "category_ladders, claim_code_url, "
                 "is_finished, origin_asin, pdf_url, "
                 "percent_complete, provided_review"
-                )
-            })
+                ),
+            "sort_by": 'PurchaseDate',
+            "num_results": 1000
+            }
+        
+        if purchased_after != None:
+            params["purchased_after"] = purchased_after
+
+        response = self.client.get("library", params=params)
         
         return [_prepare_book(item) for item in response["items"]]
 
