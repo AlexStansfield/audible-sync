@@ -79,3 +79,10 @@ def get_book_by_asin(asin):
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM library WHERE asin=?", (asin,))
     return cursor.fetchone()
+
+def mark_book_downloaded(asin):
+    conn = _get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE library set status = 'downloaded' WHERE asin=?", (asin,))
+    conn.commit()
+    conn.close()

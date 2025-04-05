@@ -22,8 +22,7 @@ if __name__ == "__main__":
     # Get Books waiting Download
 
     # Download Books
-    download_books(config['audible-sync']['max-download'])
-
+    download_books(audible, max=config['audible-sync']['max-download'])
 
     # print(books_synced)
     # book = get_book_by_asin("1838773193")

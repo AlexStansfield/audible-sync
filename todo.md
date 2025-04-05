@@ -22,7 +22,7 @@ List of tasks to complete by phases
 - [x] Settings file
 - [x] Check for initial sync and get all books
 - [x] Fetch library since last sync
-- [ ] Sync configured number of books
+- [x] Sync configured number of books
 - [ ] Decrypt book to m4b
 - [ ] Add DockerFile to build a container with requirements
 - [ ] Add Docker Compose file to run container
