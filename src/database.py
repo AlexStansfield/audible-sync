@@ -3,7 +3,7 @@ from typing import List
 from src.model import Book
 import json
 
-DB_FILE = "audible_sync.db"
+DB_FILE = "data/audible_sync.db"
 
 def _get_connection():
     return sqlite3.connect(DB_FILE)

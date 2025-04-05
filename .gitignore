@@ -1,7 +1,12 @@
-audible.json
+# Development
 venv
 .idea
-src/__pycache__
+__pycache__
+
+# App Generated
 audiobooks
-audible_sync.db
+data/audible_sync.db
+
+# tmp 
+audible.json
 example-book.json
