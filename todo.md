@@ -24,7 +24,7 @@ List of tasks to complete by phases
 - [x] Fetch library since last sync
 - [x] Sync configured number of books
 - [ ] Decrypt book to m4b
-- [ ] Add DockerFile to build a container with requirements
+- [x] Add DockerFile to build a container with requirements
 - [ ] Add Docker Compose file to run container
 
 ## Milestone 2: Sync new Books
@@ -64,6 +64,7 @@ List of tasks to complete by phases
 
 ### Requirements
 
+- Login to audible
 - Convert to an API service
 - Get library of books by API
 - Get and Change Settings by API
@@ -71,3 +72,4 @@ List of tasks to complete by phases
 ### Tasks
 
 - [ ] Convert to an API service
+- [ ] Login and save credentials
