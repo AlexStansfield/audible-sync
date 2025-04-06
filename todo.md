@@ -25,9 +25,9 @@ List of tasks to complete by phases
 - [x] Sync configured number of books
 - [x] Decrypt book to m4b
 - [x] Add DockerFile to build a container with requirements
-- [ ] Create directory for each download
-- [ ] Move decrypted file to folder
-- [ ] Cleanup files after finished
+- [x] Create directory for each download
+- [x] Move decrypted file to folder
+- [x] Cleanup files after finished
 - [ ] Audible Auth Json path
 - [ ] Add Docker Compose file to run container
 - [ ] Add github action to build image and push to repo
@@ -45,6 +45,7 @@ List of tasks to complete by phases
 
 ### Tasks
 
+- [ ] Add logging
 - [ ] Aysnc downloader to monitor progress of download
 - [ ] Download PDF
 - [ ] Download Cover
@@ -53,6 +54,7 @@ List of tasks to complete by phases
 - [ ] Add metadata to m4b
 - [ ] Add settings for encoding bitrate
 - [ ] Encode books to OGA instead of M4B if configured
+- [ ] Name m4b/oga files based on metadata
 
 ## Milestone 4: API Service
 

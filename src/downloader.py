@@ -1,5 +1,6 @@
 import json
-import pathlib
+from pathlib import Path
+import shutil
 import httpx
 import ffmpeg
 from src.audible import Audible
@@ -38,26 +39,35 @@ class Downloader:
                     f.write(chunck)
         return filename
 
-    def download_book(self, book):
+    def download_book(self, book, folder: str):
         asin = book[0]
-        title = book[1] + f"({asin}).aaxc"
+        title = book[1]
+        book_folder = f"{asin}_{title}"
         lr = self.get_license_response(asin, quality="High")
 
-        if lr:
-            # download book
-            dl_link = Downloader.get_download_link(lr)
-            filename = pathlib.Path.cwd() / "audiobooks" / title
-            status = Downloader.download_file(dl_link, filename)
+        if lr == None:
+            print('Unable to download book')
+            return
 
-            # save voucher
-            voucher_file = filename.with_suffix(".json")
-            decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
-            voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
+        # Get the download link
+        dl_link = Downloader.get_download_link(lr)
 
-            return {"book": status, "voucher": voucher_file}
+        # Determine Filename and create parent folder
+        filename = Path("{0}/{1}/{2}.aaxc".format(folder, book_folder, title))
+        filename.parent.mkdir(parents=True, exist_ok=True)
+
+        # Download the file
+        status = Downloader.download_file(dl_link, filename)
+
+        # save voucher
+        voucher_file = filename.with_suffix(".json")
+        decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
+        voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
+
+        return {"book": status, "voucher": voucher_file}
 
 def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
-    input_path = pathlib.Path(input_file)
+    input_path = Path(input_file)
     base_path = input_path.with_suffix('')
     voucher_file = voucher
     metadata_file = f"{input_file}_metadata_new"
@@ -123,9 +133,10 @@ def decrypt_aaxc(book: str, voucher: str):
     )
 
     print(f"Conversion complete: {output_file}")
+    return output_file
 
 
-def download_books(audible, max:int=None):
+def download_books(audible, download_folder, audiobook_folder, max:int=None):
     waiting_download = get_books_to_download();
     total_to_download = len(waiting_download)
     number_to_download:int = max if max != None else total_to_download
@@ -135,13 +146,33 @@ def download_books(audible, max:int=None):
     loop = waiting_download[0:int(number_to_download)]
 
     for book in loop:
+        # Download the Book
         print("Downloading {0}".format(book[1]))
         downloader = Downloader(audible)
-        download = downloader.download_book(book)
+        download = downloader.download_book(book, download_folder)
         print("Download complete")
         print("Book: {0}".format(download['book']))
         print("Voucher: {0}".format(download['voucher']))
-        decrypt_aaxc(download['book'], download['voucher'])
+
+        # Decrypt the Book
+        audiobook = decrypt_aaxc(download['book'], download['voucher'])
+
+        # Move the Book to final location
+        series = json.loads(book[5])
+        authors = json.loads(book[3])
+        if len(series) > 0:
+            to_path = Path("{0}/{1}/{2}/{3} - {4}/{4}.m4b".format(audiobook_folder, authors[0], series[0]['title'], series[0]['sequence'], book[1]))
+        else:
+            to_path = Path("{0}/{1}/{2}/{2}.m4b".format(audiobook_folder, authors[0], book[1]))
+        to_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy(audiobook, to_path)
+        print("Book copied to {0}".format(to_path))
+
+        # Cleanup
+        cleanup_folder = Path(audiobook).parent
+        shutil.rmtree(cleanup_folder)
+
+        # Mark Book downloaded
         mark_book_downloaded(book[0])
 
     print("Completed downloads")
