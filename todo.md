@@ -30,7 +30,7 @@ List of tasks to complete by phases
 - [x] Cleanup files after finished
 - [x] Audible Auth Json path
 - [ ] Add Docker Compose file to run container
-- [ ] Add github action to build image and push to repo
+- [x] Add github action to build image and push to repo
 
 ## Milestone 2: Download Progress, Metadata and OGA Encoding
 
@@ -56,7 +56,7 @@ List of tasks to complete by phases
 - [ ] Encode books to OGA instead of M4B if configured
 - [ ] Name m4b/oga files based on metadata
 
-## Milestone 4: API Service
+## Milestone 3: API Service
 
 ### Requirements
 

@@ -1,16 +1,16 @@
-name: Build and Push Docker image
+name: Build, Push Docker image, and Create Release
 
 on:
   push:
-    branches:
-      - main  # or 'master' or whichever branch you want
+    tags:
+      - 'v*'  # Only runs on version tags
 
 permissions:
-  contents: read
+  contents: write  # Required for creating releases
   packages: write
 
 jobs:
-  build-and-push:
+  build-push-release:
     runs-on: ubuntu-latest
 
     steps:
@@ -24,16 +24,27 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (repository name)
+      - name: Extract tag and image name
         id: meta
         run: |
           IMAGE_NAME=ghcr.io/${{ github.repository }}
+          TAG=${GITHUB_REF#refs/tags/}
           echo "image_name=${IMAGE_NAME,,}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
 
-      - name: Build Docker image
+      - name: Build Docker image with version and latest tags
         run: |
-          docker build -t ${{ steps.meta.outputs.image_name }} .
+          docker build -t ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.tag }} \
+                       -t ${{ steps.meta.outputs.image_name }}:latest .
 
-      - name: Push Docker image
+      - name: Push both tags
         run: |
-          docker push ${{ steps.meta.outputs.image_name }}
+          docker push ${{ steps.meta.outputs.image_name }}:${{ steps.meta.outputs.tag }}
+          docker push ${{ steps.meta.outputs.image_name }}:latest
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

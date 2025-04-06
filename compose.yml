@@ -1,0 +1,12 @@
+version: "3.8"
+
+services:
+  audible-sync:
+    image: ghcr.io/alexstansfield/audible-sync:latest
+    container_name: audible-sync
+    restart: unless-stopped
+    volumes:
+      - ~/.audible:/root/.audible
+      - ./data:/app/data
+      - ./audiobooks:/app/audiobooks
+    #  - ./config:/app/config # uncomment if you wish to override the config with your own config file

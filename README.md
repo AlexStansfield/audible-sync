@@ -38,8 +38,66 @@ The `config/config.ini` file has the following sections and options:
  - `downloads`: folder where files are temporarily downloaded to before being converted
  - `audiobooks`: folder to copy the converted audiobooks to
 
+## Running
+
+### Docker
+
+### 🐍 Running the App with Python (No Docker)
+
+If you'd rather run the app directly in Python (e.g. for development or scripting), follow these steps:
+
+---
+
+#### ✅ 1. Clone the Repository
+
+```bash
+git clone https://github.com/alexstansfield/audible-sync.git
+cd audible-sync
+```
+
+#### ✅ 2. Create and Activate a Virtual Environment
+
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+#### ✅ 3. Install Dependencies
+
+```
+pip install -r requirements.txt
+```
+
+#### ✅ 4. Install FFmpeg
+
+This app requires [FFmpeg](https://ffmpeg.org/) to be installed and available on your system.
+
+##### macOS
+
+```
+brew install ffmpeg
+```
+
+##### Ubuntu/Debian
+
+```
+sudo apt install ffmpeg
+```
+
+##### Windows
+
+1. Download the FFmpeg executable from [here](https://ffmpeg.org/download.html).
+2. Extract the downloaded files.
+3. Add the bin/ folder inside the extracted directory to your system's PATH.
+
 ## Todo
 
-There is plenty left to do, my ultimate goal is to have a web based server that can automatically sync, download and convert your books.
+There is plenty left to do, my ultimate goal is to have a web based service that can automatically sync, download and convert your books. 
+
+It will support:
+- re-encoding the books to OGA format in order to reduce size
+- fetching PDF files included with the book
+- fetching extra metadata and cover art
+- configurable folder and filename structure for converted books
 
 The current todo list can be found [here](todo.md).
