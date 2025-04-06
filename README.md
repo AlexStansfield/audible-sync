@@ -42,7 +42,19 @@ The `config/config.ini` file has the following sections and options:
 
 ### Docker
 
-### 🐍 Running the App with Python (No Docker)
+The simplest of all, copy the `compose.yml` file from the repository to the location of your choice.
+
+Update the volumne mounts to match where you want files to be stored.
+
+If you want your own config then uncomment the volume mount line and place an updated copy of the `config.ini` file in the host side folder.
+
+Then just run
+
+```
+docker compose run audible-sync
+```
+
+### Running the App with Python (No Docker)
 
 If you'd rather run the app directly in Python (e.g. for development or scripting), follow these steps:
 
