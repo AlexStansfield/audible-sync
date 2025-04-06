@@ -29,7 +29,7 @@ List of tasks to complete by phases
 - [x] Move decrypted file to folder
 - [x] Cleanup files after finished
 - [x] Audible Auth Json path
-- [ ] Add Docker Compose file to run container
+- [x] Add Docker Compose file to run container
 - [x] Add github action to build image and push to repo
 
 ## Milestone 2: Download Progress, Metadata and OGA Encoding
