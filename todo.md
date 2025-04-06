@@ -28,7 +28,7 @@ List of tasks to complete by phases
 - [x] Create directory for each download
 - [x] Move decrypted file to folder
 - [x] Cleanup files after finished
-- [ ] Audible Auth Json path
+- [x] Audible Auth Json path
 - [ ] Add Docker Compose file to run container
 - [ ] Add github action to build image and push to repo
 

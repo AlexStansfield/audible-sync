@@ -18,11 +18,19 @@ if __name__ == "__main__":
     Path(config['folders']['audiobooks']).mkdir(parents=True, exist_ok=True)
 
     # Get Audible Sync
-    audible = Audible(config['sync']['audible-auth-file'])
+    if config.has_option('sync', 'audible-auth-file'):
+        audible_json = config.get('sync', 'audible-auth-file')
+    else:
+        audible_json = "{0}/.audible/audible.json".format(Path.home())
+
+    audible = Audible(audible_json)
 
     # Sync the library
     books_synced = sync_library(audible)
     print("{0} books synced to database".format(books_synced))
 
     # Download Books
-    download_books(audible, config['folders']['downloads'], config['folders']['audiobooks'], max=config['sync']['max-download'])
+    max_download: int = None
+    if config.has_option('sync', 'max-download'):
+        max_download = config.getint('sync', 'max-download')
+    download_books(audible, config['folders']['downloads'], config['folders']['audiobooks'], max=max_download)

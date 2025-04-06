@@ -5,7 +5,8 @@ __pycache__
 
 # App Generated
 audiobooks
-data/audible_sync.db
+data/
+~data/.gitkeep
 
 # tmp 
 audible.json
