@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import httpx
 import ffmpeg
+from tqdm import tqdm
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from src.database import get_books_to_download, mark_book_downloaded
@@ -34,9 +35,16 @@ class Downloader:
     def download_file(url, filename):
         headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
         with httpx.stream("GET", url, headers=headers) as r:
-            with open(filename, "wb") as f:
-                for chunck in r.iter_bytes():
-                    f.write(chunck)
+            total = int(r.headers["Content-Length"])
+
+            with tqdm(total=total, unit_scale=True, unit_divisor=1024, unit="B") as progress:
+                num_bytes_downloaded = r.num_bytes_downloaded
+                with open(filename, "wb") as f:
+                    for chunck in r.iter_bytes():
+                        f.write(chunck)
+                        progress.update(r.num_bytes_downloaded - num_bytes_downloaded)
+                        num_bytes_downloaded = r.num_bytes_downloaded
+
         return filename
 
     def download_book(self, book, folder: str):
