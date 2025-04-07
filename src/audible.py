@@ -1,4 +1,5 @@
 import audible
+import logging
 from collections.abc import Iterable
 from src.model import Book
 
@@ -54,6 +55,8 @@ class Audible:
         if purchased_after != None:
             params["purchased_after"] = purchased_after
 
+        logger = logging.getLogger("audible")
+        logger.debug('fetching library')
         response = self.client.get("library", params=params)
         
         return [_prepare_book(item) for item in response["items"]]
