@@ -3,6 +3,7 @@ from pathlib import Path
 import shutil
 import httpx
 import ffmpeg
+import logging
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from src.database import get_books_to_download, mark_book_downloaded
@@ -10,6 +11,7 @@ from src.database import get_books_to_download, mark_book_downloaded
 class Downloader:
     def __init__(self, audible: Audible):
         self.audible = audible
+        self.logger = logging.getLogger("Downloader")
 
     def get_license_response(self, asin, quality):
         try:
@@ -23,7 +25,7 @@ class Downloader:
             )
             return response
         except Exception as e:
-            print(f"Error: {e}")
+            self.logger.debug(f"Error: {e}")
             return
 
     def get_download_link(license_response):
@@ -46,7 +48,7 @@ class Downloader:
         lr = self.get_license_response(asin, quality="High")
 
         if lr == None:
-            print('Unable to download book')
+            self.logger.info('Unable to download book')
             return
 
         # Get the download link
@@ -67,8 +69,7 @@ class Downloader:
         return {"book": status, "voucher": voucher_file}
 
 def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
-    input_path = Path(input_file)
-    base_path = input_path.with_suffix('')
+    logger = logging.getLogger("coverter")
     voucher_file = voucher
     metadata_file = f"{input_file}_metadata_new"
     output_file = f"{input_file}.m4b"
@@ -105,9 +106,10 @@ def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
         .run()
     )
 
-    print(f"Conversion complete: {output_file}")
+    logger.debug(f"Conversion complete: {output_file}")
 
 def decrypt_aaxc(book: str, voucher: str):
+    logger = logging.getLogger("coverter")
     output_file = f"{book}.m4b"
 
     # Load key and iv from .voucher JSON
@@ -132,32 +134,35 @@ def decrypt_aaxc(book: str, voucher: str):
         .run()
     )
 
-    print(f"Conversion complete: {output_file}")
+    logger.debug(f"Conversion complete: {output_file}")
     return output_file
 
 
 def download_books(audible, download_folder, audiobook_folder, max:int=None):
+    logger = logging.getLogger("downloader")
     waiting_download = get_books_to_download();
     total_to_download = len(waiting_download)
     number_to_download:int = max if max != None else total_to_download
 
-    print("Downloading {0} books of {1} waiting download".format(number_to_download, total_to_download))
+    logger.info(f"Downloading {number_to_download} books of {total_to_download} waiting download")
     
     loop = waiting_download[0:int(number_to_download)]
 
     for book in loop:
         # Download the Book
-        print("Downloading {0}".format(book[1]))
+        logger.info(f"Downloading {book[1]}")
         downloader = Downloader(audible)
         download = downloader.download_book(book, download_folder)
-        print("Download complete")
-        print("Book: {0}".format(download['book']))
-        print("Voucher: {0}".format(download['voucher']))
+        logger.debug(f"Book: {download['book']}")
+        logger.debug(f"Voucher: {download['voucher']}")
+        logger.info("Download complete, decypting book")
 
         # Decrypt the Book
         audiobook = decrypt_aaxc(download['book'], download['voucher'])
+        logger.debug(f"Book decrypted to {audiobook}")
 
         # Move the Book to final location
+        logger.debug(f"Determine filename to copy to")
         series = json.loads(book[5])
         authors = json.loads(book[3])
         if len(series) > 0:
@@ -165,8 +170,9 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         else:
             to_path = Path("{0}/{1}/{2}/{2}.m4b".format(audiobook_folder, authors[0], book[1]))
         to_path.parent.mkdir(parents=True, exist_ok=True)
+        logger.debug("Copy book")
         shutil.copy(audiobook, to_path)
-        print("Book copied to {0}".format(to_path))
+        logger.info("Book saved to {to_path}")
 
         # Cleanup
         cleanup_folder = Path(audiobook).parent
@@ -175,5 +181,5 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         # Mark Book downloaded
         mark_book_downloaded(book[0])
 
-    print("Completed downloads")
+    logging.info("Completed downloads")
 

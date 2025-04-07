@@ -1,16 +1,37 @@
 import configparser
+import logging
+import sys
 from pathlib import Path
 from src.database import init_db
 from src.sync import sync_library
 from src.audible import Audible
 from src.downloader import download_books
 
+def setup_logging(level=logging.INFO):
+    """Configure root logger and format."""
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(formatter)
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.handlers.clear()
+    root_logger.addHandler(handler)
+
 if __name__ == "__main__":
     # Load the Config
+    setup_logging() 
+    logger = logging.getLogger("main")
+    logger.info("Loading config")
     config = configparser.ConfigParser()
     config.read('config/config.ini')
 
     # Initialise the Database if doesn't exist
+    
     init_db()
 
     # Create folders if not exists
@@ -27,7 +48,7 @@ if __name__ == "__main__":
 
     # Sync the library
     books_synced = sync_library(audible)
-    print("{0} books synced to database".format(books_synced))
+    logger.info(f"{books_synced} books synced to database")
 
     # Download Books
     max_download: int = None
