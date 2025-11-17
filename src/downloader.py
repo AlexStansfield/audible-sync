@@ -7,7 +7,7 @@ import ffmpeg
 from tqdm import tqdm
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
-from src.database import get_books_to_download, mark_book_downloaded
+from src.database import get_books_to_download, mark_book_downloaded, update_book_accessories
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +76,110 @@ class Downloader:
         voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
 
         return {"book": status, "voucher": voucher_file}
+
+    def download_pdf(self, asin: str, output_path: str) -> bool:
+        """Download PDF companion file if available"""
+        try:
+            # Get the domain from the auth object (defaults to 'com')
+            domain = getattr(self.audible.auth.locale, 'domain', 'com')
+            url = f"https://www.audible.{domain}/companion-file/{asin}"
+
+            logger.info("Downloading PDF for %s", asin)
+            headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
+
+            with httpx.stream("GET", url, headers=headers, follow_redirects=True) as r:
+                # Check if PDF exists (200 status)
+                if r.status_code != 200:
+                    logger.info("No PDF available for %s", asin)
+                    return False
+
+                # Get content length if available
+                total = int(r.headers.get("Content-Length", 0))
+
+                if total > 0:
+                    with tqdm(total=total, unit_scale=True, unit_divisor=1024, unit="B", desc="PDF") as progress:
+                        num_bytes_downloaded = r.num_bytes_downloaded
+                        with open(output_path, "wb") as f:
+                            for chunk in r.iter_bytes():
+                                f.write(chunk)
+                                progress.update(r.num_bytes_downloaded - num_bytes_downloaded)
+                                num_bytes_downloaded = r.num_bytes_downloaded
+                else:
+                    # No content length header, download without progress
+                    with open(output_path, "wb") as f:
+                        for chunk in r.iter_bytes():
+                            f.write(chunk)
+
+            logger.info("PDF downloaded: %s", output_path)
+            return True
+
+        except Exception as e:
+            logger.error("Error downloading PDF for %s: %s", asin, e)
+            return False
+
+    def download_cover(self, cover_url: str, output_path: str) -> bool:
+        """Download high-resolution cover image"""
+        try:
+            logger.info("Downloading cover image")
+            headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
+
+            with httpx.stream("GET", cover_url, headers=headers, follow_redirects=True) as r:
+                if r.status_code != 200:
+                    logger.error("Failed to download cover: HTTP %d", r.status_code)
+                    return False
+
+                total = int(r.headers.get("Content-Length", 0))
+
+                if total > 0:
+                    with tqdm(total=total, unit_scale=True, unit_divisor=1024, unit="B", desc="Cover") as progress:
+                        num_bytes_downloaded = r.num_bytes_downloaded
+                        with open(output_path, "wb") as f:
+                            for chunk in r.iter_bytes():
+                                f.write(chunk)
+                                progress.update(r.num_bytes_downloaded - num_bytes_downloaded)
+                                num_bytes_downloaded = r.num_bytes_downloaded
+                else:
+                    with open(output_path, "wb") as f:
+                        for chunk in r.iter_bytes():
+                            f.write(chunk)
+
+            logger.info("Cover downloaded: %s", output_path)
+            return True
+
+        except Exception as e:
+            logger.error("Error downloading cover: %s", e)
+            return False
+
+    def download_annotations(self, asin: str, output_path: str) -> bool:
+        """Download user annotations and bookmarks"""
+        try:
+            logger.info("Downloading annotations for %s", asin)
+            url = "https://cde-ta-g7g.amazon.com/FionaCDEServiceEngine/sidecar"
+            params = {"type": "AUDI", "key": asin}
+            headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
+
+            response = httpx.get(url, params=params, headers=headers, follow_redirects=True)
+
+            if response.status_code != 200:
+                logger.info("No annotations available for %s", asin)
+                return False
+
+            # Parse and save the JSON response
+            annotations_data = response.json()
+
+            # Only save if there are actual annotations
+            if annotations_data and (annotations_data.get("clips") or annotations_data.get("bookmarks")):
+                with open(output_path, "w") as f:
+                    json.dump(annotations_data, f, indent=2)
+                logger.info("Annotations downloaded: %s", output_path)
+                return True
+            else:
+                logger.info("No annotations found for %s", asin)
+                return False
+
+        except Exception as e:
+            logger.error("Error downloading annotations for %s: %s", asin, e)
+            return False
 
 def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
     input_path = Path(input_file)
@@ -153,12 +257,18 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
     number_to_download:int = max if max != None else total_to_download
 
     logger.info("Downloading %d books of %d waiting download", number_to_download, total_to_download)
-    
+
     loop = waiting_download[0:int(number_to_download)]
 
     for book in loop:
+        # Extract book information
+        asin = book[0]
+        title = book[1]
+        cover_url = book[12]
+        has_pdf = book[17]  # Index for has_pdf field
+
         # Download the Book
-        logger.info("Downloading %s", book[1])
+        logger.info("Downloading %s", title)
         downloader = Downloader(audible)
         download = downloader.download_book(book, download_folder)
         logger.info("Download complete")
@@ -168,23 +278,55 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         # Decrypt the Book
         audiobook = decrypt_aaxc(download['book'], download['voucher'])
 
-        # Move the Book to final location
+        # Determine final location
         series = json.loads(book[5])
         authors = json.loads(book[3])
         if len(series) > 0:
-            to_path = Path("{0}/{1}/{2}/{3} - {4}/{4}.m4b".format(audiobook_folder, authors[0], series[0]['title'], series[0]['sequence'], book[1]))
+            final_folder = Path("{0}/{1}/{2}/{3} - {4}".format(audiobook_folder, authors[0], series[0]['title'], series[0]['sequence'], title))
         else:
-            to_path = Path("{0}/{1}/{2}/{2}.m4b".format(audiobook_folder, authors[0], book[1]))
-        to_path.parent.mkdir(parents=True, exist_ok=True)
+            final_folder = Path("{0}/{1}/{2}".format(audiobook_folder, authors[0], title))
+        final_folder.mkdir(parents=True, exist_ok=True)
+
+        # Move the Book to final location
+        to_path = final_folder / f"{title}.m4b"
         shutil.copy(audiobook, to_path)
         logger.info("Book copied to %s", to_path)
 
-        # Cleanup
+        # Download accessories
+        pdf_path = None
+        cover_path = None
+        annotations_path = None
+
+        # Download PDF if available
+        if has_pdf:
+            pdf_file = final_folder / f"{title}.pdf"
+            if downloader.download_pdf(asin, str(pdf_file)):
+                pdf_path = str(pdf_file)
+
+        # Download high-resolution cover
+        if cover_url:
+            # Determine file extension from URL (usually .jpg)
+            cover_ext = ".jpg"
+            if ".png" in cover_url.lower():
+                cover_ext = ".png"
+            cover_file = final_folder / f"{title}_cover{cover_ext}"
+            if downloader.download_cover(cover_url, str(cover_file)):
+                cover_path = str(cover_file)
+
+        # Download annotations
+        annotations_file = final_folder / f"{title}_annotations.json"
+        if downloader.download_annotations(asin, str(annotations_file)):
+            annotations_path = str(annotations_file)
+
+        # Update database with accessory paths
+        update_book_accessories(asin, pdf_path=pdf_path, cover_path=cover_path, annotations_path=annotations_path)
+
+        # Cleanup temporary download folder
         cleanup_folder = Path(audiobook).parent
         shutil.rmtree(cleanup_folder)
 
         # Mark Book downloaded
-        mark_book_downloaded(book[0])
+        mark_book_downloaded(asin)
 
     logger.info("Completed downloads")
 

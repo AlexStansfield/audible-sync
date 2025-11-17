@@ -13,6 +13,12 @@ def _prepare_book(item):
         series = [{"title": item["title"], "sequence": item["sequence"]} for item in item["series"]]
     
 
+    # Get highest resolution cover (prefer 1215px, fallback to 500px)
+    cover_url = item.get("product_images", {}).get("1215") or item.get("product_images", {}).get("500", "")
+
+    # Check if PDF is available
+    has_pdf = bool(item.get("pdf_url"))
+
     data_row = {
         "asin": item["asin"],
         "title": item["title"],
@@ -26,7 +32,8 @@ def _prepare_book(item):
         "percent_complete": item["percent_complete"],
         "date_added": item["library_status"]["date_added"],
         "release_date": item["release_date"],
-        "cover_url": item["product_images"]["500"]
+        "cover_url": cover_url,
+        "has_pdf": has_pdf
     }
 
     return Book(**data_row)
