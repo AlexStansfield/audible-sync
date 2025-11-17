@@ -1,5 +1,6 @@
 import json
 import logging
+import subprocess
 from pathlib import Path
 import shutil
 import httpx
@@ -180,71 +181,157 @@ class Downloader:
             logger.error("Error downloading annotations for %s: %s", asin, e)
             return False
 
-def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
-    input_path = Path(input_file)
-    base_path = input_path.with_suffix('')
-    voucher_file = voucher
-    metadata_file = f"{input_file}_metadata_new"
-    output_file = f"{input_file}.m4b"
+def generate_metadata(book_data: tuple) -> dict:
+    """
+    Generate comprehensive metadata dictionary from book data tuple.
 
-    # Load key and iv from .voucher JSON
-    with open(voucher_file, 'r') as f:
-        voucher_data = json.load(f)
+    Args:
+        book_data: Book tuple from database (indices as per database schema)
 
-    key = voucher_data['content_license']['license_response']['key']
-    iv = voucher_data['content_license']['license_response']['iv']
+    Returns:
+        Dictionary with metadata fields for FFmpeg
+    """
+    asin = book_data[0]
+    title = book_data[1]
+    subtitle = book_data[2]
+    authors = json.loads(book_data[3]) if book_data[3] else []
+    narrators = json.loads(book_data[4]) if book_data[4] else []
+    series = json.loads(book_data[5]) if book_data[5] else []
+    genres = json.loads(book_data[6]) if book_data[6] else []
+    release_date = book_data[11]
 
-    # Build ffmpeg input with custom decryption options
-    input_args = {
-        'audible_key': key,
-        'audible_iv': iv
-    }
+    metadata = {}
 
-    # Create the ffmpeg command
-    (
-        ffmpeg
-        .input(input_file, **input_args)
-        .input(metadata_file)
-        .output(
-            output_file,
-            map='0:a:0',
-            c='copy',
-            dn=None,
-            map_metadata=1,
-            map_chapters=1,
-            movflags='use_metadata_tags',
-            loglevel='warning',
-            y=None  # Overwrite output file if it exists
-        )
-        .run()
-    )
+    # Title (with subtitle if available)
+    full_title = title
+    if subtitle:
+        full_title = f"{title}: {subtitle}"
+    metadata['title'] = full_title
+    metadata['album'] = full_title
 
-    logger.info("Conversion complete: %s", output_file)
+    # Authors (primary artist)
+    if authors:
+        metadata['artist'] = "; ".join(authors)
+        metadata['album_artist'] = "; ".join(authors)
+        metadata['author'] = "; ".join(authors)
 
-def decrypt_aaxc(book: str, voucher: str):
+    # Narrators (composer field often used for narrators in audiobooks)
+    if narrators:
+        metadata['composer'] = "; ".join(narrators)
+
+    # Series information
+    if series:
+        series_info = series[0]
+        metadata['series'] = series_info.get('title', '')
+        metadata['series-part'] = series_info.get('sequence', '')
+
+    # Genre
+    if genres:
+        metadata['genre'] = "; ".join(genres)
+
+    # Release date (year)
+    if release_date:
+        try:
+            # Try to extract year from release_date string
+            year = release_date.split('-')[0] if '-' in release_date else release_date[:4]
+            metadata['date'] = year
+        except:
+            pass
+
+    # ASIN as comment for reference
+    metadata['comment'] = f"ASIN: {asin}"
+
+    # Media type
+    metadata['media_type'] = 'audiobook'
+
+    logger.debug("Generated metadata: %s", metadata)
+    return metadata
+
+
+def write_ffmpeg_metadata_file(metadata: dict, output_path: str) -> str:
+    """
+    Write metadata to FFmpeg FFMETADATA format file.
+
+    Args:
+        metadata: Dictionary of metadata key-value pairs
+        output_path: Path where metadata file should be written
+
+    Returns:
+        Path to the created metadata file
+    """
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(';FFMETADATA1\n')
+        for key, value in metadata.items():
+            # Escape special characters for FFmpeg metadata format
+            escaped_value = str(value).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
+            f.write(f'{key}={escaped_value}\n')
+
+    logger.debug("Wrote FFmpeg metadata file: %s", output_path)
+    return output_path
+
+def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None):
+    """
+    Decrypt AAXC audiobook file to M4B format with optional metadata and cover art.
+
+    Args:
+        book: Path to the AAXC file
+        voucher: Path to the voucher JSON file
+        book_data: Optional book data tuple from database for metadata generation
+        cover_path: Optional path to cover image to embed
+
+    Returns:
+        Path to the output M4B file
+    """
     output_file = f"{book}.m4b"
 
     # Load key and iv from .voucher JSON
     with open(voucher, 'r') as f:
         voucher_data = json.load(f)
-    
+
     key = voucher_data['key']
     iv = voucher_data['iv']
 
-    # Build ffmpeg command
-    (
-        ffmpeg
-        .input(book, audible_key=key, audible_iv=iv)
-        .output(
-            output_file,
-            map='0:a',
-            c='copy',
-            dn=None,
-            loglevel='warning',
-            y=None  # Overwrite existing file
-        )
-        .run()
-    )
+    # Generate and write metadata if book_data is provided
+    metadata_file = None
+    if book_data:
+        metadata = generate_metadata(book_data)
+        metadata_file = f"{book}.ffmetadata"
+        write_ffmpeg_metadata_file(metadata, metadata_file)
+        logger.info("Metadata file created: %s", metadata_file)
+
+    # Build the ffmpeg command using subprocess for better control
+    cmd_parts = ['ffmpeg']
+
+    # Input files
+    cmd_parts.extend(['-audible_key', key, '-audible_iv', iv, '-i', book])
+
+    if cover_path and Path(cover_path).exists():
+        cmd_parts.extend(['-i', cover_path])
+
+    if metadata_file and Path(metadata_file).exists():
+        cmd_parts.extend(['-i', metadata_file, '-map_metadata', '2' if cover_path else '1'])
+
+    # Mapping and codec options
+    cmd_parts.extend(['-map', '0:a'])
+    if cover_path and Path(cover_path).exists():
+        cmd_parts.extend(['-map', '1:v', '-c:v', 'copy', '-disposition:v', 'attached_pic'])
+
+    cmd_parts.extend(['-c:a', 'copy', '-dn'])
+
+    # Output file
+    cmd_parts.extend(['-y', '-loglevel', 'warning', output_file])
+
+    # Run the command
+    result = subprocess.run(cmd_parts, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        logger.error("FFmpeg error: %s", result.stderr)
+        raise Exception(f"FFmpeg conversion failed: {result.stderr}")
+
+    # Cleanup metadata file
+    if metadata_file and Path(metadata_file).exists():
+        Path(metadata_file).unlink()
+        logger.debug("Cleaned up metadata file: %s", metadata_file)
 
     logger.info("Conversion complete: %s", output_file)
     return output_file
@@ -274,8 +361,38 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         logger.debug("Book: %s", download['book'])
         logger.debug("Voucher: %s", download['voucher'])
 
-        # Decrypt the Book
-        audiobook = decrypt_aaxc(download['book'], download['voucher'])
+        # Download accessories before decryption so we can embed cover
+        pdf_path = None
+        temp_cover_path = None
+        annotations_path = None
+
+        # Create temporary directory for accessories
+        temp_dir = Path(download['book']).parent
+
+        # Download PDF if available
+        if has_pdf:
+            temp_pdf = temp_dir / f"{title}.pdf"
+            if downloader.download_pdf(asin, str(temp_pdf)):
+                pdf_path = str(temp_pdf)
+
+        # Download high-resolution cover for embedding
+        if cover_url:
+            # Determine file extension from URL (usually .jpg)
+            cover_ext = ".jpg"
+            if ".png" in cover_url.lower():
+                cover_ext = ".png"
+            temp_cover = temp_dir / f"{title}_cover{cover_ext}"
+            if downloader.download_cover(cover_url, str(temp_cover)):
+                temp_cover_path = str(temp_cover)
+
+        # Download annotations
+        temp_annotations = temp_dir / f"{title}_annotations.json"
+        if downloader.download_annotations(asin, str(temp_annotations)):
+            annotations_path = str(temp_annotations)
+
+        # Decrypt the Book with metadata and cover art embedded
+        logger.info("Decrypting and embedding metadata")
+        audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path)
 
         # Determine final location
         series = json.loads(book[5])
@@ -291,34 +408,35 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         shutil.copy(audiobook, to_path)
         logger.info("Book copied to %s", to_path)
 
-        # Download accessories
-        pdf_path = None
-        cover_path = None
-        annotations_path = None
+        # Move accessories to final location
+        final_pdf_path = None
+        final_cover_path = None
+        final_annotations_path = None
 
-        # Download PDF if available
-        if has_pdf:
-            pdf_file = final_folder / f"{title}.pdf"
-            if downloader.download_pdf(asin, str(pdf_file)):
-                pdf_path = str(pdf_file)
+        # Move PDF to final location
+        if pdf_path and Path(pdf_path).exists():
+            final_pdf = final_folder / f"{title}.pdf"
+            shutil.move(pdf_path, final_pdf)
+            final_pdf_path = str(final_pdf)
+            logger.info("PDF moved to %s", final_pdf)
 
-        # Download high-resolution cover
-        if cover_url:
-            # Determine file extension from URL (usually .jpg)
-            cover_ext = ".jpg"
-            if ".png" in cover_url.lower():
-                cover_ext = ".png"
-            cover_file = final_folder / f"{title}_cover{cover_ext}"
-            if downloader.download_cover(cover_url, str(cover_file)):
-                cover_path = str(cover_file)
+        # Move high-resolution cover to final location (separate from embedded cover)
+        if temp_cover_path and Path(temp_cover_path).exists():
+            cover_ext = Path(temp_cover_path).suffix
+            final_cover = final_folder / f"{title}_cover{cover_ext}"
+            shutil.move(temp_cover_path, final_cover)
+            final_cover_path = str(final_cover)
+            logger.info("Cover moved to %s", final_cover)
 
-        # Download annotations
-        annotations_file = final_folder / f"{title}_annotations.json"
-        if downloader.download_annotations(asin, str(annotations_file)):
-            annotations_path = str(annotations_file)
+        # Move annotations to final location
+        if annotations_path and Path(annotations_path).exists():
+            final_annotations = final_folder / f"{title}_annotations.json"
+            shutil.move(annotations_path, final_annotations)
+            final_annotations_path = str(final_annotations)
+            logger.info("Annotations moved to %s", final_annotations)
 
         # Update database with accessory paths
-        update_book_accessories(asin, pdf_path=pdf_path, cover_path=cover_path, annotations_path=annotations_path)
+        update_book_accessories(asin, pdf_path=final_pdf_path, cover_path=final_cover_path, annotations_path=final_annotations_path)
 
         # Cleanup temporary download folder
         cleanup_folder = Path(audiobook).parent
