@@ -1,9 +1,19 @@
 import configparser
+import logging
 from pathlib import Path
 from src.database import init_db
 from src.sync import sync_library
 from src.audible import Audible
 from src.downloader import download_books
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
     # Load the Config
@@ -27,7 +37,7 @@ if __name__ == "__main__":
 
     # Sync the library
     books_synced = sync_library(audible)
-    print("{0} books synced to database".format(books_synced))
+    logger.info("%d books synced to database", books_synced)
 
     # Download Books
     max_download: int = None

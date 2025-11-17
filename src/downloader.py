@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 import shutil
 import httpx
@@ -7,6 +8,8 @@ from tqdm import tqdm
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from src.database import get_books_to_download, mark_book_downloaded
+
+logger = logging.getLogger(__name__)
 
 class Downloader:
     def __init__(self, audible: Audible):
@@ -24,7 +27,7 @@ class Downloader:
             )
             return response
         except Exception as e:
-            print(f"Error: {e}")
+            logger.error("Error getting license response: %s", e)
             return
 
     def get_download_link(license_response):
@@ -54,7 +57,7 @@ class Downloader:
         lr = self.get_license_response(asin, quality="High")
 
         if lr == None:
-            print('Unable to download book')
+            logger.error("Unable to download book: %s", title)
             return
 
         # Get the download link
@@ -84,7 +87,7 @@ def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
     # Load key and iv from .voucher JSON
     with open(voucher_file, 'r') as f:
         voucher_data = json.load(f)
-    
+
     key = voucher_data['content_license']['license_response']['key']
     iv = voucher_data['content_license']['license_response']['iv']
 
@@ -113,7 +116,7 @@ def decrypt_aaxc_to_m4b(input_file: str, voucher: str):
         .run()
     )
 
-    print(f"Conversion complete: {output_file}")
+    logger.info("Conversion complete: %s", output_file)
 
 def decrypt_aaxc(book: str, voucher: str):
     output_file = f"{book}.m4b"
@@ -140,7 +143,7 @@ def decrypt_aaxc(book: str, voucher: str):
         .run()
     )
 
-    print(f"Conversion complete: {output_file}")
+    logger.info("Conversion complete: %s", output_file)
     return output_file
 
 
@@ -149,18 +152,18 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
     total_to_download = len(waiting_download)
     number_to_download:int = max if max != None else total_to_download
 
-    print("Downloading {0} books of {1} waiting download".format(number_to_download, total_to_download))
+    logger.info("Downloading %d books of %d waiting download", number_to_download, total_to_download)
     
     loop = waiting_download[0:int(number_to_download)]
 
     for book in loop:
         # Download the Book
-        print("Downloading {0}".format(book[1]))
+        logger.info("Downloading %s", book[1])
         downloader = Downloader(audible)
         download = downloader.download_book(book, download_folder)
-        print("Download complete")
-        print("Book: {0}".format(download['book']))
-        print("Voucher: {0}".format(download['voucher']))
+        logger.info("Download complete")
+        logger.debug("Book: %s", download['book'])
+        logger.debug("Voucher: %s", download['voucher'])
 
         # Decrypt the Book
         audiobook = decrypt_aaxc(download['book'], download['voucher'])
@@ -174,7 +177,7 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
             to_path = Path("{0}/{1}/{2}/{2}.m4b".format(audiobook_folder, authors[0], book[1]))
         to_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(audiobook, to_path)
-        print("Book copied to {0}".format(to_path))
+        logger.info("Book copied to %s", to_path)
 
         # Cleanup
         cleanup_folder = Path(audiobook).parent
@@ -183,5 +186,5 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         # Mark Book downloaded
         mark_book_downloaded(book[0])
 
-    print("Completed downloads")
+    logger.info("Completed downloads")
 
