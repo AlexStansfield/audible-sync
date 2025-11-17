@@ -50,6 +50,86 @@ class Downloader:
 
         return filename
 
+    def download_pdf(self, asin, folder: Path):
+        """
+        Download companion PDF file for a book using authenticated httpx client.
+
+        Args:
+            asin: The book's ASIN
+            folder: Folder to save the PDF in
+
+        Returns:
+            Path to downloaded PDF file, or None if no PDF available
+        """
+        try:
+            domain = self.audible.auth.locale.domain
+            url = f"https://www.audible.{domain}/companion-file/{asin}"
+
+            # Use authenticated httpx client (not the audible client)
+            with httpx.Client(auth=self.audible.auth) as client:
+                logger.info("Downloading PDF for %s", asin)
+                response = client.get(url, follow_redirects=True)
+
+                # Check if we got HTML (sign-in page) instead of a PDF
+                content_type = response.headers.get("content-type", "")
+                if "text/html" in content_type:
+                    logger.info("No PDF available for %s", asin)
+                    return None
+
+                if response.status_code == 404:
+                    logger.info("No PDF found for %s", asin)
+                    return None
+
+                response.raise_for_status()
+
+                # Save PDF file
+                pdf_path = folder / f"{asin}.pdf"
+                pdf_path.write_bytes(response.content)
+                logger.info("PDF saved to %s", pdf_path)
+                return pdf_path
+
+        except Exception as e:
+            logger.error("Error downloading PDF for %s: %s", asin, e)
+            return None
+
+    def download_annotations(self, asin, folder: Path):
+        """
+        Download user annotations/bookmarks for a book using the Audible API.
+
+        Args:
+            asin: The book's ASIN
+            folder: Folder to save the annotations in
+
+        Returns:
+            Path to saved annotations JSON file, or None if no annotations available
+        """
+        try:
+            logger.info("Downloading annotations for %s", asin)
+
+            # Use the authenticated audible client
+            url = "https://cde-ta-g7g.amazon.com/FionaCDEServiceEngine/sidecar"
+            params = {
+                "type": "AUDI",
+                "key": asin
+            }
+
+            # This uses the authenticated client with proper headers
+            annotations = self.audible.client.get(url, params=params)
+
+            # Save annotations as JSON
+            annotations_path = folder / f"{asin}_annotations.json"
+            annotations_path.write_text(json.dumps(annotations, indent=4))
+            logger.info("Annotations saved to %s", annotations_path)
+            return annotations_path
+
+        except Exception as e:
+            # 403 or 404 usually means no annotations available
+            if "403" in str(e) or "404" in str(e):
+                logger.info("No annotations found for %s", asin)
+            else:
+                logger.error("Error downloading annotations for %s: %s", asin, e)
+            return None
+
     def download_book(self, book, folder: str):
         asin = book[0]
         title = book[1]
@@ -157,8 +237,11 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
     loop = waiting_download[0:int(number_to_download)]
 
     for book in loop:
+        asin = book[0]
+        title = book[1]
+
         # Download the Book
-        logger.info("Downloading %s", book[1])
+        logger.info("Downloading %s", title)
         downloader = Downloader(audible)
         download = downloader.download_book(book, download_folder)
         logger.info("Download complete")
@@ -168,23 +251,35 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         # Decrypt the Book
         audiobook = decrypt_aaxc(download['book'], download['voucher'])
 
-        # Move the Book to final location
+        # Determine final location
         series = json.loads(book[5])
         authors = json.loads(book[3])
         if len(series) > 0:
-            to_path = Path("{0}/{1}/{2}/{3} - {4}/{4}.m4b".format(audiobook_folder, authors[0], series[0]['title'], series[0]['sequence'], book[1]))
+            to_path = Path("{0}/{1}/{2}/{3} - {4}/{4}.m4b".format(audiobook_folder, authors[0], series[0]['title'], series[0]['sequence'], title))
         else:
-            to_path = Path("{0}/{1}/{2}/{2}.m4b".format(audiobook_folder, authors[0], book[1]))
+            to_path = Path("{0}/{1}/{2}/{2}.m4b".format(audiobook_folder, authors[0], title))
         to_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Move the audiobook to final location
         shutil.copy(audiobook, to_path)
         logger.info("Book copied to %s", to_path)
 
-        # Cleanup
+        # Download PDF companion file (if available)
+        pdf_path = downloader.download_pdf(asin, to_path.parent)
+        if pdf_path:
+            logger.info("PDF companion downloaded")
+
+        # Download annotations (if available)
+        annotations_path = downloader.download_annotations(asin, to_path.parent)
+        if annotations_path:
+            logger.info("Annotations downloaded")
+
+        # Cleanup temporary download folder
         cleanup_folder = Path(audiobook).parent
         shutil.rmtree(cleanup_folder)
 
         # Mark Book downloaded
-        mark_book_downloaded(book[0])
+        mark_book_downloaded(asin)
 
     logger.info("Completed downloads")
 
