@@ -17,7 +17,23 @@ This document provides comprehensive guidance for AI assistants working with the
 
 ## Project Overview
 
-**Purpose:** Sync Audible library, download audiobooks, and decrypt them to DRM-free M4B files.
+**Purpose:** Sync Audible library, download audiobooks, and decrypt them to DRM-free M4B/OGA files with full metadata.
+
+**Inspiration:** This project is inspired by [BALD (Bash Audible Library Downloader)](https://github.com/damajor/BALD), a bash script that uses audible-cli. This Python implementation uses the same underlying `audible` library but aims to create a more user-friendly service with a web UI and automated scheduling.
+
+**Current State (Milestone 1):**
+- CLI application that runs sync + download in single operation
+- Incremental library synchronization from Audible API
+- Automatic download and DRM decryption of owned audiobooks
+- File organization by author/series
+- Docker support for easy deployment
+
+**Vision (Future Milestones):**
+- Background service with scheduled automatic syncs
+- Web UI for library viewing, settings management, and manual sync triggers
+- Comprehensive metadata including PDFs, covers, annotations
+- OGA encoding option for smaller file sizes
+- Concurrent downloads for faster processing
 
 **Key Features:**
 - Incremental library synchronization from Audible API
@@ -90,7 +106,7 @@ Audible API → audible.py → sync.py → database.py → SQLite
 - Load configuration from INI file
 - Initialize database and create directories
 - Set up Audible API client (handles auth file path resolution)
-- Orchestrate sync and download workflow
+- Orchestrate unified sync and download workflow
 - Respect `max-download` configuration limit
 
 **Execution Flow:**
@@ -99,11 +115,14 @@ Audible API → audible.py → sync.py → database.py → SQLite
 2. Initialize database (create tables if needed)
 3. Create folders (downloads, audiobooks)
 4. Initialize Audible client with auth file
-5. Sync library (incremental)
-6. Download books (up to max-download limit)
+5. Sync library metadata (incremental)
+6. Download books with status='waiting_download' (up to max-download limit)
 ```
 
-**Important:** Uses print statements for user feedback (logging planned for Milestone 2)
+**Important Notes:**
+- This is a **unified operation** - sync + download happens in one run
+- Uses print statements for user feedback (logging planned for Milestone 2)
+- Currently a one-shot CLI execution (service mode planned for Milestone 3)
 
 ### 2. model.py (Data Model)
 **Location:** `/home/user/audible-sync/src/model.py`
@@ -229,7 +248,7 @@ Downloader(audible: Audible)
 - **With series:** `audiobooks/{author}/{series_title}/{sequence} - {title}/{title}.m4b`
 - **Without series:** `audiobooks/{author}/{title}/{title}.m4b`
 
-**Process Flow:**
+**Current Process Flow (Milestone 1):**
 1. Get books to download from database
 2. For each book:
    - Request license (DRM key/IV)
@@ -238,6 +257,18 @@ Downloader(audible: Audible)
    - Move M4B to organized folder structure
    - Cleanup temporary files
    - Mark as downloaded in database
+
+**Planned Enhancements (Milestone 2):**
+The download process will be enhanced to include:
+- Download PDFs (companion materials) if available
+- Download high-resolution cover images
+- Download user annotations and bookmarks
+- Generate comprehensive metadata
+- Embed metadata and cover art into M4B files
+- Optional OGA encoding (smaller file size with Opus codec)
+- Store accessories (PDF, cover, annotations) alongside audiobook
+
+**Inspiration:** See [BALD's approach](https://github.com/damajor/BALD/blob/master/BALD.sh) for reference implementation
 
 **Progress Tracking:** Uses tqdm for visual download progress
 
@@ -388,6 +419,39 @@ if max_download:
 **Date Format:**
 - `date_added` - ISO 8601 format (e.g., "2024-01-15T10:30:00")
 - `release_date` - String format from Audible API
+
+### Planned Schema Changes (Milestone 2)
+
+**New Columns for Enhanced Metadata:**
+```sql
+ALTER TABLE library ADD COLUMN pdf_path TEXT;           -- Path to companion PDF
+ALTER TABLE library ADD COLUMN cover_path TEXT;         -- Path to high-res cover image
+ALTER TABLE library ADD COLUMN annotations_path TEXT;   -- Path to annotations JSON
+ALTER TABLE library ADD COLUMN metadata_embedded BOOLEAN DEFAULT 0;  -- Has metadata been embedded
+ALTER TABLE library ADD COLUMN encoding_format TEXT DEFAULT 'm4b';   -- 'm4b' or 'oga'
+ALTER TABLE library ADD COLUMN downloaded_at TEXT;      -- Timestamp of download completion
+```
+
+**Future Schema (Milestone 3):**
+```sql
+-- Settings table (move from config.ini)
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT
+);
+
+-- Sync history tracking
+CREATE TABLE sync_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    status TEXT NOT NULL,     -- 'running', 'success', 'failed'
+    books_added INTEGER DEFAULT 0,
+    books_downloaded INTEGER DEFAULT 0,
+    error_message TEXT
+);
+```
 
 ### Common Database Operations
 
@@ -693,28 +757,104 @@ authors = json.loads(books[0][3])  # Parse JSON string to list
 - [x] Configuration file
 - [x] Docker support
 - [x] GitHub Actions CI/CD
-
-### Milestone 2: IN PROGRESS 🚧
 - [x] Download progress tracking (PR #1)
-- [ ] Logging framework
-- [ ] Async downloader for better progress monitoring
-- [ ] Download PDFs (supplemental materials)
-- [ ] Download cover images
-- [ ] Download user annotations
-- [ ] Generate metadata files
-- [ ] Embed metadata in M4B files
-- [ ] OGA encoding option (for smaller file sizes)
+
+### Milestone 2: IN PROGRESS 🚧 - Enhanced Download Processing
+
+**Goal:** Complete the book download pipeline with all metadata and encoding options
+
+**Strategy:** Enhance the existing download process in CLI before converting to service architecture
+
+**Tasks:**
+- [ ] Add logging framework (foundation for all features)
+- [ ] Download PDFs during book processing (companion materials)
+- [ ] Download high-res cover images during processing
+- [ ] Download user annotations during processing
+- [ ] Generate comprehensive metadata from book data
+- [ ] Embed metadata into M4B files using FFmpeg
+- [ ] Embed cover art into M4B files
+- [ ] Add OGA encoding option (Opus codec for smaller files)
 - [ ] Configurable encoding bitrate
-- [ ] Configurable file naming based on metadata
+- [ ] Enhanced file organization (store PDFs, covers, annotations with audiobook)
 
-### Milestone 3: PLANNED 📋
-- [ ] Settings stored in database (not INI file)
-- [ ] FastAPI service conversion
-- [ ] Login via API (generate audible.json in-app)
-- [ ] RESTful endpoints for library and settings
-- [ ] Web interface (potential)
+**Why This Order:** Perfect the core "download a book" logic in the simple CLI context before adding service infrastructure complexity. All features here enhance the `downloader.py` module.
 
-**Current Focus:** Milestone 2 features (metadata, encoding, logging)
+**Reference Implementation:** See [BALD](https://github.com/damajor/BALD/blob/master/BALD.sh) for how these features work
+
+### Milestone 3: PLANNED 📋 - Service Architecture & Web UI
+
+**Goal:** Transform from CLI to always-on service with web interface
+
+**Vision:**
+- Background service with scheduled automatic syncs (e.g., every 6 hours)
+- Web UI for library viewing, settings management, manual sync triggers
+- Concurrent downloads for faster processing
+- Real-time progress monitoring via WebSocket
+- User-friendly login flow (no manual audible.json setup)
+
+**Infrastructure Tasks:**
+- [ ] Refactor to async/await for concurrency
+- [ ] Add background scheduler (APScheduler)
+- [ ] Add sync run tracking (database table for history)
+- [ ] Add progress tracking hooks for real-time updates
+- [ ] Move settings from config.ini to database
+- [ ] Settings migration script
+
+**API Tasks:**
+- [ ] Build FastAPI service layer
+- [ ] Audible login flow via API (generate audible.json)
+- [ ] RESTful endpoints (GET /library, POST /sync, GET/PUT /settings)
+- [ ] WebSocket endpoint for live progress updates
+- [ ] Sync status endpoint (is sync running, progress, history)
+
+**Web UI Tasks:**
+- [ ] Login page (authenticate with Audible)
+- [ ] Library view (filterable, searchable, sortable)
+- [ ] Settings management page
+- [ ] Sync history timeline
+- [ ] Manual sync trigger with real-time progress
+- [ ] Book detail modal (show PDFs, annotations, metadata)
+
+**Why After Milestone 2:** All the "what to do with a book" logic will be complete and tested. Service layer just wraps it in scheduled execution and HTTP endpoints.
+
+**Current Focus:** Milestone 2 features (logging, metadata, PDFs, covers, annotations, OGA encoding)
+
+## Understanding "Sync" in This Project
+
+**Important Concept Clarification:**
+
+"Sync" in this project means **keeping your local audiobook collection synchronized with your Audible library**, not just metadata updates.
+
+### Current Behavior (Milestone 1):
+```bash
+python -m src.main
+  1. Sync metadata: Update database with new books from Audible
+  2. Download books: Get any books with status='waiting_download'
+  3. Exit
+```
+
+This is a **one-shot operation** - manual execution required.
+
+### Future Behavior (Milestone 3):
+```bash
+docker compose up  # Starts service
+  → Background scheduler runs every N hours (configurable)
+  → Each scheduled run:
+      1. Fetch library updates from Audible
+      2. Download PDFs, covers, annotations for new books
+      3. Download and convert any books not yet downloaded
+      4. Update database status
+  → Manual trigger available via web UI: POST /sync
+```
+
+This is a **continuous service** - automatic, scheduled execution.
+
+### Key Insight:
+"Sync" is **both** operations:
+1. **Metadata sync:** Audible library → local database
+2. **File sync:** Audible audiobooks → local filesystem (as M4B/OGA)
+
+They happen together in one unified operation, not as separate commands.
 
 ## Working with This Codebase as an AI Assistant
 
@@ -865,27 +1005,45 @@ print(f"Found {len(library)} books")
 
 ## Conclusion
 
-This is a **well-structured, focused Python CLI application** with clear separation of concerns and straightforward execution flow. The codebase is small (435 lines), maintainable, and actively developed.
+This is a **well-structured, focused Python CLI application** with clear separation of concerns and straightforward execution flow. The codebase is small (435 lines), maintainable, and actively developed with a clear vision for evolution into a background service with web UI.
 
 **Key Strengths:**
 - Simple, understandable architecture
 - Clear module responsibilities
-- Good documentation (README, todo.md)
+- Good documentation (README, todo.md, CLAUDE.md)
 - Docker support for easy deployment
 - Incremental sync optimization
+- Unified sync+download workflow (one operation)
+- Clear roadmap with phased milestones
 
-**Areas for Improvement:**
-- Add automated testing (pytest)
-- Implement logging framework
-- Refactor database to return objects instead of tuples
-- Complete API service (Milestone 3)
+**Current Development Strategy:**
+1. **Milestone 2:** Enhance download pipeline with metadata/PDFs/covers/annotations/OGA in simple CLI context
+2. **Milestone 3:** Convert to background service with scheduler, API, and web UI
+3. **Philosophy:** Perfect features in simple context before adding architectural complexity
+
+**Areas for Future Enhancement:**
+- Add automated testing (pytest) - planned after core features complete
+- Implement logging framework (first Milestone 2 task)
+- Refactor database to return objects instead of tuples (nice-to-have)
+- Add comprehensive error handling
 - Add type hints consistently
 
-When working with this codebase, prioritize **simplicity and clarity**. The current design philosophy favors straightforward code over complex abstractions. Maintain this philosophy in future changes.
+**For AI Assistants:**
+When working with this codebase:
+- Understand that "sync" means both metadata + file synchronization
+- Milestone 2 features enhance the download process, not add new operations
+- Service architecture (Milestone 3) comes after download pipeline is complete
+- Prioritize **simplicity and clarity** over complex abstractions
+- Reference BALD project for implementation patterns of metadata/PDF/cover features
+- Test manually and thoroughly (no automated test suite yet)
+
+**Inspiration & Context:**
+This project reimagines [BALD](https://github.com/damajor/BALD) (Bash Audible Library Downloader) as a Python service with better UX, web UI, and automated scheduling while maintaining the same core functionality.
 
 ---
 
-**Document Version:** 1.0
+**Document Version:** 2.0
 **Last Updated:** 2025-11-17
-**Codebase Version:** Post-Milestone 1, mid-Milestone 2
+**Codebase Version:** Post-Milestone 1, beginning Milestone 2
 **Primary Branch:** `main`
+**Key Changes:** Clarified sync concept, updated roadmap strategy, added BALD reference
