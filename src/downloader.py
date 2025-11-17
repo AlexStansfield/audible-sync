@@ -85,12 +85,18 @@ class Downloader:
             url = f"https://www.audible.{domain}/companion-file/{asin}"
 
             logger.info("Downloading PDF for %s", asin)
-            headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
 
-            with httpx.stream("GET", url, headers=headers, follow_redirects=True) as r:
+            # Use the authenticated client session (has auth headers built-in)
+            with self.audible.client.session.stream("GET", url, follow_redirects=True) as r:
                 # Check if PDF exists (200 status)
                 if r.status_code != 200:
-                    logger.info("No PDF available for %s", asin)
+                    logger.info("No PDF available for %s (HTTP %d)", asin, r.status_code)
+                    return False
+
+                # Check content type to ensure we got a PDF and not HTML login page
+                content_type = r.headers.get('content-type', '').lower()
+                if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
+                    logger.warning("Received non-PDF content for %s: %s", asin, content_type)
                     return False
 
                 # Get content length if available
@@ -121,9 +127,9 @@ class Downloader:
         """Download high-resolution cover image"""
         try:
             logger.info("Downloading cover image")
-            headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
 
-            with httpx.stream("GET", cover_url, headers=headers, follow_redirects=True) as r:
+            # Use the authenticated client session for consistency
+            with self.audible.client.session.stream("GET", cover_url, follow_redirects=True) as r:
                 if r.status_code != 200:
                     logger.error("Failed to download cover: HTTP %d", r.status_code)
                     return False
@@ -156,16 +162,9 @@ class Downloader:
             logger.info("Downloading annotations for %s", asin)
             url = "https://cde-ta-g7g.amazon.com/FionaCDEServiceEngine/sidecar"
             params = {"type": "AUDI", "key": asin}
-            headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
 
-            response = httpx.get(url, params=params, headers=headers, follow_redirects=True)
-
-            if response.status_code != 200:
-                logger.info("No annotations available for %s", asin)
-                return False
-
-            # Parse and save the JSON response
-            annotations_data = response.json()
+            # Use the authenticated client (automatically parses JSON responses)
+            annotations_data = self.audible.client.get(url, params=params)
 
             # Only save if there are actual annotations
             if annotations_data and (annotations_data.get("clips") or annotations_data.get("bookmarks")):
