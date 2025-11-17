@@ -1,5 +1,8 @@
 # Use a lightweight Python base image
-FROM python:3.11-slim
+FROM python:3.12-slim-trixie
+
+# Install UV
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 # Install ffmpeg and system dependencies
 RUN apt-get update && \
@@ -11,11 +14,12 @@ RUN apt-get update && \
 WORKDIR /app
 
 # Copy requirements and install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY uv.lock .
+COPY pyproject.toml .
+RUN uv sync --locked
 
 # Copy the rest of your source code
 COPY . .
 
 # Set the default command to run your script
-CMD ["python", "-m", "src.main"]
+CMD ["uv", "run", "python", "-m", "src.main"]

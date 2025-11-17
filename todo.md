@@ -45,11 +45,11 @@ List of tasks to complete by phases
 
 ### Tasks
 
-- [ ] Add logging
+- [x] Add logging
 - [ ] Aysnc downloader to monitor progress of download
-- [ ] Download PDF
-- [ ] Download Cover
-- [ ] Download Annotations
+- [x] Download PDF
+- [x] Download Cover
+- [x] Download Annotations
 - [ ] Generate metadata
 - [ ] Add metadata to m4b
 - [ ] Add settings for encoding bitrate
