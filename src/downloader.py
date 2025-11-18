@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 import shutil
 import httpx
-import ffmpeg
 from tqdm import tqdm
 from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
@@ -355,76 +354,9 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         else:
             logger.info("Metadata file created: %s", metadata_file)
 
-    # Build ffmpeg command using ffmpeg-python library
-    # Create all inputs
-    audio = ffmpeg.input(book, audible_key=key, audible_iv=iv)
-
-    inputs = [audio]
-    output_opts = {
-        'map': '0:a',
-        'c:a': 'copy',
-        'dn': None,
-        'loglevel': 'warning',
-        'y': None
-    }
-
-    # Add cover if provided
-    if cover_path and Path(cover_path).exists():
-        cover = ffmpeg.input(cover_path)
-        inputs.append(cover)
-        # When we have multiple streams to map, we need to use multiple map options
-        output_opts['map'] = ['0:a', '1:v']
-        output_opts['c:v'] = 'copy'
-        output_opts['disposition:v'] = 'attached_pic'
-        logger.info("Embedding cover art from: %s", cover_path)
-
-    # Add metadata file if generated (includes chapters if provided)
-    if metadata_file and Path(metadata_file).exists():
-        metadata_input = ffmpeg.input(metadata_file, f='ffmetadata')
-        inputs.append(metadata_input)
-        # Metadata index is based on number of inputs added so far
-        metadata_idx = len(inputs) - 1
-        output_opts['map_metadata'] = str(metadata_idx)
-        # Chapters are embedded in the same metadata file
-        output_opts['map_chapters'] = str(metadata_idx)
-
-    # Create output with all inputs
-    stream = ffmpeg.output(*inputs, output_file, **output_opts)
-
-    # Run the command
-    try:
-        ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-    except ffmpeg.Error as e:
-        error_msg = e.stderr.decode() if e.stderr else str(e)
-        logger.error("FFmpeg error: %s", error_msg)
-
-        # If ffmpeg-python fails, fall back to subprocess approach
-        logger.warning("Falling back to subprocess implementation")
-        return _decrypt_aaxc_subprocess(book, voucher, key, iv, metadata_file, cover_path, output_file, chapters)
-
-    # Cleanup temporary metadata file
-    if metadata_file and Path(metadata_file).exists():
-        Path(metadata_file).unlink()
-        logger.debug("Cleaned up metadata file: %s", metadata_file)
-
-    logger.info("Conversion complete: %s", output_file)
-    return output_file
-
-
-def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
-                             metadata_file: str = None, cover_path: str = None,
-                             output_file: str = None, chapters: list = None):
-    """
-    Fallback subprocess implementation for FFmpeg decryption.
-
-    Used when ffmpeg-python fails to handle complex multi-input scenarios.
-    Note: chapters parameter is unused here as chapters are already embedded
-    in the metadata_file when it's created.
-    """
-    if output_file is None:
-        output_file = f"{book}.m4b"
-
     # Build ffmpeg command using subprocess for precise control
+    # Note: ffmpeg-python library has issues with map_metadata/map_chapters
+    # See: https://github.com/kkroening/ffmpeg-python/issues/463
     cmd = ['ffmpeg', '-y']
 
     # Add decryption keys and primary audio input
@@ -452,7 +384,6 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
     # Input 0: audio (AAXC)
     # Input 1: cover (if present)
     # Input 2 or 1: metadata file (if present, includes chapters)
-
     input_idx = 1
     if cover_path and Path(cover_path).exists():
         input_idx += 1
