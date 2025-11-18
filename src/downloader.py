@@ -51,6 +51,27 @@ class Downloader:
 
         return filename
 
+    def get_chapter_info(self, asin: str):
+        """
+        Fetch chapter information from Audible API.
+
+        Args:
+            asin: Book ASIN
+
+        Returns:
+            Chapter info dictionary or None if not available
+        """
+        try:
+            url = f"content/{asin}/metadata"
+            response = self.audible.client.get(
+                url,
+                params={"response_groups": "chapter_info"}
+            )
+            return response.get("content_metadata", {}).get("chapter_info")
+        except Exception as e:
+            logger.warning("Could not fetch chapter info for %s: %s", asin, e)
+            return None
+
     def download_book(self, book, folder: str):
         asin = book[0]
         title = book[1]
@@ -76,13 +97,13 @@ class Downloader:
         decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
         voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
 
-        # Extract and save chapter information
+        # Fetch and save chapter information from separate API endpoint
         chapter_file = None
-        chapter_info = lr.get("content_license", {}).get("content_metadata", {}).get("chapter_info")
+        chapter_info = self.get_chapter_info(asin)
         if chapter_info:
-            chapter_file = filename.with_suffix(".chapters.txt")
             chapters = chapter_info.get("chapters", [])
             if chapters:
+                chapter_file = filename.with_suffix(".chapters.txt")
                 write_chapters_file(chapters, str(chapter_file))
                 logger.info("Chapter file created: %s", chapter_file)
 
