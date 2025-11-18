@@ -1,6 +1,5 @@
 import json
 import logging
-import subprocess
 from pathlib import Path
 import shutil
 import httpx
@@ -299,34 +298,51 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         write_ffmpeg_metadata_file(metadata, metadata_file)
         logger.info("Metadata file created: %s", metadata_file)
 
-    # Build the ffmpeg command using subprocess for better control
-    cmd_parts = ['ffmpeg']
+    # Build ffmpeg command using ffmpeg-python library
+    # Create primary audio input with decryption keys
+    audio_input = ffmpeg.input(book, audible_key=key, audible_iv=iv)
 
-    # Input files
-    cmd_parts.extend(['-audible_key', key, '-audible_iv', iv, '-i', book])
+    # Collect all inputs and build output options
+    inputs = [audio_input]
+    output_kwargs = {
+        'c:a': 'copy',      # Copy audio stream without re-encoding
+        'dn': None,         # Discard data streams
+        'loglevel': 'warning',
+        'y': None           # Overwrite output file if exists
+    }
 
+    # Build map list for stream selection
+    stream_maps = ['0:a']  # Map audio from first input (AAXC file)
+
+    # Add cover art if provided
     if cover_path and Path(cover_path).exists():
-        cmd_parts.extend(['-i', cover_path])
+        cover_input = ffmpeg.input(cover_path)
+        inputs.append(cover_input)
+        stream_maps.append('1:v')  # Map video (cover) from second input
+        output_kwargs['c:v'] = 'copy'  # Copy cover without re-encoding
+        output_kwargs['disposition:v'] = 'attached_pic'  # Mark as attached picture
+        logger.info("Embedding cover art from: %s", cover_path)
 
+    # Add metadata file if generated
     if metadata_file and Path(metadata_file).exists():
-        cmd_parts.extend(['-i', metadata_file, '-map_metadata', '2' if cover_path else '1'])
+        metadata_input = ffmpeg.input(metadata_file, f='ffmetadata')
+        inputs.append(metadata_input)
+        # Map metadata from last input (index depends on whether cover was added)
+        metadata_index = len(inputs) - 1
+        output_kwargs['map_metadata'] = str(metadata_index)
 
-    # Mapping and codec options
-    cmd_parts.extend(['-map', '0:a'])
-    if cover_path and Path(cover_path).exists():
-        cmd_parts.extend(['-map', '1:v', '-c:v', 'copy', '-disposition:v', 'attached_pic'])
+    # Set the map option
+    output_kwargs['map'] = stream_maps
 
-    cmd_parts.extend(['-c:a', 'copy', '-dn'])
+    # Create the output stream with all inputs and options
+    stream = ffmpeg.output(*inputs, output_file, **output_kwargs)
 
-    # Output file
-    cmd_parts.extend(['-y', '-loglevel', 'warning', output_file])
-
-    # Run the command
-    result = subprocess.run(cmd_parts, capture_output=True, text=True)
-
-    if result.returncode != 0:
-        logger.error("FFmpeg error: %s", result.stderr)
-        raise Exception(f"FFmpeg conversion failed: {result.stderr}")
+    # Run the ffmpeg command
+    try:
+        ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+    except ffmpeg.Error as e:
+        logger.error("FFmpeg error: %s", e.stderr.decode() if e.stderr else str(e))
+        raise Exception(f"FFmpeg conversion failed: {e.stderr.decode() if e.stderr else str(e)}")
 
     # Cleanup metadata file
     if metadata_file and Path(metadata_file).exists():
