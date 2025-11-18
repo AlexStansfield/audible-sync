@@ -50,8 +50,8 @@ List of tasks to complete by phases
 - [x] Download PDF
 - [x] Download Cover
 - [x] Download Annotations
-- [ ] Generate metadata
-- [ ] Add metadata to m4b
+- [x] Generate metadata
+- [x] Add metadata to m4b
 - [ ] Add settings for encoding bitrate
 - [ ] Encode books to OGA instead of M4B if configured
 - [ ] Name m4b/oga files based on metadata
