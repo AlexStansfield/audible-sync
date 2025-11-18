@@ -97,17 +97,15 @@ class Downloader:
         decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
         voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
 
-        # Fetch and save chapter information from separate API endpoint
-        chapter_file = None
+        # Fetch chapter information from separate API endpoint
+        chapters = None
         chapter_info = self.get_chapter_info(asin)
         if chapter_info:
             chapters = chapter_info.get("chapters", [])
             if chapters:
-                chapter_file = filename.with_suffix(".chapters.txt")
-                write_chapters_file(chapters, str(chapter_file))
-                logger.info("Chapter file created: %s", chapter_file)
+                logger.info("Fetched %d chapters for %s", len(chapters), title)
 
-        return {"book": status, "voucher": voucher_file, "chapters": chapter_file}
+        return {"book": status, "voucher": voucher_file, "chapters": chapters}
 
     def download_pdf(self, asin: str, output_path: str) -> bool:
         """Download PDF companion file if available"""
@@ -279,62 +277,51 @@ def generate_metadata(book_data: tuple) -> dict:
     return metadata
 
 
-def write_ffmpeg_metadata_file(metadata: dict, output_path: str) -> str:
+def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list = None) -> str:
     """
-    Write metadata to FFmpeg FFMETADATA format file.
+    Write metadata and optional chapters to FFmpeg FFMETADATA format file.
 
     Args:
         metadata: Dictionary of metadata key-value pairs
         output_path: Path where metadata file should be written
+        chapters: Optional list of chapter dictionaries from Audible API
 
     Returns:
         Path to the created metadata file
     """
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(';FFMETADATA1\n')
+
+        # Write metadata tags
         for key, value in metadata.items():
             # Escape special characters for FFmpeg metadata format
             escaped_value = str(value).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
             f.write(f'{key}={escaped_value}\n')
 
+        # Write chapters if provided
+        if chapters:
+            f.write('\n')
+            for chapter in chapters:
+                start_ms = chapter.get('start_offset_ms', 0)
+                length_ms = chapter.get('length_ms', 0)
+                end_ms = start_ms + length_ms
+                title = chapter.get('title', 'Chapter')
+
+                # Escape title for FFmpeg
+                escaped_title = str(title).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
+
+                f.write('[CHAPTER]\n')
+                f.write('TIMEBASE=1/1000\n')
+                f.write(f'START={start_ms}\n')
+                f.write(f'END={end_ms}\n')
+                f.write(f'title={escaped_title}\n')
+                f.write('\n')
+
     logger.debug("Wrote FFmpeg metadata file: %s", output_path)
     return output_path
 
 
-def write_chapters_file(chapters: list, output_path: str) -> str:
-    """
-    Write chapters to FFmpeg FFMETADATA format file.
-
-    Args:
-        chapters: List of chapter dictionaries from Audible API
-        output_path: Path where chapter file should be written
-
-    Returns:
-        Path to the created chapter file
-    """
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(';FFMETADATA1\n')
-
-        for chapter in chapters:
-            start_ms = chapter.get('start_offset_ms', 0)
-            length_ms = chapter.get('length_ms', 0)
-            end_ms = start_ms + length_ms
-            title = chapter.get('title', 'Chapter')
-
-            # Escape title for FFmpeg
-            escaped_title = str(title).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
-
-            f.write('[CHAPTER]\n')
-            f.write('TIMEBASE=1/1000\n')
-            f.write(f'START={start_ms}\n')
-            f.write(f'END={end_ms}\n')
-            f.write(f'title={escaped_title}\n')
-            f.write('\n')
-
-    logger.debug("Wrote chapters file: %s", output_path)
-    return output_path
-
-def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None, chapters_path: str = None):
+def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None, chapters: list = None):
     """
     Decrypt AAXC audiobook file to M4B format with optional metadata, cover art, and chapters.
 
@@ -343,7 +330,7 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         voucher: Path to the voucher JSON file
         book_data: Optional book data tuple from database for metadata generation
         cover_path: Optional path to cover image to embed
-        chapters_path: Optional path to chapters file to embed
+        chapters: Optional list of chapter dictionaries to embed
 
     Returns:
         Path to the output M4B file
@@ -357,13 +344,16 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     key = voucher_data['key']
     iv = voucher_data['iv']
 
-    # Generate and write metadata if book_data is provided
+    # Generate and write metadata (with chapters) if book_data is provided
     metadata_file = None
     if book_data:
         metadata = generate_metadata(book_data)
         metadata_file = f"{book}.ffmetadata"
-        write_ffmpeg_metadata_file(metadata, metadata_file)
-        logger.info("Metadata file created: %s", metadata_file)
+        write_ffmpeg_metadata_file(metadata, metadata_file, chapters=chapters)
+        if chapters:
+            logger.info("Metadata file with %d chapters created: %s", len(chapters), metadata_file)
+        else:
+            logger.info("Metadata file created: %s", metadata_file)
 
     # Build ffmpeg command using ffmpeg-python library
     # Create all inputs
@@ -388,22 +378,15 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         output_opts['disposition:v'] = 'attached_pic'
         logger.info("Embedding cover art from: %s", cover_path)
 
-    # Add metadata file if generated
+    # Add metadata file if generated (includes chapters if provided)
     if metadata_file and Path(metadata_file).exists():
         metadata_input = ffmpeg.input(metadata_file, f='ffmetadata')
         inputs.append(metadata_input)
         # Metadata index is based on number of inputs added so far
         metadata_idx = len(inputs) - 1
         output_opts['map_metadata'] = str(metadata_idx)
-
-    # Add chapters file if provided
-    if chapters_path and Path(chapters_path).exists():
-        chapters_input = ffmpeg.input(chapters_path, f='ffmetadata')
-        inputs.append(chapters_input)
-        # Chapters index is based on number of inputs added so far
-        chapters_idx = len(inputs) - 1
-        output_opts['map_chapters'] = str(chapters_idx)
-        logger.info("Embedding chapters from: %s", chapters_path)
+        # Chapters are embedded in the same metadata file
+        output_opts['map_chapters'] = str(metadata_idx)
 
     # Create output with all inputs
     stream = ffmpeg.output(*inputs, output_file, **output_opts)
@@ -417,16 +400,12 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
 
         # If ffmpeg-python fails, fall back to subprocess approach
         logger.warning("Falling back to subprocess implementation")
-        return _decrypt_aaxc_subprocess(book, voucher, key, iv, metadata_file, cover_path, output_file, chapters_path)
+        return _decrypt_aaxc_subprocess(book, voucher, key, iv, metadata_file, cover_path, output_file, chapters)
 
-    # Cleanup temporary files
+    # Cleanup temporary metadata file
     if metadata_file and Path(metadata_file).exists():
         Path(metadata_file).unlink()
         logger.debug("Cleaned up metadata file: %s", metadata_file)
-
-    if chapters_path and Path(chapters_path).exists():
-        Path(chapters_path).unlink()
-        logger.debug("Cleaned up chapters file: %s", chapters_path)
 
     logger.info("Conversion complete: %s", output_file)
     return output_file
@@ -434,11 +413,13 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
 
 def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
                              metadata_file: str = None, cover_path: str = None,
-                             output_file: str = None, chapters_path: str = None):
+                             output_file: str = None, chapters: list = None):
     """
     Fallback subprocess implementation for FFmpeg decryption.
 
     Used when ffmpeg-python fails to handle complex multi-input scenarios.
+    Note: chapters parameter is unused here as chapters are already embedded
+    in the metadata_file when it's created.
     """
     if output_file is None:
         output_file = f"{book}.m4b"
@@ -454,14 +435,9 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
         cmd.extend(['-i', cover_path])
         logger.info("Embedding cover art from: %s", cover_path)
 
-    # Add metadata file as input if generated
+    # Add metadata file as input if generated (already includes chapters)
     if metadata_file and Path(metadata_file).exists():
         cmd.extend(['-i', metadata_file])
-
-    # Add chapters file as input if provided
-    if chapters_path and Path(chapters_path).exists():
-        cmd.extend(['-i', chapters_path])
-        logger.info("Embedding chapters from: %s", chapters_path)
 
     # Map audio stream from first input
     cmd.extend(['-map', '0:a'])
@@ -472,23 +448,18 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
         cmd.extend(['-c:v', 'copy'])
         cmd.extend(['-disposition:v', 'attached_pic'])
 
-    # Determine input indices for metadata and chapters
+    # Determine input index for metadata file
     # Input 0: audio (AAXC)
     # Input 1: cover (if present)
-    # Input 2 or 1: metadata file (if present)
-    # Input 3, 2, or 1: chapters file (if present)
+    # Input 2 or 1: metadata file (if present, includes chapters)
 
     input_idx = 1
     if cover_path and Path(cover_path).exists():
         input_idx += 1
 
-    # Map metadata from appropriate input index
+    # Map metadata and chapters from the same metadata file
     if metadata_file and Path(metadata_file).exists():
         cmd.extend(['-map_metadata', str(input_idx)])
-        input_idx += 1
-
-    # Map chapters from appropriate input index
-    if chapters_path and Path(chapters_path).exists():
         cmd.extend(['-map_chapters', str(input_idx)])
 
     # Audio codec and other options
@@ -506,14 +477,10 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
         logger.error("FFmpeg error: %s", result.stderr)
         raise Exception(f"FFmpeg conversion failed: {result.stderr}")
 
-    # Cleanup temporary files
+    # Cleanup temporary metadata file
     if metadata_file and Path(metadata_file).exists():
         Path(metadata_file).unlink()
         logger.debug("Cleaned up metadata file: %s", metadata_file)
-
-    if chapters_path and Path(chapters_path).exists():
-        Path(chapters_path).unlink()
-        logger.debug("Cleaned up chapters file: %s", chapters_path)
 
     logger.info("Conversion complete: %s", output_file)
     return output_file
@@ -574,8 +541,8 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
 
         # Decrypt the Book with metadata, cover art, and chapters embedded
         logger.info("Decrypting and embedding metadata")
-        chapters_file = str(download['chapters']) if download.get('chapters') else None
-        audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path, chapters_path=chapters_file)
+        chapters_data = download.get('chapters')
+        audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path, chapters=chapters_data)
 
         # Determine final location
         series = json.loads(book[5])
