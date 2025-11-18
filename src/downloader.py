@@ -76,7 +76,17 @@ class Downloader:
         decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, lr)
         voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
 
-        return {"book": status, "voucher": voucher_file}
+        # Extract and save chapter information
+        chapter_file = None
+        chapter_info = lr.get("content_license", {}).get("content_metadata", {}).get("chapter_info")
+        if chapter_info:
+            chapter_file = filename.with_suffix(".chapters.txt")
+            chapters = chapter_info.get("chapters", [])
+            if chapters:
+                write_chapters_file(chapters, str(chapter_file))
+                logger.info("Chapter file created: %s", chapter_file)
+
+        return {"book": status, "voucher": voucher_file, "chapters": chapter_file}
 
     def download_pdf(self, asin: str, output_path: str) -> bool:
         """Download PDF companion file if available"""
@@ -269,15 +279,50 @@ def write_ffmpeg_metadata_file(metadata: dict, output_path: str) -> str:
     logger.debug("Wrote FFmpeg metadata file: %s", output_path)
     return output_path
 
-def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None):
+
+def write_chapters_file(chapters: list, output_path: str) -> str:
     """
-    Decrypt AAXC audiobook file to M4B format with optional metadata and cover art.
+    Write chapters to FFmpeg FFMETADATA format file.
+
+    Args:
+        chapters: List of chapter dictionaries from Audible API
+        output_path: Path where chapter file should be written
+
+    Returns:
+        Path to the created chapter file
+    """
+    with open(output_path, 'w', encoding='utf-8') as f:
+        f.write(';FFMETADATA1\n')
+
+        for chapter in chapters:
+            start_ms = chapter.get('start_offset_ms', 0)
+            length_ms = chapter.get('length_ms', 0)
+            end_ms = start_ms + length_ms
+            title = chapter.get('title', 'Chapter')
+
+            # Escape title for FFmpeg
+            escaped_title = str(title).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
+
+            f.write('[CHAPTER]\n')
+            f.write('TIMEBASE=1/1000\n')
+            f.write(f'START={start_ms}\n')
+            f.write(f'END={end_ms}\n')
+            f.write(f'title={escaped_title}\n')
+            f.write('\n')
+
+    logger.debug("Wrote chapters file: %s", output_path)
+    return output_path
+
+def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None, chapters_path: str = None):
+    """
+    Decrypt AAXC audiobook file to M4B format with optional metadata, cover art, and chapters.
 
     Args:
         book: Path to the AAXC file
         voucher: Path to the voucher JSON file
         book_data: Optional book data tuple from database for metadata generation
         cover_path: Optional path to cover image to embed
+        chapters_path: Optional path to chapters file to embed
 
     Returns:
         Path to the output M4B file
@@ -330,6 +375,15 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         metadata_idx = len(inputs) - 1
         output_opts['map_metadata'] = str(metadata_idx)
 
+    # Add chapters file if provided
+    if chapters_path and Path(chapters_path).exists():
+        chapters_input = ffmpeg.input(chapters_path, f='ffmetadata')
+        inputs.append(chapters_input)
+        # Chapters index is based on number of inputs added so far
+        chapters_idx = len(inputs) - 1
+        output_opts['map_chapters'] = str(chapters_idx)
+        logger.info("Embedding chapters from: %s", chapters_path)
+
     # Create output with all inputs
     stream = ffmpeg.output(*inputs, output_file, **output_opts)
 
@@ -342,12 +396,16 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
 
         # If ffmpeg-python fails, fall back to subprocess approach
         logger.warning("Falling back to subprocess implementation")
-        return _decrypt_aaxc_subprocess(book, voucher, key, iv, metadata_file, cover_path, output_file)
+        return _decrypt_aaxc_subprocess(book, voucher, key, iv, metadata_file, cover_path, output_file, chapters_path)
 
-    # Cleanup metadata file
+    # Cleanup temporary files
     if metadata_file and Path(metadata_file).exists():
         Path(metadata_file).unlink()
         logger.debug("Cleaned up metadata file: %s", metadata_file)
+
+    if chapters_path and Path(chapters_path).exists():
+        Path(chapters_path).unlink()
+        logger.debug("Cleaned up chapters file: %s", chapters_path)
 
     logger.info("Conversion complete: %s", output_file)
     return output_file
@@ -355,7 +413,7 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
 
 def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
                              metadata_file: str = None, cover_path: str = None,
-                             output_file: str = None):
+                             output_file: str = None, chapters_path: str = None):
     """
     Fallback subprocess implementation for FFmpeg decryption.
 
@@ -379,6 +437,11 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
     if metadata_file and Path(metadata_file).exists():
         cmd.extend(['-i', metadata_file])
 
+    # Add chapters file as input if provided
+    if chapters_path and Path(chapters_path).exists():
+        cmd.extend(['-i', chapters_path])
+        logger.info("Embedding chapters from: %s", chapters_path)
+
     # Map audio stream from first input
     cmd.extend(['-map', '0:a'])
 
@@ -388,11 +451,24 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
         cmd.extend(['-c:v', 'copy'])
         cmd.extend(['-disposition:v', 'attached_pic'])
 
+    # Determine input indices for metadata and chapters
+    # Input 0: audio (AAXC)
+    # Input 1: cover (if present)
+    # Input 2 or 1: metadata file (if present)
+    # Input 3, 2, or 1: chapters file (if present)
+
+    input_idx = 1
+    if cover_path and Path(cover_path).exists():
+        input_idx += 1
+
     # Map metadata from appropriate input index
     if metadata_file and Path(metadata_file).exists():
-        # Metadata is input 2 if cover exists, otherwise input 1
-        metadata_index = '2' if (cover_path and Path(cover_path).exists()) else '1'
-        cmd.extend(['-map_metadata', metadata_index])
+        cmd.extend(['-map_metadata', str(input_idx)])
+        input_idx += 1
+
+    # Map chapters from appropriate input index
+    if chapters_path and Path(chapters_path).exists():
+        cmd.extend(['-map_chapters', str(input_idx)])
 
     # Audio codec and other options
     cmd.extend(['-c:a', 'copy'])
@@ -409,10 +485,14 @@ def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
         logger.error("FFmpeg error: %s", result.stderr)
         raise Exception(f"FFmpeg conversion failed: {result.stderr}")
 
-    # Cleanup metadata file
+    # Cleanup temporary files
     if metadata_file and Path(metadata_file).exists():
         Path(metadata_file).unlink()
         logger.debug("Cleaned up metadata file: %s", metadata_file)
+
+    if chapters_path and Path(chapters_path).exists():
+        Path(chapters_path).unlink()
+        logger.debug("Cleaned up chapters file: %s", chapters_path)
 
     logger.info("Conversion complete: %s", output_file)
     return output_file
@@ -471,9 +551,10 @@ def download_books(audible, download_folder, audiobook_folder, max:int=None):
         if downloader.download_annotations(asin, str(temp_annotations)):
             annotations_path = str(temp_annotations)
 
-        # Decrypt the Book with metadata and cover art embedded
+        # Decrypt the Book with metadata, cover art, and chapters embedded
         logger.info("Decrypting and embedding metadata")
-        audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path)
+        chapters_file = str(download['chapters']) if download.get('chapters') else None
+        audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path, chapters_path=chapters_file)
 
         # Determine final location
         series = json.loads(book[5])
