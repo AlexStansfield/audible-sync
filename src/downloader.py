@@ -401,7 +401,7 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     cmd.append(output_file)
 
     # Run the command
-    logger.debug("FFmpeg command: %s", ' '.join(cmd))
+    logger.debug("FFmpeg command: %s", ' '.join(str(x) for x in cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
