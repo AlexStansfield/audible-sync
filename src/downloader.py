@@ -299,8 +299,72 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         write_ffmpeg_metadata_file(metadata, metadata_file)
         logger.info("Metadata file created: %s", metadata_file)
 
+    # Build ffmpeg command using ffmpeg-python library
+    # Create all inputs
+    audio = ffmpeg.input(book, audible_key=key, audible_iv=iv)
+
+    inputs = [audio]
+    output_opts = {
+        'map': '0:a',
+        'c:a': 'copy',
+        'dn': None,
+        'loglevel': 'warning',
+        'y': None
+    }
+
+    # Add cover if provided
+    if cover_path and Path(cover_path).exists():
+        cover = ffmpeg.input(cover_path)
+        inputs.append(cover)
+        # When we have multiple streams to map, we need to use multiple map options
+        output_opts['map'] = ['0:a', '1:v']
+        output_opts['c:v'] = 'copy'
+        output_opts['disposition:v'] = 'attached_pic'
+        logger.info("Embedding cover art from: %s", cover_path)
+
+    # Add metadata file if generated
+    if metadata_file and Path(metadata_file).exists():
+        metadata_input = ffmpeg.input(metadata_file, f='ffmetadata')
+        inputs.append(metadata_input)
+        # Metadata index is based on number of inputs added so far
+        metadata_idx = len(inputs) - 1
+        output_opts['map_metadata'] = str(metadata_idx)
+
+    # Create output with all inputs
+    stream = ffmpeg.output(*inputs, output_file, **output_opts)
+
+    # Run the command
+    try:
+        ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
+    except ffmpeg.Error as e:
+        error_msg = e.stderr.decode() if e.stderr else str(e)
+        logger.error("FFmpeg error: %s", error_msg)
+
+        # If ffmpeg-python fails, fall back to subprocess approach
+        logger.warning("Falling back to subprocess implementation")
+        return _decrypt_aaxc_subprocess(book, voucher, key, iv, metadata_file, cover_path, output_file)
+
+    # Cleanup metadata file
+    if metadata_file and Path(metadata_file).exists():
+        Path(metadata_file).unlink()
+        logger.debug("Cleaned up metadata file: %s", metadata_file)
+
+    logger.info("Conversion complete: %s", output_file)
+    return output_file
+
+
+def _decrypt_aaxc_subprocess(book: str, voucher: str, key: str, iv: str,
+                             metadata_file: str = None, cover_path: str = None,
+                             output_file: str = None):
+    """
+    Fallback subprocess implementation for FFmpeg decryption.
+
+    Used when ffmpeg-python fails to handle complex multi-input scenarios.
+    """
+    if output_file is None:
+        output_file = f"{book}.m4b"
+
     # Build ffmpeg command using subprocess for precise control
-    # This handles the complex case of multiple input types (audio, image, metadata)
     cmd = ['ffmpeg', '-y']
 
     # Add decryption keys and primary audio input
@@ -314,11 +378,6 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     # Add metadata file as input if generated
     if metadata_file and Path(metadata_file).exists():
         cmd.extend(['-i', metadata_file])
-
-    # Determine input indices for mapping
-    # Input 0: audio (AAXC file)
-    # Input 1: cover (if present)
-    # Input 2 or 1: metadata file (if present, depends on cover)
 
     # Map audio stream from first input
     cmd.extend(['-map', '0:a'])
@@ -336,13 +395,13 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
         cmd.extend(['-map_metadata', metadata_index])
 
     # Audio codec and other options
-    cmd.extend(['-c:a', 'copy'])  # Copy audio without re-encoding
-    cmd.extend(['-dn'])            # Discard data streams
+    cmd.extend(['-c:a', 'copy'])
+    cmd.extend(['-dn'])
 
     # Add output file
     cmd.append(output_file)
 
-    # Run the ffmpeg command
+    # Run the command
     logger.debug("FFmpeg command: %s", ' '.join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
 
