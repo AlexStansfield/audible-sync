@@ -131,7 +131,7 @@ def test_write_ffmpeg_metadata_file_escapes_and_writes_chapters(tmp_path):
 @pytest.fixture
 def fake_ffmpeg(monkeypatch):
     """Replace subprocess.run with a recorder that captures argv and the FFMETADATA file before it is deleted."""
-    calls = SimpleNamespace(cmd=None, metadata=None, returncode=0)
+    calls = SimpleNamespace(cmd=None, metadata=None, returncode=0, extra_tags=None)
 
     def run(cmd, **kwargs):
         calls.cmd = list(cmd)
@@ -140,7 +140,13 @@ def fake_ffmpeg(monkeypatch):
                 calls.metadata = Path(arg).read_text(encoding="utf-8")
         return SimpleNamespace(returncode=calls.returncode, stderr="boom")
 
+    def write_m4b_extra_tags(path, metadata):
+        # The fake ffmpeg writes no file, so record what would have been tagged instead of opening it
+        calls.extra_tags = (str(path), dict(metadata))
+        return ["series", "series-part"]
+
     monkeypatch.setattr(downloader.subprocess, "run", run)
+    monkeypatch.setattr(downloader, "write_m4b_extra_tags", write_m4b_extra_tags)
     return calls
 
 
@@ -162,8 +168,9 @@ CHAPTERS = [
 ]
 
 
-def test_decrypt_aaxc_m4b_command_is_unchanged(fake_ffmpeg, aaxc):
-    out = decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row(), cover_path=aaxc.cover, chapters=CHAPTERS)
+def test_decrypt_aaxc_m4b_command_keeps_all_metadata_tags(fake_ffmpeg, aaxc):
+    row = make_row(series=[{"title": "Series", "sequence": "2"}])
+    out = decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=row, cover_path=aaxc.cover, chapters=CHAPTERS)
 
     assert out == f"{aaxc.book}.m4b"
     metadata_file = f"{aaxc.book}.ffmetadata"
@@ -178,6 +185,11 @@ def test_decrypt_aaxc_m4b_command_is_unchanged(fake_ffmpeg, aaxc):
         "-c:a", "copy", "-dn",
         out,
     ]  # fmt: skip
+    assert "series=Series\nseries-part=2\n" in fake_ffmpeg.metadata
+    tagged_path, tagged = fake_ffmpeg.extra_tags
+    assert tagged_path == out
+    assert tagged["series"] == "Series"
+    assert tagged["series-part"] == "2"
     assert fake_ffmpeg.metadata.count("[CHAPTER]") == 2
     assert "CHAPTER000" not in fake_ffmpeg.metadata
     assert "METADATA_BLOCK_PICTURE" not in fake_ffmpeg.metadata
@@ -252,6 +264,17 @@ def test_decrypt_aaxc_raises_on_ffmpeg_failure(fake_ffmpeg, aaxc):
     fake_ffmpeg.returncode = 1
     with pytest.raises(Exception, match="FFmpeg conversion failed: boom"):
         decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row())
+    assert fake_ffmpeg.extra_tags is None
+
+
+def test_decrypt_aaxc_oga_does_not_write_mp4_tags(fake_ffmpeg, aaxc):
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row(), encoding_format="oga")
+    assert fake_ffmpeg.extra_tags is None
+
+
+def test_decrypt_aaxc_m4b_without_book_data_does_not_write_mp4_tags(fake_ffmpeg, aaxc):
+    decrypt_aaxc(aaxc.book, aaxc.voucher)
+    assert fake_ffmpeg.extra_tags is None
 
 
 def test_decrypt_aaxc_rejects_unknown_format(fake_ffmpeg, aaxc):

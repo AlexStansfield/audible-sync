@@ -17,6 +17,8 @@ import logging
 import struct
 from pathlib import Path
 
+from mutagen.mp4 import MP4, MP4FreeForm
+
 logger = logging.getLogger(__name__)
 
 # Output format name -> file extension
@@ -26,6 +28,32 @@ DEFAULT_FORMAT = "m4b"
 # Opus bitrate in kbps. Only used for the oga format. libopus rejects anything over 256 kbps per channel.
 DEFAULT_BITRATE = 64
 MAX_BITRATE = 256
+
+# Metadata keys FFmpeg's MP4 muxer maps to iTunes atoms itself. Any other key in the
+# FFMETADATA file is silently dropped, so those are added afterwards as freeform atoms.
+MP4_NATIVE_KEYS: frozenset[str] = frozenset(
+    {
+        "title",
+        "album",
+        "artist",
+        "album_artist",
+        "composer",
+        "genre",
+        "date",
+        "comment",
+        "description",
+        "synopsis",
+        "copyright",
+        "grouping",
+        "lyrics",
+        "track",
+        "disc",
+        "encoder",
+    }
+)
+_MP4_FREEFORM_PREFIX = "----:com.apple.iTunes:"
+# iTunes "stik" media kind atom: 2 is Audiobook
+_MP4_STIK_AUDIOBOOK = 2
 
 # Picture type 3 is "Cover (front)" in the FLAC picture block specification
 _PICTURE_TYPE_FRONT_COVER = 3
@@ -147,3 +175,41 @@ def chapter_tags(chapters: list[dict] | None) -> dict[str, str]:
         tags[f"CHAPTER{index:03d}"] = f"{hours:02d}:{minutes:02d}:{seconds:02d}.{millis:03d}"
         tags[f"CHAPTER{index:03d}NAME"] = str(chapter.get("title", "Chapter"))
     return tags
+
+
+def write_m4b_extra_tags(path: str | Path, metadata: dict) -> list[str]:
+    """
+    Add the metadata keys FFmpeg's MP4 muxer cannot write to a finished M4B.
+
+    FFmpeg writes only the keys in ``MP4_NATIVE_KEYS`` into an MP4 (its
+    ``use_metadata_tags`` alternative keeps every key but drops the embedded
+    cover). Every other non-empty key is stored as an iTunes freeform atom
+    (``----:com.apple.iTunes:<key>``), which FFmpeg, Audiobookshelf and most
+    taggers read back under the plain key name. A ``media_type`` of
+    ``audiobook`` also sets the iTunes ``stik`` media-kind atom.
+
+    Args:
+        path: The M4B file, modified in place
+        metadata: The same dictionary that was written to the FFMETADATA file
+
+    Returns:
+        The keys that were added, in order
+    """
+    audio = MP4(path)
+    if audio.tags is None:
+        audio.add_tags()
+
+    written = []
+    for key, value in metadata.items():
+        if key in MP4_NATIVE_KEYS or value is None or str(value) == "":
+            continue
+        audio.tags[f"{_MP4_FREEFORM_PREFIX}{key}"] = [MP4FreeForm(str(value).encode("utf-8"))]
+        written.append(key)
+
+    if metadata.get("media_type") == "audiobook":
+        audio.tags["stik"] = [_MP4_STIK_AUDIOBOOK]
+
+    if written or "stik" in audio.tags:
+        audio.save()
+    logger.debug("Added freeform MP4 tags to %s: %s", path, written)
+    return written

@@ -36,6 +36,8 @@ idna==3.10
     # via
     #   anyio
     #   httpx
+mutagen==1.48.1
+    # via audible-sync
 pbkdf2==1.3
     # via audible
 pillow==11.1.0

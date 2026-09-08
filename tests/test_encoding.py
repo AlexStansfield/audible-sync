@@ -1,7 +1,10 @@
 import base64
+import shutil
 import struct
+from pathlib import Path
 
 import pytest
+from mutagen.mp4 import MP4
 
 from src.encoding import (
     DEFAULT_BITRATE,
@@ -11,6 +14,7 @@ from src.encoding import (
     output_extension,
     picture_block,
     validate_encoding,
+    write_m4b_extra_tags,
 )
 
 
@@ -148,3 +152,58 @@ def test_chapter_tags_empty_or_none_returns_empty_dict():
 
 def test_chapter_tags_default_title():
     assert chapter_tags([{"start_offset_ms": 5}]) == {"CHAPTER000": "00:00:00.005", "CHAPTER000NAME": "Chapter"}
+
+
+FIXTURE_M4B = Path(__file__).parent / "fixtures" / "silence.m4b"
+
+
+@pytest.fixture
+def m4b(tmp_path):
+    """A copy of the tiny silent M4B fixture (AAC, title=Silence, artist=Nobody)."""
+    target = tmp_path / "book.m4b"
+    shutil.copy(FIXTURE_M4B, target)
+    return target
+
+
+def test_write_m4b_extra_tags_adds_freeform_atoms_and_keeps_native_tags(m4b):
+    metadata = {
+        "title": "Ignored, FFmpeg wrote this",
+        "artist": "Ignored too",
+        "author": "Philip Pullman",
+        "series": "His Dark Materials",
+        "series-part": "1",
+        "media_type": "audiobook",
+    }
+
+    written = write_m4b_extra_tags(m4b, metadata)
+
+    assert written == ["author", "series", "series-part", "media_type"]
+    tags = MP4(m4b).tags
+    assert tags["\xa9nam"] == ["Silence"]
+    assert tags["\xa9ART"] == ["Nobody"]
+    assert bytes(tags["----:com.apple.iTunes:series"][0]) == b"His Dark Materials"
+    assert bytes(tags["----:com.apple.iTunes:series-part"][0]) == b"1"
+    assert bytes(tags["----:com.apple.iTunes:author"][0]) == b"Philip Pullman"
+    assert tags["stik"] == [2]
+    assert "----:com.apple.iTunes:title" not in tags
+
+
+def test_write_m4b_extra_tags_skips_empty_values_and_non_audiobooks(m4b):
+    written = write_m4b_extra_tags(m4b, {"series": "", "series-part": None, "title": "x", "media_type": "music"})
+
+    assert written == ["media_type"]
+    tags = MP4(m4b).tags
+    assert "----:com.apple.iTunes:series" not in tags
+    assert "stik" not in tags
+
+
+def test_write_m4b_extra_tags_with_nothing_to_add_leaves_file_unchanged(m4b):
+    before = m4b.read_bytes()
+
+    assert write_m4b_extra_tags(m4b, {"title": "x", "artist": "y"}) == []
+    assert m4b.read_bytes() == before
+
+
+def test_write_m4b_extra_tags_accepts_non_string_values(m4b):
+    assert write_m4b_extra_tags(m4b, {"series-part": 3}) == ["series-part"]
+    assert bytes(MP4(m4b).tags["----:com.apple.iTunes:series-part"][0]) == b"3"

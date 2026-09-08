@@ -10,7 +10,14 @@ from tqdm import tqdm
 
 from src.audible import Audible
 from src.database import get_books_to_download, mark_book_downloaded, update_book_accessories
-from src.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, chapter_tags, output_extension, picture_block
+from src.encoding import (
+    DEFAULT_BITRATE,
+    DEFAULT_FORMAT,
+    chapter_tags,
+    output_extension,
+    picture_block,
+    write_m4b_extra_tags,
+)
 from src.naming import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_FOLDER_TEMPLATE,
@@ -395,6 +402,13 @@ def decrypt_aaxc(
     if result.returncode != 0:
         logger.error("FFmpeg error: %s", result.stderr)
         raise Exception(f"FFmpeg conversion failed: {result.stderr}")
+
+    # The MP4 muxer drops keys it does not know (series, series-part, author, ...);
+    # add them afterwards as iTunes freeform atoms so the M4B carries everything the OGA does
+    if encoding_format == "m4b" and book_data:
+        extra = write_m4b_extra_tags(output_file, generate_metadata(book_data))
+        if extra:
+            logger.info("Added M4B tags the MP4 muxer cannot write: %s", ", ".join(extra))
 
     # Cleanup temporary metadata file
     if metadata_file and Path(metadata_file).exists():
