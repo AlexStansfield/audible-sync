@@ -11,7 +11,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Entry Point** | `python -m src.main` (or `uv run python -m src.main`) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | INI format (`config/config.ini`) |
-| **Lines of Code** | ~950 lines across 7 Python modules, plus ~300 lines of tests |
+| **Lines of Code** | ~1200 lines across 8 Python modules, plus ~550 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
@@ -20,20 +20,20 @@ Guidance for AI assistants working with the audible-sync codebase.
 
 ## Project Overview
 
-**Purpose:** Sync an Audible library, download owned audiobooks, and decrypt them to DRM-free M4B files with embedded metadata, cover art and chapters.
+**Purpose:** Sync an Audible library, download owned audiobooks, and decrypt them to DRM-free M4B or Ogg Opus files with embedded metadata, cover art and chapters.
 
 **Inspiration:** [BALD (Bash Audible Library Downloader)](https://github.com/damajor/BALD). This Python implementation uses the same underlying `audible` library but aims to become a user-friendly service with a web UI and automated scheduling.
 
 **Important:** This app does NOT crack DRM. It only decrypts audiobooks the user owns.
 
-**Current State (Milestone 2, mostly complete):**
+**Current State (Milestone 2 complete):**
 - Incremental library sync from the Audible API
-- Download and decrypt to M4B, with metadata, cover art and chapters embedded
+- Download and decrypt to M4B (stream copy) or re-encode to Ogg Opus (`.oga`) at a configurable bitrate, with metadata, cover art and chapters embedded in either format
 - Companion PDF, high-res cover and annotations downloaded alongside the book
 - Path-safe file naming from configurable templates, and per-book error handling (a failing book is skipped, not fatal)
 - Docker image built by GitHub Actions on version tags
 
-**Remaining for Milestone 2:** OGA (Opus) encoding with a bitrate setting. See `todo.md`.
+Milestone 3 (API service, scheduler, web UI) is next. See `todo.md`.
 
 ## Codebase Structure
 
@@ -54,12 +54,14 @@ audible-sync/
 │   ├── audible.py            # Audible API client and response mapping
 │   ├── sync.py               # Incremental library sync
 │   ├── naming.py             # Sanitizer and folder/filename templates ([naming] in config.ini)
+│   ├── encoding.py           # Output formats, Opus picture block and chapter tags ([encoding] in config.ini)
 │   ├── downloader.py         # Download, accessories, metadata, decryption, filing
 │   └── api.py                # FastAPI stub (broken, Milestone 3)
 ├── tests/
 │   ├── test_database.py      # Schema, migration, queries against a temp DB
 │   ├── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
-│   └── test_naming.py        # Template rendering, optional groups, default layout, validation
+│   ├── test_naming.py        # Template rendering, optional groups, default layout, validation
+│   └── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags
 ├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
 ├── Dockerfile
@@ -77,13 +79,15 @@ main.py (orchestrator)
   ├─→ audible.py    (API integration)
   ├─→ sync.py       (library sync)
   └─→ downloader.py (download, metadata, decrypt, file)
+        ├─→ naming.py   (paths)
+        └─→ encoding.py (format, Opus tags)
 ```
 
 **Data flow:**
 ```
 Audible API → audible.py → sync.py → database.py → SQLite
                                           ↓
-                                    downloader.py → FFmpeg → M4B + PDF/cover/annotations
+                                    downloader.py → FFmpeg → M4B or OGA + PDF/cover/annotations
 ```
 
 - No `__init__.py` files; flat `src/` directory run as modules (`python -m src.main`)
@@ -107,7 +111,7 @@ This is a one-shot run: sync + download, then exit.
 
 ### database.py
 
-Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`).
+Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`).
 
 **Functions:**
 - `init_db()`
@@ -115,7 +119,7 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
 - `get_books(limit=None)` - all books, newest `date_added` first
 - `get_books_to_download()` - status `waiting_download`, oldest first
 - `get_book_by_asin(asin)`
-- `mark_book_downloaded(asin)`
+- `mark_book_downloaded(asin, encoding_format=None)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests)
 - `update_book_accessories(asin, pdf_path=, cover_path=, annotations_path=)`
 
 **Rows are tuples, not Book objects.** Column indices:
@@ -130,6 +134,8 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
 6:  genres (JSON)     15: cover_path
 7:  length            16: annotations_path
 8:  is_finished       17: has_pdf
+                      18: encoding_format
+                      19: downloaded_at
 ```
 
 Read functions do not close their connections; write functions do.
@@ -167,17 +173,23 @@ The largest module. Key pieces:
 **Metadata and decryption**
 - `generate_metadata(book_tuple)` - title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment
 - `write_ffmpeg_metadata_file(metadata, path, chapters=None)` - writes an FFMETADATA1 file including `[CHAPTER]` blocks
-- `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv`, maps the cover as `attached_pic`, and maps metadata + chapters from the FFMETADATA file. Raises on non-zero exit.
+- `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None, *, encoding_format="m4b", bitrate=64)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv` and raises on non-zero exit. The argv comes from one of two helpers:
+  - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`
+  - `_opus_ffmpeg_args` - `-c:a libopus -b:a {bitrate}k -vbr on` into the `oga` muxer. Ogg has no picture stream or chapter track, so the cover goes in as a `METADATA_BLOCK_PICTURE` tag and chapters as `CHAPTERxxx`/`CHAPTERxxxNAME` tags (built by `src/encoding.py`) inside the FFMETADATA file, and `-map_chapters -1` stops FFmpeg copying the AAXC's own chapters on top of them. FFmpeg renames `comment` to `DESCRIPTION` and `album_artist` to `ALBUMARTIST` in Ogg
 
 **Orchestration**
-- `_process_book(downloader, book, temp_dir, audiobook_folder, folder_template, filename_template)` - the full pipeline for one book: download, accessories, decrypt, file into the library, record accessory paths, mark downloaded. Raises on any failure.
-- `download_books(audible, download_folder, audiobook_folder, max=None, *, folder_template, filename_template)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. Ends with a succeeded/failed summary.
+- `_process_book(downloader, book, temp_dir, audiobook_folder, folder_template, filename_template, encoding_format, bitrate)` - the full pipeline for one book: download, accessories, decrypt, file into the library, record accessory paths, mark downloaded. Raises on any failure.
+- `download_books(audible, download_folder, audiobook_folder, max=None, *, folder_template, filename_template, encoding_format, bitrate)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. Ends with a succeeded/failed summary.
 
 **Final layout** comes from the `[naming]` templates in `config.ini`, rendered by `src/naming.py`:
 - `folder` (default `{author}/[{series}/][{sequence} - ]{title}`) and `filename` (default `{title}`); `[...]` groups are dropped when any placeholder inside is empty, empty segments are skipped, every value is sanitized
-- Defaults give `audiobooks/{author}/{series}/{sequence} - {title}/{title}.m4b`, or `audiobooks/{author}/{title}/{title}.m4b` without a series
+- Defaults give `audiobooks/{author}/{series}/{sequence} - {title}/{title}.m4b`, or `audiobooks/{author}/{title}/{title}.m4b` without a series (`.oga` when `[encoding] format = oga`)
 - Missing author → `Unknown Author`; empty folder or filename → ASIN; unknown placeholder → `ValueError` at startup (`validate_templates` in `main.py`)
-- PDF, `{filename}_cover.jpg` and `{filename}_annotations.json` sit next to the M4B; the extension comes from `OUTPUT_EXTENSION` in `downloader.py`
+- PDF, `{filename}_cover.jpg` and `{filename}_annotations.json` sit next to the audio file; the extension comes from `output_extension()` in `src/encoding.py`
+
+### encoding.py
+
+Everything format-specific that is not an ffmpeg flag. `FORMATS` maps `m4b`/`oga` to extensions; `validate_encoding(format, bitrate)` raises `ValueError` at startup for an unknown format or a bitrate outside 1..256 kbps (libopus rejects more). `image_info(bytes)` reads MIME, width, height and depth from JPEG (SOF marker) or PNG (IHDR) headers with the stdlib, returning zeros for anything else. `picture_block(path)` packs the FLAC-style picture block (type 3, MIME, "Cover Artwork", dimensions, data) and returns unwrapped base64 for the `METADATA_BLOCK_PICTURE` tag. `chapter_tags(chapters)` turns Audible chapters into `CHAPTER000=HH:MM:SS.mmm` / `CHAPTER000NAME=` pairs. No escaping here; `write_ffmpeg_metadata_file` escapes when writing.
 
 ### api.py
 
@@ -198,6 +210,10 @@ debug = true            ; currently unused
 [folders]
 downloads = data/downloads
 audiobooks = audiobooks
+
+[encoding]
+format = m4b            ; m4b (stream copy) or oga (Ogg Opus re-encode)
+bitrate = 64            ; kbps, oga only, 1-256
 ```
 
 Read in `main.py` with `configparser`. The config file is copied into the Docker image, so committed values become the image defaults. Users override by mounting `./config` (see `compose.yml`).
@@ -263,13 +279,14 @@ uv run pytest -k sanitize   # subset
 - Refactor → existing tests still pass; add tests first if the code had none
 
 **How to test this codebase:**
-- Prefer pure functions. `sanitize_filename`, `generate_metadata`, `write_ffmpeg_metadata_file` and the path-building logic are directly testable with no setup.
+- Prefer pure functions. `sanitize_filename`, `generate_metadata`, `write_ffmpeg_metadata_file`, everything in `encoding.py` and the path-building logic are directly testable with no setup.
+- For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it.
 - Never hit the Audible API, the network or FFmpeg in tests. Mock `Audible`/`Downloader` methods and `subprocess.run` with `unittest.mock` or `monkeypatch`.
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
 - For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `update_book_accessories`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls. This is how the per-book error handling was verified.
 - Keep fixtures small and inline; a shared `conftest.py` is fine once two files need the same one.
 
-The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the per-book error handling in `download_books`, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
+The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
 
 ### Manual integration checklist
 
@@ -280,6 +297,7 @@ The suite currently covers the sanitizer, metadata generation, the FFMETADATA wr
 - [ ] A title with `:` or `/` produces a sane path
 - [ ] A failing book is skipped, its temp folder removed, and the run continues
 - [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe`)
+- [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `DESCRIPTION : ASIN: ...`; the DB row has `encoding_format` and `downloaded_at`
 - [ ] Docker image builds and runs
 
 ### Debugging
@@ -333,11 +351,9 @@ See `todo.md` for the authoritative list.
 
 **Milestone 1 - complete:** sync, download, decrypt, config, Docker, CI.
 
-**Milestone 2 - in progress:** logging, PDF/cover/annotations, metadata and chapter embedding, and configurable file naming are done. Remaining:
-1. OGA (Opus) encoding with a configurable bitrate; swap `OUTPUT_EXTENSION` in `downloader.py`. Note Ogg needs cover as `METADATA_BLOCK_PICTURE` and chapters as `CHAPTERxxx` comments, which FFmpeg does not do automatically
-2. Async download progress is listed here but only pays off with a web UI; recommended to move to Milestone 3
+**Milestone 2 - complete:** logging, PDF/cover/annotations, metadata and chapter embedding, configurable file naming, and Ogg Opus encoding with a bitrate setting. Async download progress is still listed under it in `todo.md` but only pays off with a web UI; recommended to move to Milestone 3.
 
-**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema additions: `encoding_format`, `downloaded_at`, a `settings` table and a `sync_runs` table.
+**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema additions: a `settings` table and a `sync_runs` table (`encoding_format` and `downloaded_at` already exist).
 
 ## Understanding "Sync"
 
@@ -345,7 +361,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 3.1
+**Document Version:** 3.2
 **Last Updated:** 2026-09-08
-**Codebase Version:** Milestone 2 in progress (commit b12e2aa)
+**Codebase Version:** Milestone 2 complete (branch feature/oga-encoding)
 **Primary Branch:** `dev`

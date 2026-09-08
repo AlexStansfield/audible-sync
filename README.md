@@ -1,6 +1,6 @@
 # Audible Sync
 
-A python app that will fetch your library from audible, download the books and convert them to DRM free M4B files.
+A python app that will fetch your library from audible, download the books and convert them to DRM free M4B or Ogg Opus files.
 
 On each run it will sync the latest purchases from your audible library to the app database.
 
@@ -64,6 +64,15 @@ With the defaults, *One Word Kill* (book 1 of the Nick Hayes Series) becomes `Ma
 
 An unknown placeholder stops the app at startup with an error naming it. Changing the templates only affects books downloaded afterwards; existing files are not renamed.
 
+### `encoding`
+
+Controls the output format. Leave the section out to keep M4B.
+
+ - `format`: `m4b` keeps the original AAC audio from Audible in an MP4 container, no re-encode and no quality loss. `oga` re-encodes to Opus in an Ogg container, which is much smaller for speech at the same perceived quality. Default: `m4b`
+ - `bitrate`: Opus bitrate in kbps, only used with `oga`, 1 to 256. `64` matches Audible's own quality; `32` to `48` is still very good for spoken word. Default: `64`
+
+Both formats get the same metadata, cover art and chapters. In Ogg files the cover is stored as a `METADATA_BLOCK_PICTURE` tag and the chapters as `CHAPTERxxx` tags, which is what players such as Audiobookshelf, VLC and Foobar2000 expect. `oga` needs an FFmpeg 5 or newer built with libopus (`ffmpeg -encoders | grep libopus`); the Docker image has it. Changing the format only affects books downloaded afterwards.
+
 ## Running
 
 ### Docker
@@ -108,7 +117,7 @@ pip install -r requirements.txt
 
 #### ✅ 4. Install FFmpeg
 
-This app requires [FFmpeg](https://ffmpeg.org/) to be installed and available on your system.
+This app requires [FFmpeg](https://ffmpeg.org/) to be installed and available on your system. For the `oga` output format it must be version 5 or newer and built with libopus, which the packages below all are.
 
 ##### macOS
 
@@ -132,9 +141,6 @@ sudo apt install ffmpeg
 
 There is plenty left to do, my ultimate goal is to have a web based service that can automatically sync, download and convert your books. 
 
-It will support:
-- re-encoding the books to OGA format in order to reduce size
-- fetching PDF files included with the book
-- fetching extra metadata and cover art
+Done so far: re-encoding to Ogg Opus to reduce size, PDF, cover art, chapters and metadata. Next up is turning it into a service with a web UI.
 
 The current todo list can be found [here](todo.md).
