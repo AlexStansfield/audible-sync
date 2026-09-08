@@ -46,7 +46,6 @@ List of tasks to complete by phases
 ### Tasks
 
 - [x] Add logging
-- [ ] Aysnc downloader to monitor progress of download
 - [x] Download PDF
 - [x] Download Cover
 - [x] Download Annotations
@@ -54,7 +53,7 @@ List of tasks to complete by phases
 - [x] Add metadata to m4b
 - [ ] Add settings for encoding bitrate
 - [ ] Encode books to OGA instead of M4B if configured
-- [ ] Name m4b/oga files based on metadata
+- [x] Name m4b/oga files based on metadata
 
 ## Milestone 3: API Service
 
@@ -64,6 +63,7 @@ List of tasks to complete by phases
 - Convert to an API service
 - Get library of books by API
 - Get and Change Settings by API
+- Aysnc downloader to monitor progress of download
 
 ### Tasks
 

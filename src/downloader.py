@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,49 +10,18 @@ from tqdm import tqdm
 
 from src.audible import Audible
 from src.database import get_books_to_download, mark_book_downloaded, update_book_accessories
+from src.naming import (
+    DEFAULT_FILENAME_TEMPLATE,
+    DEFAULT_FOLDER_TEMPLATE,
+    book_output_paths,
+    sanitize_filename,
+    temp_book_folder,
+)
 
 logger = logging.getLogger(__name__)
 
-# Characters that are invalid in file names on Windows/SMB shares (plus control chars).
-# '/' and '\\' are handled separately so they can be replaced rather than dropped.
-_INVALID_PATH_CHARS = re.compile(r'[<>"|?*\x00-\x1f]')
-_MAX_NAME_LENGTH = 150
-
-
-def sanitize_filename(name, fallback: str = "Unknown") -> str:
-    """
-    Make a string safe to use as a single file or folder name on Linux, macOS,
-    Windows and SMB shares.
-
-    - ':' becomes ' -'  (so "Title: Subtitle" -> "Title - Subtitle")
-    - '/' and '\\' become '-'
-    - Other characters that are invalid on Windows/SMB are removed
-    - Whitespace is collapsed, leading/trailing spaces and dots are stripped
-    - Result is truncated to a safe length
-
-    Args:
-        name: The raw name (title, author, series, ...). May be None.
-        fallback: Returned when the sanitized result would be empty.
-
-    Returns:
-        A path-safe name.
-    """
-    if name is None:
-        return fallback
-
-    result = str(name)
-    result = result.replace(":", " -")
-    result = re.sub(r"[/\\]", "-", result)
-    result = re.sub(r"\s+", " ", result)
-    result = _INVALID_PATH_CHARS.sub("", result).strip(" .")
-    result = result[:_MAX_NAME_LENGTH].rstrip(" .")
-
-    return result or fallback
-
-
-def temp_book_folder(download_folder: str, asin: str, title: str) -> Path:
-    """Temporary working folder for a book while it is downloaded and decrypted"""
-    return Path(download_folder) / f"{asin}_{sanitize_filename(title, fallback=asin)}"
+# Extension of the converted audiobook. The OGA encoding option will make this configurable.
+OUTPUT_EXTENSION = ".m4b"
 
 
 class Downloader:
@@ -472,7 +440,14 @@ def decrypt_aaxc(
     return output_file
 
 
-def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook_folder: str):
+def _process_book(
+    downloader: Downloader,
+    book: tuple,
+    temp_dir: Path,
+    audiobook_folder: str,
+    folder_template: str = DEFAULT_FOLDER_TEMPLATE,
+    filename_template: str = DEFAULT_FILENAME_TEMPLATE,
+):
     """
     Download, decrypt and file a single book. Raises on any failure so the
     caller can decide how to handle it.
@@ -482,6 +457,8 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
         book: Book tuple from the database
         temp_dir: Temporary working folder for this book (created by download_book)
         audiobook_folder: Root folder for the final organised library
+        folder_template: Naming template for the book folder (see src.naming)
+        filename_template: Naming template for the file name without extension
     """
     asin = book[0]
     title = book[1]
@@ -531,21 +508,12 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
         download["book"], download["voucher"], book_data=book, cover_path=temp_cover_path, chapters=chapters_data
     )
 
-    # Determine final location (all path segments sanitized)
-    series = json.loads(book[5]) if book[5] else []
-    authors = json.loads(book[3]) if book[3] else []
-    author_name = sanitize_filename(authors[0] if authors else None, fallback="Unknown Author")
-    if len(series) > 0:
-        series_title = sanitize_filename(series[0].get("title"), fallback="Unknown Series")
-        sequence = series[0].get("sequence")
-        prefix = f"{sanitize_filename(sequence)} - " if sequence else ""
-        final_folder = Path(audiobook_folder) / author_name / series_title / f"{prefix}{safe_title}"
-    else:
-        final_folder = Path(audiobook_folder) / author_name / safe_title
+    # Determine final location from the naming templates (all path segments sanitized)
+    final_folder, stem = book_output_paths(book, audiobook_folder, folder_template, filename_template)
     final_folder.mkdir(parents=True, exist_ok=True)
 
     # Move the Book to final location
-    to_path = final_folder / f"{safe_title}.m4b"
+    to_path = final_folder / f"{stem}{OUTPUT_EXTENSION}"
     shutil.copy(audiobook, to_path)
     logger.info("Book copied to %s", to_path)
 
@@ -556,7 +524,7 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
 
     # Move PDF to final location
     if pdf_path and Path(pdf_path).exists():
-        final_pdf = final_folder / f"{safe_title}.pdf"
+        final_pdf = final_folder / f"{stem}.pdf"
         shutil.move(pdf_path, final_pdf)
         final_pdf_path = str(final_pdf)
         logger.info("PDF moved to %s", final_pdf)
@@ -564,14 +532,14 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
     # Move high-resolution cover to final location (separate from embedded cover)
     if temp_cover_path and Path(temp_cover_path).exists():
         cover_ext = Path(temp_cover_path).suffix
-        final_cover = final_folder / f"{safe_title}_cover{cover_ext}"
+        final_cover = final_folder / f"{stem}_cover{cover_ext}"
         shutil.move(temp_cover_path, final_cover)
         final_cover_path = str(final_cover)
         logger.info("Cover moved to %s", final_cover)
 
     # Move annotations to final location
     if annotations_path and Path(annotations_path).exists():
-        final_annotations = final_folder / f"{safe_title}_annotations.json"
+        final_annotations = final_folder / f"{stem}_annotations.json"
         shutil.move(annotations_path, final_annotations)
         final_annotations_path = str(final_annotations)
         logger.info("Annotations moved to %s", final_annotations)
@@ -585,13 +553,24 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
     mark_book_downloaded(asin)
 
 
-def download_books(audible, download_folder, audiobook_folder, max: int | None = None):
+def download_books(
+    audible,
+    download_folder,
+    audiobook_folder,
+    max: int | None = None,
+    *,
+    folder_template: str = DEFAULT_FOLDER_TEMPLATE,
+    filename_template: str = DEFAULT_FILENAME_TEMPLATE,
+):
     """
     Download, decrypt and file every book waiting for download (up to `max`).
 
     Each book is processed independently: a failure is logged, its temporary
     files are removed, and processing continues with the next book. The book
     keeps its 'waiting_download' status so it is retried on the next run.
+
+    `folder_template` and `filename_template` control where each book is filed
+    under `audiobook_folder` (see src.naming for the placeholder syntax).
     """
     waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
@@ -610,7 +589,14 @@ def download_books(audible, download_folder, audiobook_folder, max: int | None =
         temp_dir = temp_book_folder(download_folder, asin, title)
 
         try:
-            _process_book(downloader, book, temp_dir, audiobook_folder)
+            _process_book(
+                downloader,
+                book,
+                temp_dir,
+                audiobook_folder,
+                folder_template=folder_template,
+                filename_template=filename_template,
+            )
             succeeded += 1
         except Exception:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
