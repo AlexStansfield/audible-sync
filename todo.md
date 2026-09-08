@@ -74,7 +74,7 @@ A pre-pivot code review (2026-09-08) fixed the correctness problems on
 change now and expensive once endpoints, a scheduler and a UI depend on them.
 Each one blocks a Milestone 3 requirement, so they come before the endpoints.
 
-- [ ] **Return objects from the database, not raw tuples.** Every read returns a
+- [x] **Return objects from the database, not raw tuples.** Every read returns a
   positional `sqlite3` tuple and `downloader.py`, `naming.py` and the tests
   hard-code indices (`book[12]` is the cover URL, `book[17]` is `has_pdf`) with
   the same `json.loads` boilerplate repeated in each. `CLAUDE.md` has to carry a
