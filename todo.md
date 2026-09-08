@@ -59,11 +59,13 @@ List of tasks to complete by phases
 
 ### Requirements
 
-- Login to audible
+- Login to audible via website
 - Convert to an API service
+- API must be designed with a frontend in mind (milestone 4)
 - Get library of books by API
 - Get and Change Settings by API
-- Aysnc downloader to monitor progress of download
+- Monitor Download progress
+- Ability to "delete" a download or force a redownload
 
 ### Step 0: Structural groundwork (do this first)
 
@@ -131,4 +133,14 @@ Smaller items to fold in while doing the above:
 - [ ] Add settings table to database
 - [ ] Initialise settings on initial run
 - [ ] Convert to an API service
+- [ ] Aysnc downloader to monitor progress of download
 - [ ] Login and save credentials
+
+## Milestone 4: Web App Frontend
+
+A web application that exposes a UI for the API.
+
+It should support login to Audible via the web and storing returned credentials.
+
+More requirements to be defined
+
