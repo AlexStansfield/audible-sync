@@ -11,7 +11,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Entry Point** | `python -m src.main` (or `uv run python -m src.main`) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | INI format (`config/config.ini`) |
-| **Lines of Code** | ~1200 lines across 8 Python modules, plus ~550 lines of tests |
+| **Lines of Code** | ~1800 lines across 9 Python modules, plus ~1400 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
@@ -33,7 +33,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 - Path-safe file naming from configurable templates, and per-book error handling (a failing book is skipped, not fatal)
 - Docker image built by GitHub Actions on version tags
 
-Milestone 3 (API service, scheduler, web UI) is next. See `todo.md`.
+Milestone 3 (API service, scheduler, web UI) is next. A code review before that pivot fixed the correctness problems listed below and recorded the structural work as **Step 0** in `todo.md`; do that before adding endpoints.
 
 ## Codebase Structure
 
@@ -60,8 +60,10 @@ audible-sync/
 ├── tests/
 │   ├── test_database.py      # Schema, migration, queries against a temp DB
 │   ├── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
-│   ├── test_naming.py        # Template rendering, optional groups, default layout, validation
-│   ├── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags, M4B freeform tags
+│   ├── test_naming.py        # Sanitizer, templates, optional groups, default layout, validation
+│   ├── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags, M4B freeform tags, ASIN readback
+│   ├── test_audible.py       # Field mapping, missing keys, per-item skip, pagination
+│   ├── test_main.py          # max-download validation, log level
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
 ├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
@@ -99,8 +101,9 @@ Audible API → audible.py → sync.py → database.py → SQLite
 
 ### main.py
 
-- Configures logging (INFO level, hardcoded; the `debug` config flag is not read)
+- `configure_logging(debug)` sets the root logger from the `[general] debug` flag. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
 - Loads `config/config.ini`, initialises the DB, creates the download and audiobook folders
+- Validates the naming templates, the encoding settings and `max-download` (`validate_max_download`) before anything is downloaded
 - Resolves the auth file: `[sync] audible-auth-file`, else `~/.audible/audible.json`
 - Runs `sync_library()` then `download_books()` with the optional `max-download` limit
 
@@ -116,12 +119,13 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
 
 **Functions:**
 - `init_db()`
-- `update_books(books)` - insert new ASINs only, status `waiting_download`; returns count inserted
+- `update_books(books)` - `INSERT OR IGNORE` in one statement, status `waiting_download`; returns count inserted. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not
 - `get_books(limit=None)` - all books, newest `date_added` first
 - `get_books_to_download()` - status `waiting_download`, oldest first
 - `get_book_by_asin(asin)`
-- `mark_book_downloaded(asin, encoding_format=None)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests)
-- `update_book_accessories(asin, pdf_path=, cover_path=, annotations_path=)`
+- `latest_date_added()` - `MAX(date_added)`, the incremental sync cursor. Independent of how `get_books` sorts
+- `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value
+- `update_book_accessories(asin, pdf_path=, cover_path=, annotations_path=)` - accessory paths only; unused by the pipeline, kept for the API
 
 **Rows are tuples, not Book objects.** Column indices:
 
@@ -139,15 +143,17 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
                       19: downloaded_at
 ```
 
-Read functions do not close their connections; write functions do.
+All functions close their connections (`contextlib.closing`). `init_db` also indexes `date_added` and `status`, guarded by the columns actually present so an old database still migrates.
 
 ### audible.py
 
 `Audible(auth_file)` wraps `audible.Authenticator` and `audible.Client`.
 
-- `get_library(purchased_after=None)` - up to 1000 items sorted by purchase date, with an extensive `response_groups` list
-- `get_book(asin)`
-- `_prepare_book(item)` - maps an API item to `Book`. Prefers the 1215px cover, falls back to 500px. Sets `has_pdf` from `pdf_url`.
+- `get_library(purchased_after=None)` - follows pagination until a short page comes back, so a library over 1000 titles syncs fully
+- `get_book(asin)` - single book, same response groups. No caller yet
+- `RESPONSE_GROUPS` - the nine groups `_prepare_book` actually reads, shared by both calls
+- `_prepare_book(item)` - maps an API item to `Book`, reading every optional field defensively. Prefers the 1215px cover, falls back to 500px. Sets `has_pdf` from `pdf_url`
+- `_prepare_books(items)` - maps a page and skips (with a logged traceback) any single item that cannot be read, so one odd podcast or unnumbered series entry does not abort the run
 
 ### sync.py
 
@@ -157,30 +163,35 @@ Read functions do not close their connections; write functions do.
 
 The largest module. Key pieces:
 
-**Path helpers**
-- `sanitize_filename(name, fallback="Unknown")` - makes a single path segment safe on Linux, macOS, Windows and SMB. `:` becomes ` -`, `/` and `\` become `-`, other invalid characters are dropped, whitespace collapsed, length capped at 150. Use it for every title, author, series or sequence that becomes part of a path.
-- `temp_book_folder(download_folder, asin, title)` - the per-book working folder `downloads/{asin}_{safe_title}/`
-
 **`Downloader(audible)`**
-- `get_license_response(asin, quality)` - quality is `"High"` (the correct value for AAXC downloads)
+- `get_license_response(asin, quality)` - quality is `"High"` (the correct value for AAXC downloads). Raises `LicenseError` unless the response says `Granted`; a denied license is a normal 200 with no `content_metadata`
 - `get_download_link(license_response)` (static)
-- `download_file(url, filename)` (static) - streams with a tqdm bar, raises on HTTP errors, tolerates a missing Content-Length
-- `get_chapter_info(asin)` - `content/{asin}/metadata` with `chapter_info`
-- `download_book(book, folder)` - license, AAXC download, decrypted voucher JSON, chapters. Returns `{"book", "voucher", "chapters"}` or `None` if no license.
+- `download_file(url, filename)` (static) - streams through the shared client; raises on HTTP errors
+- `get_chapter_info(asin)` - `content/{asin}/metadata` with `chapter_info`. Returns `None` on `httpx.HTTPError`
+- `download_book(book, temp_dir)` - license, decrypted voucher (written before the download so a key problem is found early), AAXC download, chapters. Returns a `DownloadedBook(aaxc, voucher, chapters)`
 - `download_pdf(asin, path)` - `https://www.audible.{domain}/companion-file/{asin}` via the authenticated session; checks content type
-- `download_cover(url, path)`
+- `download_cover(url, path)` - via the **unauthenticated** shared client: the audible session signs every request, which would send the account's ADP token to the image CDN
 - `download_annotations(asin, path)` - Amazon sidecar endpoint; only writes a file if clips or bookmarks exist
+
+**Accessory contract:** the three accessory methods return `False` only when the thing is genuinely absent (404, non-PDF content type, no clips or bookmarks). Every other failure raises, so the book stays `waiting_download` and is retried instead of being filed as complete with a `NULL` path that nothing would ever fix.
+
+**HTTP:** `get_http_client()` is a shared `httpx.Client` with a 30s connect / 120s read timeout and redirects followed. httpx defaults to 5s, which aborted a part-finished multi-gigabyte download on any brief CDN stall. `_stream_to_file(response, path, desc)` is the one streaming loop for all three downloads; it writes to a `.part` file and renames on completion.
+
+**Chapters:** `flatten_chapters(chapters)` descends into the nested `chapters` list Audible returns for books split into parts. Taking only the top level left a multi-part book with a few hours-long "Part One" markers instead of its real chapters.
 
 **Metadata and decryption**
 - `generate_metadata(book_tuple)` - title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment
-- `write_ffmpeg_metadata_file(metadata, path, chapters=None)` - writes an FFMETADATA1 file including `[CHAPTER]` blocks
+- `write_ffmpeg_metadata_file(metadata, path, chapters=None)` - writes an FFMETADATA1 file including `[CHAPTER]` blocks, escaping through `_escape_ffmetadata`. A newline is escaped as a backslash followed by the real newline; writing the two characters `\` and `n` would be read back as a literal `n`
 - `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None, *, encoding_format="m4b", bitrate=64)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv` and raises on non-zero exit. The argv comes from one of two helpers:
-  - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`. The MP4 muxer only writes the keys it knows and drops `series`, `series-part`, `author` and `media_type`; after FFmpeg succeeds `decrypt_aaxc` calls `write_m4b_extra_tags` (in `src/encoding.py`) to add those as iTunes freeform atoms. Do not use `-movflags use_metadata_tags` for this: it keeps every key but removes the embedded cover (verified 2026-09-08)
+  - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`. `-map_chapters` is only passed when there **are** chapters: pointing it at a chapterless metadata file discards the chapter track the AAXC itself carries, which FFmpeg would otherwise have copied. The MP4 muxer only writes the keys it knows and drops `series`, `series-part`, `author` and `media_type`; after FFmpeg succeeds `decrypt_aaxc` calls `write_m4b_extra_tags` (in `src/encoding.py`) to add those as iTunes freeform atoms. Do not use `-movflags use_metadata_tags` for this: it keeps every key but removes the embedded cover (verified 2026-09-08)
   - `_opus_ffmpeg_args` - `-c:a libopus -b:a {bitrate}k -vbr on` into the `oga` muxer. Ogg has no picture stream or chapter track, so the cover goes in as a `METADATA_BLOCK_PICTURE` tag and chapters as `CHAPTERxxx`/`CHAPTERxxxNAME` tags (built by `src/encoding.py`) inside the FFMETADATA file, and `-map_chapters -1` stops FFmpeg copying the AAXC's own chapters on top of them. FFmpeg renames `comment` to `DESCRIPTION` and `album_artist` to `ALBUMARTIST` in Ogg
 
 **Orchestration**
-- `_process_book(downloader, book, temp_dir, audiobook_folder, folder_template, filename_template, encoding_format, bitrate)` - the full pipeline for one book: download, accessories, decrypt, file into the library, record accessory paths, mark downloaded. Raises on any failure.
-- `download_books(audible, download_folder, audiobook_folder, max=None, *, folder_template, filename_template, encoding_format, bitrate)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. Ends with a succeeded/failed summary.
+- `_process_book(downloader, book, temp_dir, audiobook_folder, folder_template, filename_template, encoding_format, bitrate)` - the full pipeline for one book: download, accessories, decrypt, release the AAXC, file into the library, mark downloaded with the accessory paths in one statement. Raises on any failure.
+- `_download_accessories(downloader, book, temp_dir, safe_title)` - PDF, cover and annotations, keyed by the database column they belong to. The cover extension comes from the image bytes (`image_info`), not the URL, because plenty of cover URLs carry no extension and the name is kept permanently.
+- `_resolve_output_path(final_folder, stem, extension, asin)` - keeps two books that render to the same name apart. Every output carries its own ASIN in the comment tag, so a file belonging to this book is reused and anything else gets ` [{asin}]` appended. Without this the second book silently overwrote the first (the live library has two *Red Rising* ASINs that collide).
+- The finished book is **moved**, not copied, and the AAXC and voucher are deleted straight after decryption, which keeps peak disk at roughly one copy of the book rather than three.
+- `download_books(audible, download_folder, audiobook_folder, max=None, *, folder_template, filename_template, encoding_format, bitrate)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. An `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop instead, because every remaining book would fail the same way. Ends with a succeeded/failed summary.
 
 **Final layout** comes from the `[naming]` templates in `config.ini`, rendered by `src/naming.py`:
 - `folder` (default `{author}/[{series}/][{sequence} - ]{title}`) and `filename` (default `{title}`); `[...]` groups are dropped when any placeholder inside is empty, empty segments are skipped, every value is sanitized
@@ -188,9 +199,17 @@ The largest module. Key pieces:
 - Missing author → `Unknown Author`; empty folder or filename → ASIN; unknown placeholder → `ValueError` at startup (`validate_templates` in `main.py`)
 - PDF, `{filename}_cover.jpg` and `{filename}_annotations.json` sit next to the audio file; the extension comes from `output_extension()` in `src/encoding.py`
 
+### naming.py
+
+Everything that turns book data into a path; see also the `[naming]` templates under Configuration.
+
+- `sanitize_filename(name, fallback="Unknown")` - makes a single path segment safe on Linux, macOS, Windows and SMB. `:` becomes ` -`, `/` and `\` become `-`, other invalid characters are dropped, whitespace collapsed, Windows device names (`CON`, `NUL`, `COM1`, ...) get a trailing underscore, and the result is capped at 150 characters **and** 200 UTF-8 bytes. File systems limit a component in bytes, so a CJK title overflows long before the character cap. Use it for every title, author, series or sequence that becomes part of a path.
+- `temp_book_folder(download_folder, asin, title)` - the per-book working folder `downloads/{asin}_{safe_title}/`
+- `book_template_values(book)`, `render_template`, `validate_templates`, `book_output_paths` - the template engine. A sequence with no series title is treated as empty, so a book never lands in a bare `{author}/2 - {title}/` folder.
+
 ### encoding.py
 
-Everything format-specific that is not an ffmpeg flag. `FORMATS` maps `m4b`/`oga` to extensions; `write_m4b_extra_tags(path, metadata)` opens a finished M4B with mutagen and adds every metadata key outside `MP4_NATIVE_KEYS` as a `----:com.apple.iTunes:<key>` freeform atom (plus `stik=2` for audiobooks), returning the keys written; `validate_encoding(format, bitrate)` raises `ValueError` at startup for an unknown format or a bitrate outside 1..256 kbps (libopus rejects more). `image_info(bytes)` reads MIME, width, height and depth from JPEG (SOF marker) or PNG (IHDR) headers with the stdlib, returning zeros for anything else. `picture_block(path)` packs the FLAC-style picture block (type 3, MIME, "Cover Artwork", dimensions, data) and returns unwrapped base64 for the `METADATA_BLOCK_PICTURE` tag. `chapter_tags(chapters)` turns Audible chapters into `CHAPTER000=HH:MM:SS.mmm` / `CHAPTER000NAME=` pairs. No escaping here; `write_ffmpeg_metadata_file` escapes when writing.
+Everything format-specific that is not an ffmpeg flag. `FORMATS` maps `m4b`/`oga` to extensions; `write_m4b_extra_tags(path, metadata)` opens a finished M4B with mutagen and adds every metadata key outside `MP4_NATIVE_KEYS` as a `----:com.apple.iTunes:<key>` freeform atom (plus `stik=2` for audiobooks), returning the keys written; `validate_encoding(format, bitrate)` raises `ValueError` at startup for an unknown format (via `output_extension`, so the message is defined once) or a bitrate outside 1..256 kbps (libopus rejects more). `read_embedded_asin(path)` reads the ASIN back out of a finished M4B or OGA from the `comment` tag every output carries, which is how `_resolve_output_path` tells a retry of the same book from a different book with the same name. `image_info(bytes)` reads MIME, width, height and depth from JPEG (SOF marker) or PNG (IHDR) headers with the stdlib, returning zeros for anything else. `picture_block(path)` packs the FLAC-style picture block (type 3, MIME, "Cover Artwork", dimensions, data) and returns unwrapped base64 for the `METADATA_BLOCK_PICTURE` tag. `chapter_tags(chapters)` turns Audible chapters into `CHAPTER000=HH:MM:SS.mmm` / `CHAPTER000NAME=` pairs. No escaping here; `write_ffmpeg_metadata_file` escapes when writing.
 
 ### api.py
 
@@ -202,10 +221,10 @@ FastAPI stub with `GET /` and `POST /sync`. The sync endpoint calls `sync_librar
 
 ```ini
 [general]
-debug = true            ; currently unused
+debug = true            ; sets the log level to DEBUG
 
 [sync]
-; max-download = 10     ; limit books processed per run; unset = all waiting
+; max-download = 10     ; limit books processed per run, 1 or more; unset = all waiting
 ; audible-auth-file = audible.json   ; default ~/.audible/audible.json
 
 [folders]
@@ -284,7 +303,8 @@ uv run pytest -k sanitize   # subset
 - For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it. The fixture also replaces `downloader.write_m4b_extra_tags` with a recorder, since the fake ffmpeg produces no file for mutagen to open.
 - Never hit the Audible API, the network or FFmpeg in tests. Mock `Audible`/`Downloader` methods and `subprocess.run` with `unittest.mock` or `monkeypatch`.
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
-- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `update_book_accessories`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls. This is how the per-book error handling was verified.
+- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). This is how the per-book error handling was verified. `Downloader.download_book` takes `(book, temp_dir)` and returns a `DownloadedBook`.
+- For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible.py`.
 - Keep fixtures small and inline; a shared `conftest.py` is fine once two files need the same one.
 
 The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
@@ -343,8 +363,9 @@ Two workflows in `.github/workflows/`:
 - Root `main.py` is a uv scaffold leftover
 - `requirements.txt` is generated from the lockfile and will drift if `uv lock` runs without re-exporting
 - Test coverage is thin outside `downloader.py` and `database.py`; `audible.py` and `sync.py` have no tests yet
-- `debug` config flag is unused; log level is hardcoded
-- Read functions in `database.py` leak connections (harmless for a one-shot CLI)
+- Two books whose templates render to the same name are filed side by side (` [{asin}]` suffix) rather than merged; the naming template is what actually needs disambiguating
+- `Downloader`'s network-facing methods still have no unit tests
+- The structural work listed under **Milestone 3 Step 0** in `todo.md`: raw row tuples with magic indices, config threaded as keyword arguments, a two-value status string, and no `sync_runs` table
 
 ## Roadmap
 
@@ -354,7 +375,7 @@ See `todo.md` for the authoritative list.
 
 **Milestone 2 - complete:** logging, PDF/cover/annotations, metadata and chapter embedding, configurable file naming, and Ogg Opus encoding with a bitrate setting. Async download progress is still listed under it in `todo.md` but only pays off with a web UI; recommended to move to Milestone 3.
 
-**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema additions: a `settings` table and a `sync_runs` table (`encoding_format` and `downloaded_at` already exist).
+**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema additions: a `settings` table and a `sync_runs` table (`encoding_format` and `downloaded_at` already exist). `todo.md` opens the milestone with a **Step 0** section of structural changes that each block one of the requirements; start there.
 
 ## Understanding "Sync"
 
@@ -362,7 +383,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 3.2
+**Document Version:** 4.0
 **Last Updated:** 2026-09-08
-**Codebase Version:** Milestone 2 complete (branch feature/oga-encoding)
+**Codebase Version:** Milestone 2 complete, pre-Milestone-3 review fixes (branch fix/pre-api-review)
 **Primary Branch:** `dev`
