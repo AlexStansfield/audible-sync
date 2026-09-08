@@ -9,17 +9,41 @@ from src.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
 from src.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
 from src.sync import sync_library
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-)
-
 logger = logging.getLogger(__name__)
+
+
+def configure_logging(debug: bool = False) -> None:
+    """
+    Set up logging for a CLI run.
+
+    Called from the entry point rather than at import time: configuring the root
+    logger on import would also reconfigure any host process that imports this
+    module, which is exactly what the Milestone 3 service will do.
+    """
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+def validate_max_download(max_download: int | None) -> None:
+    """
+    Check the download limit up front, like the naming and encoding settings.
+
+    Raises:
+        ValueError: if the limit is set but not a positive number
+    """
+    if max_download is not None and max_download < 1:
+        raise ValueError(f"sync max-download must be 1 or more, got {max_download}")
+
 
 if __name__ == "__main__":
     # Load the Config
     config = configparser.ConfigParser()
     config.read("config/config.ini")
+
+    configure_logging(config.getboolean("general", "debug", fallback=False))
 
     # Initialise the Database if doesn't exist
     init_db()
@@ -38,11 +62,14 @@ if __name__ == "__main__":
     bitrate = config.getint("encoding", "bitrate", fallback=DEFAULT_BITRATE)
     validate_encoding(encoding_format, bitrate)
 
+    # How many books to process this run, same again
+    max_download: int | None = config.getint("sync", "max-download", fallback=None)
+    validate_max_download(max_download)
+
     # Get Audible Sync
-    if config.has_option("sync", "audible-auth-file"):
-        audible_json = config.get("sync", "audible-auth-file")
-    else:
-        audible_json = f"{Path.home()}/.audible/audible.json"
+    audible_json = config.get("sync", "audible-auth-file", fallback=None) or str(
+        Path.home() / ".audible" / "audible.json"
+    )
 
     audible = Audible(audible_json)
 
@@ -51,9 +78,6 @@ if __name__ == "__main__":
     logger.info("%d books synced to database", books_synced)
 
     # Download Books
-    max_download: int = None
-    if config.has_option("sync", "max-download"):
-        max_download = config.getint("sync", "max-download")
     download_books(
         audible,
         config["folders"]["downloads"],
