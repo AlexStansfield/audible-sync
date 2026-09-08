@@ -1,14 +1,19 @@
 import base64
 import json
 import logging
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 import src.downloader as downloader
 from src.downloader import (
+    DownloadedBook,
+    LicenseError,
     decrypt_aaxc,
+    flatten_chapters,
     generate_metadata,
     sanitize_filename,
     temp_book_folder,
@@ -175,7 +180,7 @@ def test_decrypt_aaxc_m4b_command_keeps_all_metadata_tags(fake_ffmpeg, aaxc):
     assert out == f"{aaxc.book}.m4b"
     metadata_file = f"{aaxc.book}.ffmetadata"
     assert fake_ffmpeg.cmd == [
-        "ffmpeg", "-y",
+        "ffmpeg", "-y", "-hide_banner", "-nostats", "-loglevel", "error",
         "-audible_key", "KEY", "-audible_iv", "IV", "-i", aaxc.book,
         "-i", aaxc.cover,
         "-i", metadata_file,
@@ -210,7 +215,7 @@ def test_decrypt_aaxc_oga_command_and_metadata(fake_ffmpeg, aaxc):
     assert out == f"{aaxc.book}.oga"
     metadata_file = f"{aaxc.book}.ffmetadata"
     assert fake_ffmpeg.cmd == [
-        "ffmpeg", "-y",
+        "ffmpeg", "-y", "-hide_banner", "-nostats", "-loglevel", "error",
         "-audible_key", "KEY", "-audible_iv", "IV", "-i", aaxc.book,
         "-i", metadata_file,
         "-map", "0:a",
@@ -262,8 +267,9 @@ def test_decrypt_aaxc_uses_default_bitrate(fake_ffmpeg, aaxc):
 
 def test_decrypt_aaxc_raises_on_ffmpeg_failure(fake_ffmpeg, aaxc):
     fake_ffmpeg.returncode = 1
-    with pytest.raises(Exception, match="FFmpeg conversion failed: boom"):
+    with pytest.raises(subprocess.CalledProcessError) as excinfo:
         decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row())
+    assert excinfo.value.stderr == "boom"
     assert fake_ffmpeg.extra_tags is None
 
 
@@ -299,22 +305,23 @@ def _library_books():
 def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls):
     """Stub everything that would hit the network, ffmpeg or the database."""
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
-    monkeypatch.setattr(
-        downloader, "mark_book_downloaded", lambda asin, **kw: marked.append((asin, kw["encoding_format"]))
-    )
-    monkeypatch.setattr(downloader, "update_book_accessories", lambda asin, **kw: accessories.append(asin))
 
-    def fake_download_book(self, book, folder):
-        work = temp_book_folder(folder, book[0], book[1])
-        work.mkdir(parents=True, exist_ok=True)
+    def fake_mark(asin, **kw):
+        marked.append((asin, kw["encoding_format"]))
+        accessories.append({k: v for k, v in kw.items() if k.endswith("_path")})
+
+    monkeypatch.setattr(downloader, "mark_book_downloaded", fake_mark)
+
+    def fake_download_book(self, book, temp_dir):
+        temp_dir.mkdir(parents=True, exist_ok=True)
         if book[0] == "BAD1":
-            (work / "partial.aaxc").write_bytes(b"junk")
+            (temp_dir / "partial.aaxc").write_bytes(b"junk")
             raise RuntimeError("simulated network failure")
-        aaxc = work / "book.aaxc"
+        aaxc = temp_dir / "book.aaxc"
         aaxc.write_bytes(b"aaxc")
         voucher = aaxc.with_suffix(".json")
         voucher.write_text("{}")
-        return {"book": aaxc, "voucher": voucher, "chapters": None}
+        return DownloadedBook(aaxc=aaxc, voucher=voucher, chapters=None)
 
     def fake_decrypt(book, voucher, **kwargs):
         decrypt_calls.append(kwargs)
@@ -337,7 +344,7 @@ def test_download_books_skips_failed_book_and_cleans_temp(tmp_path, monkeypatch)
     downloader.download_books(object(), str(downloads), str(library))
 
     assert marked == [("OK2", "m4b"), ("OK3", "m4b")]
-    assert accessories == ["OK2", "OK3"]
+    assert accessories == [{}, {}]
     assert list(downloads.iterdir()) == []
 
     final = sorted(str(p.relative_to(library)) for p in library.rglob("*.m4b"))
@@ -366,14 +373,236 @@ def test_download_books_oga_files_with_oga_extension(tmp_path, monkeypatch):
     ]
 
 
-def test_download_books_raises_clear_error_when_no_license(tmp_path, monkeypatch, caplog):
+def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
     books = [make_row("NOLIC", "Unlicensed")]
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
-    monkeypatch.setattr(downloader.Downloader, "download_book", lambda self, book, folder: None)
+
+    def refuse(self, book, temp_dir):
+        raise LicenseError("Audible did not grant a license for NOLIC (status Denied): not in catalogue")
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", refuse)
 
     downloader.download_books(object(), str(tmp_path / "dl"), str(tmp_path / "lib"))
 
-    assert "Could not obtain a download license" in caplog.text
+    assert "did not grant a license" in caplog.text
+    assert "not in catalogue" in caplog.text
     assert "1 failed" in caplog.text
+
+
+def test_write_ffmpeg_metadata_file_escapes_newlines_the_way_ffmpeg_reads_them(tmp_path):
+    out = tmp_path / "meta.ffmetadata"
+    write_ffmpeg_metadata_file(
+        {"title": "Part One\nThe Beginning"},
+        str(out),
+        chapters=[{"start_offset_ms": 0, "length_ms": 10, "title": "One\r\nTwo"}],
+    )
+    text = out.read_text(encoding="utf-8")
+
+    # FFmpeg escapes a newline as a backslash followed by the real newline; the two
+    # characters "\\" and "n" would be read back as a literal "n".
+    assert "title=Part One\\\nThe Beginning\n" in text
+    assert "title=One\\\nTwo\n" in text
+    assert "\\n" not in text.replace("\\\n", "")
+    assert "\r" not in text
+
+
+def test_flatten_chapters_descends_into_parts():
+    tree = [
+        {"title": "Part One", "start_offset_ms": 0, "chapters": [{"title": "Ch 1"}, {"title": "Ch 2"}]},
+        {"title": "Part Two", "start_offset_ms": 100, "chapters": [{"title": "Ch 3"}]},
+    ]
+    assert [c["title"] for c in flatten_chapters(tree)] == ["Ch 1", "Ch 2", "Ch 3"]
+
+
+def test_flatten_chapters_leaves_a_flat_list_alone():
+    flat = [{"title": "Ch 1"}, {"title": "Ch 2"}]
+    assert flatten_chapters(flat) == flat
+    assert flatten_chapters(None) == []
+
+
+def test_m4b_without_chapters_lets_ffmpeg_keep_the_aaxc_chapter_track(fake_ffmpeg, aaxc):
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row())
+
+    # Pointing -map_chapters at a chapterless metadata file would throw away the
+    # chapters the AAXC itself carries.
+    assert "-map_metadata" in fake_ffmpeg.cmd
+    assert "-map_chapters" not in fake_ffmpeg.cmd
+
+
+def test_m4b_with_chapters_maps_them_from_the_metadata_file(fake_ffmpeg, aaxc):
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row(), chapters=CHAPTERS)
+
+    idx = fake_ffmpeg.cmd.index("-map_chapters") + 1
+    assert fake_ffmpeg.cmd[idx] == "1"
+    assert fake_ffmpeg.metadata.count("[CHAPTER]") == 2
+
+
+def test_license_response_rejects_a_denied_license():
+    class FakeClient:
+        def post(self, path, body):
+            return {"content_license": {"status_code": "Denied", "message": "Not in catalogue"}}
+
+    downloader_ = downloader.Downloader(SimpleNamespace(client=FakeClient()))
+
+    with pytest.raises(LicenseError, match="Not in catalogue"):
+        downloader_.get_license_response("B001", quality="High")
+
+
+def test_license_response_returns_a_granted_license():
+    granted = {"content_license": {"status_code": "Granted", "content_metadata": {}}}
+
+    class FakeClient:
+        def post(self, path, body):
+            return granted
+
+    downloader_ = downloader.Downloader(SimpleNamespace(client=FakeClient()))
+    assert downloader_.get_license_response("B001", quality="High") == granted
+
+
+def test_resolve_output_path_keeps_a_different_book_from_being_overwritten(tmp_path, monkeypatch):
+    existing = tmp_path / "Red Rising.m4b"
+    existing.write_bytes(b"first book")
+    monkeypatch.setattr(downloader, "read_embedded_asin", lambda path: "OTHER")
+
+    path, stem = downloader._resolve_output_path(tmp_path, "Red Rising", ".m4b", "MINE")
+
+    assert path == tmp_path / "Red Rising [MINE].m4b"
+    assert stem == "Red Rising [MINE]"
+    assert existing.read_bytes() == b"first book"
+
+
+def test_resolve_output_path_reuses_the_name_when_the_file_is_this_book(tmp_path, monkeypatch):
+    (tmp_path / "Red Rising.m4b").write_bytes(b"mine")
+    monkeypatch.setattr(downloader, "read_embedded_asin", lambda path: "MINE")
+
+    path, stem = downloader._resolve_output_path(tmp_path, "Red Rising", ".m4b", "MINE")
+
+    assert path == tmp_path / "Red Rising.m4b"
+    assert stem == "Red Rising"
+
+
+def test_resolve_output_path_uses_the_plain_name_when_nothing_is_there(tmp_path):
+    path, stem = downloader._resolve_output_path(tmp_path, "Red Rising", ".m4b", "MINE")
+    assert path == tmp_path / "Red Rising.m4b"
+    assert stem == "Red Rising"
+
+
+def test_download_books_files_colliding_books_side_by_side(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    library = tmp_path / "audiobooks"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [
+        make_row("ASIN1", "Red Rising", authors=("Pierce Brown",)),
+        make_row("ASIN2", "Red Rising", authors=("Pierce Brown",)),
+    ]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    # The stub decrypt writes no tags, so neither file can claim an ASIN
+    monkeypatch.setattr(downloader, "read_embedded_asin", lambda path: None)
+
+    downloader.download_books(object(), str(downloads), str(library))
+
+    final = sorted(p.name for p in library.rglob("*.m4b"))
+    assert final == ["Red Rising [ASIN2].m4b", "Red Rising.m4b"]
+    assert marked == [("ASIN1", "m4b"), ("ASIN2", "m4b")]
+
+
+def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    books = [make_row("A1", "First"), make_row("A2", "Second")]
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
+    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
+
+    attempts = []
+
+    def reject(self, book, temp_dir):
+        attempts.append(book[0])
+        raise downloader.Unauthorized(httpx.Response(401), {"message": "token expired"})
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", reject)
+
+    downloader.download_books(object(), str(tmp_path / "dl"), str(tmp_path / "lib"))
+
+    # Every remaining book would fail the same way, so the run stops after the first
+    assert attempts == ["A1"]
+    assert "rejected our credentials" in caplog.text
+
+
+def test_download_books_removes_the_encrypted_source_after_decrypting(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    library = tmp_path / "audiobooks"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    leftovers = []
+    _patch_pipeline(monkeypatch, [make_row("OK1", "Book")], marked, accessories, decrypt_calls)
+
+    real_move = downloader.shutil.move
+
+    def spy_move(src, dst):
+        leftovers.append(sorted(p.name for p in Path(src).parent.iterdir()))
+        return real_move(src, dst)
+
+    monkeypatch.setattr(downloader.shutil, "move", spy_move)
+    downloader.download_books(object(), str(downloads), str(library))
+
+    # By the time the finished book is filed, the AAXC and voucher are already gone
+    assert leftovers[0] == ["book.aaxc.m4b"]
+
+
+PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"\x00" * 8 + b"\x00\x00\x00\x10\x00\x00\x00\x10\x08\x06"
+JPEG_BYTES = b"\xff\xd8\xff\xe0\x00\x10JFIF"
+
+
+class StubAccessoryDownloader:
+    """A Downloader whose accessory fetches write fixed bytes instead of hitting the network."""
+
+    def __init__(self, cover_bytes=JPEG_BYTES, has_annotations=False):
+        self.cover_bytes = cover_bytes
+        self.has_annotations = has_annotations
+
+    def download_pdf(self, asin, output_path):
+        Path(output_path).write_bytes(b"%PDF-1.4")
+        return True
+
+    def download_cover(self, cover_url, output_path):
+        Path(output_path).write_bytes(self.cover_bytes)
+        return True
+
+    def download_annotations(self, asin, output_path):
+        if not self.has_annotations:
+            return False
+        Path(output_path).write_text("{}")
+        return True
+
+
+@pytest.mark.parametrize(
+    ("cover_bytes", "expected_suffix"),
+    [(JPEG_BYTES, ".jpg"), (PNG_BYTES, ".png")],
+)
+def test_download_accessories_names_the_cover_from_its_bytes(tmp_path, cover_bytes, expected_suffix):
+    """The URL is not reliable: plenty of cover URLs carry no extension at all."""
+    row = make_row("B001", "Book", cover_url="https://img/cover-with-no-extension")
+    stub = StubAccessoryDownloader(cover_bytes=cover_bytes)
+
+    accessories = downloader._download_accessories(stub, row, tmp_path, "Book")
+
+    assert accessories["cover_path"].suffix == expected_suffix
+    assert accessories["cover_path"].read_bytes() == cover_bytes
+
+
+def test_download_accessories_skips_a_pdf_the_book_does_not_have(tmp_path):
+    row = make_row("B001", "Book", cover_url="")
+    accessories = downloader._download_accessories(StubAccessoryDownloader(), row, tmp_path, "Book")
+
+    assert accessories == {}
+
+
+def test_download_accessories_collects_everything_available(tmp_path):
+    row = make_row("B001", "Book", cover_url="https://img/c.jpg", has_pdf=1)
+    stub = StubAccessoryDownloader(has_annotations=True)
+
+    accessories = downloader._download_accessories(stub, row, tmp_path, "Book")
+
+    assert set(accessories) == {"pdf_path", "cover_path", "annotations_path"}
