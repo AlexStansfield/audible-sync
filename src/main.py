@@ -5,6 +5,7 @@ from pathlib import Path
 from src.audible import Audible
 from src.database import init_db
 from src.downloader import download_books
+from src.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
 from src.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
 from src.sync import sync_library
 
@@ -32,6 +33,11 @@ if __name__ == "__main__":
     filename_template = config.get("naming", "filename", fallback=DEFAULT_FILENAME_TEMPLATE)
     validate_templates(folder_template, filename_template)
 
+    # Output format and Opus bitrate, validated up front for the same reason
+    encoding_format = config.get("encoding", "format", fallback=DEFAULT_FORMAT)
+    bitrate = config.getint("encoding", "bitrate", fallback=DEFAULT_BITRATE)
+    validate_encoding(encoding_format, bitrate)
+
     # Get Audible Sync
     if config.has_option("sync", "audible-auth-file"):
         audible_json = config.get("sync", "audible-auth-file")
@@ -55,4 +61,6 @@ if __name__ == "__main__":
         max=max_download,
         folder_template=folder_template,
         filename_template=filename_template,
+        encoding_format=encoding_format,
+        bitrate=bitrate,
     )

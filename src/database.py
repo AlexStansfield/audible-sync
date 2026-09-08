@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from datetime import UTC, datetime
 
 from src.model import Book
 
@@ -32,7 +33,9 @@ def init_db():
             pdf_path TEXT,
             cover_path TEXT,
             annotations_path TEXT,
-            has_pdf BOOLEAN DEFAULT 0
+            has_pdf BOOLEAN DEFAULT 0,
+            encoding_format TEXT,
+            downloaded_at TEXT
         )
     """)
     conn.commit()
@@ -52,7 +55,14 @@ def _migrate_schema(conn):
     existing_columns = {row[1] for row in cursor.fetchall()}
 
     # Add missing columns
-    new_columns = {"pdf_path": "TEXT", "cover_path": "TEXT", "annotations_path": "TEXT", "has_pdf": "BOOLEAN DEFAULT 0"}
+    new_columns = {
+        "pdf_path": "TEXT",
+        "cover_path": "TEXT",
+        "annotations_path": "TEXT",
+        "has_pdf": "BOOLEAN DEFAULT 0",
+        "encoding_format": "TEXT",
+        "downloaded_at": "TEXT",
+    }
 
     for column, column_type in new_columns.items():
         if column not in existing_columns:
@@ -131,10 +141,19 @@ def get_book_by_asin(asin):
     return cursor.fetchone()
 
 
-def mark_book_downloaded(asin):
+def _utcnow() -> str:
+    """Current UTC time as an ISO 8601 string with second precision, e.g. 2026-09-08T05:16:15+00:00."""
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
+def mark_book_downloaded(asin, encoding_format: str | None = None):
+    """Set the book to downloaded and record when and in which format it was converted."""
     conn = _get_connection()
     cursor = conn.cursor()
-    cursor.execute("UPDATE library set status = 'downloaded' WHERE asin=?", (asin,))
+    cursor.execute(
+        "UPDATE library SET status = 'downloaded', encoding_format = ?, downloaded_at = ? WHERE asin = ?",
+        (encoding_format, _utcnow(), asin),
+    )
     conn.commit()
     conn.close()
 
