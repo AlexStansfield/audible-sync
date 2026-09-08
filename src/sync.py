@@ -1,19 +1,23 @@
 import logging
 
 from src.audible import Audible
-from src.database import get_books, update_books
+from src.database import latest_date_added, update_books
 
 logger = logging.getLogger(__name__)
 
 
-def sync_library(audible: Audible):
-    # Check Books Count
-    latest_book = get_books(1)
-    purchased_after = None
-    if len(latest_book) == 0:
+def sync_library(audible: Audible) -> int:
+    """
+    Fetch new books from Audible into the library table.
+
+    The first run fetches everything; later runs fetch only what was purchased
+    after the newest `date_added` already stored. Returns the number of books
+    inserted.
+    """
+    purchased_after = latest_date_added()
+    if purchased_after is None:
         logger.info("Fetching all books")
     else:
-        purchased_after = latest_book[0][10]
         logger.info("Fetching books purchased since %s", purchased_after)
 
     library = audible.get_library(purchased_after)

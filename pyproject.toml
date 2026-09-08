@@ -39,6 +39,9 @@ select = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
+# src/audible.py shadows the third-party `audible` dependency, so isort would treat
+# every `import audible` as first-party and silently accept a merged import block.
+known-third-party = ["audible"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

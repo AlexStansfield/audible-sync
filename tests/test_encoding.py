@@ -13,6 +13,7 @@ from src.encoding import (
     image_info,
     output_extension,
     picture_block,
+    read_embedded_asin,
     validate_encoding,
     write_m4b_extra_tags,
 )
@@ -207,3 +208,37 @@ def test_write_m4b_extra_tags_with_nothing_to_add_leaves_file_unchanged(m4b):
 def test_write_m4b_extra_tags_accepts_non_string_values(m4b):
     assert write_m4b_extra_tags(m4b, {"series-part": 3}) == ["series-part"]
     assert bytes(MP4(m4b).tags["----:com.apple.iTunes:series-part"][0]) == b"3"
+
+
+def test_read_embedded_asin_reads_back_what_the_m4b_writer_stored(tmp_path):
+    target = tmp_path / "book.m4b"
+    shutil.copy(FIXTURE_M4B, target)
+    write_m4b_extra_tags(target, {"series": "Red Rising"})
+    audio = MP4(target)
+    audio.tags["\xa9cmt"] = ["ASIN: B00LNGMCE2"]
+    audio.save()
+
+    assert read_embedded_asin(target) == "B00LNGMCE2"
+
+
+def test_read_embedded_asin_returns_none_without_an_asin_tag(tmp_path):
+    target = tmp_path / "book.m4b"
+    shutil.copy(FIXTURE_M4B, target)
+
+    assert read_embedded_asin(target) is None
+
+
+def test_read_embedded_asin_returns_none_for_an_unreadable_file(tmp_path):
+    junk = tmp_path / "not-audio.m4b"
+    junk.write_bytes(b"not an audio file")
+
+    assert read_embedded_asin(junk) is None
+
+
+def test_read_embedded_asin_returns_none_for_a_missing_file(tmp_path):
+    assert read_embedded_asin(tmp_path / "gone.m4b") is None
+
+
+def test_validate_encoding_still_rejects_an_unknown_format():
+    with pytest.raises(ValueError, match="not supported"):
+        validate_encoding("mp3", 64)

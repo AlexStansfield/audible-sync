@@ -9,6 +9,7 @@ from src.naming import (
     book_output_paths,
     book_template_values,
     render_template,
+    sanitize_filename,
     validate_templates,
 )
 
@@ -162,3 +163,28 @@ def test_template_values_for_sparse_book():
     assert values["series"] == ""
     assert values["sequence"] == ""
     assert values["year"] == ""
+
+
+def test_sanitize_filename_truncates_to_byte_budget_for_multibyte_scripts():
+    result = sanitize_filename("あ" * 120)
+    assert len(result.encode("utf-8")) <= 200
+    assert result == "あ" * 66
+
+
+def test_sanitize_filename_escapes_windows_reserved_names():
+    assert sanitize_filename("CON") == "CON_"
+    assert sanitize_filename("nul.m4b") == "nul.m4b_"
+    assert sanitize_filename("com9") == "com9_"
+    assert sanitize_filename("Console") == "Console"
+
+
+def test_sanitize_filename_does_not_leave_double_spaces_behind_dropped_characters():
+    assert sanitize_filename("Who? Me") == "Who Me"
+    assert sanitize_filename('A "B" C') == "A B C"
+
+
+def test_sequence_without_series_title_does_not_become_a_folder():
+    row = make_row(title="Dune", authors=("Frank Herbert",), series=[{"title": None, "sequence": "2"}])
+    folder, stem = book_output_paths(row, LIBRARY)
+    assert folder == Path(LIBRARY) / "Frank Herbert" / "Dune"
+    assert stem == "Dune"

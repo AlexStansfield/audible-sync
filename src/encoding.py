@@ -17,6 +17,7 @@ import logging
 import struct
 from pathlib import Path
 
+import mutagen
 from mutagen.mp4 import MP4, MP4FreeForm
 
 logger = logging.getLogger(__name__)
@@ -52,6 +53,9 @@ MP4_NATIVE_KEYS: frozenset[str] = frozenset(
     }
 )
 _MP4_FREEFORM_PREFIX = "----:com.apple.iTunes:"
+# generate_metadata writes the ASIN into the comment tag of every output file, which
+# makes a finished file self-identifying. FFmpeg renames `comment` to DESCRIPTION in Ogg.
+_ASIN_COMMENT_PREFIX = "ASIN: "
 # iTunes "stik" media kind atom: 2 is Audiobook
 _MP4_STIK_AUDIOBOOK = 2
 
@@ -75,9 +79,7 @@ def validate_encoding(encoding_format: str, bitrate: int) -> None:
     Raises:
         ValueError: on an unknown format or a bitrate outside 1..MAX_BITRATE
     """
-    if encoding_format not in FORMATS:
-        valid = ", ".join(sorted(FORMATS))
-        raise ValueError(f"encoding format '{encoding_format}' is not supported, use one of: {valid}")
+    output_extension(encoding_format)
     if not 1 <= bitrate <= MAX_BITRATE:
         raise ValueError(f"encoding bitrate {bitrate} must be between 1 and {MAX_BITRATE} kbps")
 
@@ -213,3 +215,37 @@ def write_m4b_extra_tags(path: str | Path, metadata: dict) -> list[str]:
         audio.save()
     logger.debug("Added freeform MP4 tags to %s: %s", path, written)
     return written
+
+
+def read_embedded_asin(path: str | Path) -> str | None:
+    """
+    Read the ASIN back out of a finished audiobook, or None if it is not there.
+
+    Every file this app writes carries ``comment=ASIN: <asin>``, so an existing
+    file in the library can say which book it belongs to. Used to tell a retry of
+    the same book (safe to overwrite) from a different book that renders to the
+    same name (must not be overwritten).
+    """
+    try:
+        audio = mutagen.File(path)
+    except (mutagen.MutagenError, OSError):
+        # A file we cannot parse simply has no ASIN as far as the caller is concerned.
+        logger.debug("Could not read tags from %s", path, exc_info=True)
+        return None
+
+    if audio is None or not audio.tags:
+        return None
+
+    for value in _tag_values(audio.tags):
+        if value.startswith(_ASIN_COMMENT_PREFIX):
+            return value[len(_ASIN_COMMENT_PREFIX) :].strip()
+    return None
+
+
+def _tag_values(tags) -> list[str]:
+    """Every tag value in a mutagen tag object as a flat list of strings."""
+    values = []
+    for _, value in tags.items():
+        items = value if isinstance(value, list) else [value]
+        values.extend(str(item) for item in items)
+    return values
