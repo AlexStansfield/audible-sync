@@ -1,15 +1,60 @@
 import json
 import logging
+import re
+import shutil
 import subprocess
 from pathlib import Path
-import shutil
+
 import httpx
-from tqdm import tqdm
-from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
+from tqdm import tqdm
+
+from src.audible import Audible
 from src.database import get_books_to_download, mark_book_downloaded, update_book_accessories
 
 logger = logging.getLogger(__name__)
+
+# Characters that are invalid in file names on Windows/SMB shares (plus control chars).
+# '/' and '\\' are handled separately so they can be replaced rather than dropped.
+_INVALID_PATH_CHARS = re.compile(r'[<>"|?*\x00-\x1f]')
+_MAX_NAME_LENGTH = 150
+
+
+def sanitize_filename(name, fallback: str = "Unknown") -> str:
+    """
+    Make a string safe to use as a single file or folder name on Linux, macOS,
+    Windows and SMB shares.
+
+    - ':' becomes ' -'  (so "Title: Subtitle" -> "Title - Subtitle")
+    - '/' and '\\' become '-'
+    - Other characters that are invalid on Windows/SMB are removed
+    - Whitespace is collapsed, leading/trailing spaces and dots are stripped
+    - Result is truncated to a safe length
+
+    Args:
+        name: The raw name (title, author, series, ...). May be None.
+        fallback: Returned when the sanitized result would be empty.
+
+    Returns:
+        A path-safe name.
+    """
+    if name is None:
+        return fallback
+
+    result = str(name)
+    result = result.replace(":", " -")
+    result = re.sub(r"[/\\]", "-", result)
+    result = re.sub(r"\s+", " ", result)
+    result = _INVALID_PATH_CHARS.sub("", result).strip(" .")
+    result = result[:_MAX_NAME_LENGTH].rstrip(" .")
+
+    return result or fallback
+
+
+def temp_book_folder(download_folder: str, asin: str, title: str) -> Path:
+    """Temporary working folder for a book while it is downloaded and decrypted"""
+    return Path(download_folder) / f"{asin}_{sanitize_filename(title, fallback=asin)}"
+
 
 class Downloader:
     def __init__(self, audible: Audible):
@@ -30,15 +75,16 @@ class Downloader:
             logger.error("Error getting license response: %s", e)
             return
 
+    @staticmethod
     def get_download_link(license_response):
-        return license_response["content_license"]["content_metadata"]["content_url"][
-            "offline_url"
-        ]
+        return license_response["content_license"]["content_metadata"]["content_url"]["offline_url"]
 
+    @staticmethod
     def download_file(url, filename):
         headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
         with httpx.stream("GET", url, headers=headers) as r:
-            total = int(r.headers["Content-Length"])
+            r.raise_for_status()
+            total = int(r.headers.get("Content-Length", 0)) or None
 
             with tqdm(total=total, unit_scale=True, unit_divisor=1024, unit="B") as progress:
                 num_bytes_downloaded = r.num_bytes_downloaded
@@ -62,10 +108,7 @@ class Downloader:
         """
         try:
             url = f"content/{asin}/metadata"
-            response = self.audible.client.get(
-                url,
-                params={"response_groups": "chapter_info"}
-            )
+            response = self.audible.client.get(url, params={"response_groups": "chapter_info"})
             return response.get("content_metadata", {}).get("chapter_info")
         except Exception as e:
             logger.warning("Could not fetch chapter info for %s: %s", asin, e)
@@ -74,10 +117,10 @@ class Downloader:
     def download_book(self, book, folder: str):
         asin = book[0]
         title = book[1]
-        book_folder = f"{asin}_{title}"
+        safe_title = sanitize_filename(title, fallback=asin)
         lr = self.get_license_response(asin, quality="High")
 
-        if lr == None:
+        if lr is None:
             logger.error("Unable to download book: %s", title)
             return
 
@@ -85,7 +128,7 @@ class Downloader:
         dl_link = Downloader.get_download_link(lr)
 
         # Determine Filename and create parent folder
-        filename = Path("{0}/{1}/{2}.aaxc".format(folder, book_folder, title))
+        filename = temp_book_folder(folder, asin, title) / f"{safe_title}.aaxc"
         filename.parent.mkdir(parents=True, exist_ok=True)
 
         # Download the file
@@ -110,7 +153,7 @@ class Downloader:
         """Download PDF companion file if available"""
         try:
             # Get the domain from the auth object (defaults to 'com')
-            domain = getattr(self.audible.auth.locale, 'domain', 'com')
+            domain = getattr(self.audible.auth.locale, "domain", "com")
             url = f"https://www.audible.{domain}/companion-file/{asin}"
 
             logger.info("Downloading PDF for %s", asin)
@@ -123,8 +166,8 @@ class Downloader:
                     return False
 
                 # Check content type to ensure we got a PDF and not HTML login page
-                content_type = r.headers.get('content-type', '').lower()
-                if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
+                content_type = r.headers.get("content-type", "").lower()
+                if "pdf" not in content_type and "application/octet-stream" not in content_type:
                     logger.warning("Received non-PDF content for %s: %s", asin, content_type)
                     return False
 
@@ -209,6 +252,7 @@ class Downloader:
             logger.error("Error downloading annotations for %s: %s", asin, e)
             return False
 
+
 def generate_metadata(book_data: tuple) -> dict:
     """
     Generate comprehensive metadata dictionary from book data tuple.
@@ -234,49 +278,44 @@ def generate_metadata(book_data: tuple) -> dict:
     full_title = title
     if subtitle:
         full_title = f"{title}: {subtitle}"
-    metadata['title'] = full_title
-    metadata['album'] = full_title
+    metadata["title"] = full_title
+    metadata["album"] = full_title
 
     # Authors (primary artist)
     if authors:
-        metadata['artist'] = "; ".join(authors)
-        metadata['album_artist'] = "; ".join(authors)
-        metadata['author'] = "; ".join(authors)
+        metadata["artist"] = "; ".join(authors)
+        metadata["album_artist"] = "; ".join(authors)
+        metadata["author"] = "; ".join(authors)
 
     # Narrators (composer field often used for narrators in audiobooks)
     if narrators:
-        metadata['composer'] = "; ".join(narrators)
+        metadata["composer"] = "; ".join(narrators)
 
     # Series information
     if series:
         series_info = series[0]
-        metadata['series'] = series_info.get('title', '')
-        metadata['series-part'] = series_info.get('sequence', '')
+        metadata["series"] = series_info.get("title", "")
+        metadata["series-part"] = series_info.get("sequence", "")
 
     # Genre
     if genres:
-        metadata['genre'] = "; ".join(genres)
+        metadata["genre"] = "; ".join(genres)
 
-    # Release date (year)
+    # Release date (year). Audible returns ISO dates such as "2020-01-15"
     if release_date:
-        try:
-            # Try to extract year from release_date string
-            year = release_date.split('-')[0] if '-' in release_date else release_date[:4]
-            metadata['date'] = year
-        except:
-            pass
+        metadata["date"] = str(release_date)[:4]
 
     # ASIN as comment for reference
-    metadata['comment'] = f"ASIN: {asin}"
+    metadata["comment"] = f"ASIN: {asin}"
 
     # Media type
-    metadata['media_type'] = 'audiobook'
+    metadata["media_type"] = "audiobook"
 
     logger.debug("Generated metadata: %s", metadata)
     return metadata
 
 
-def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list = None) -> str:
+def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list | None = None) -> str:
     """
     Write metadata and optional chapters to FFmpeg FFMETADATA format file.
 
@@ -288,39 +327,55 @@ def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list 
     Returns:
         Path to the created metadata file
     """
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(';FFMETADATA1\n')
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(";FFMETADATA1\n")
 
         # Write metadata tags
         for key, value in metadata.items():
             # Escape special characters for FFmpeg metadata format
-            escaped_value = str(value).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
-            f.write(f'{key}={escaped_value}\n')
+            escaped_value = (
+                str(value)
+                .replace("\\", "\\\\")
+                .replace("\n", "\\n")
+                .replace("=", "\\=")
+                .replace(";", "\\;")
+                .replace("#", "\\#")
+            )
+            f.write(f"{key}={escaped_value}\n")
 
         # Write chapters if provided
         if chapters:
-            f.write('\n')
+            f.write("\n")
             for chapter in chapters:
-                start_ms = chapter.get('start_offset_ms', 0)
-                length_ms = chapter.get('length_ms', 0)
+                start_ms = chapter.get("start_offset_ms", 0)
+                length_ms = chapter.get("length_ms", 0)
                 end_ms = start_ms + length_ms
-                title = chapter.get('title', 'Chapter')
+                title = chapter.get("title", "Chapter")
 
                 # Escape title for FFmpeg
-                escaped_title = str(title).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
+                escaped_title = (
+                    str(title)
+                    .replace("\\", "\\\\")
+                    .replace("\n", "\\n")
+                    .replace("=", "\\=")
+                    .replace(";", "\\;")
+                    .replace("#", "\\#")
+                )
 
-                f.write('[CHAPTER]\n')
-                f.write('TIMEBASE=1/1000\n')
-                f.write(f'START={start_ms}\n')
-                f.write(f'END={end_ms}\n')
-                f.write(f'title={escaped_title}\n')
-                f.write('\n')
+                f.write("[CHAPTER]\n")
+                f.write("TIMEBASE=1/1000\n")
+                f.write(f"START={start_ms}\n")
+                f.write(f"END={end_ms}\n")
+                f.write(f"title={escaped_title}\n")
+                f.write("\n")
 
     logger.debug("Wrote FFmpeg metadata file: %s", output_path)
     return output_path
 
 
-def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None, chapters: list = None):
+def decrypt_aaxc(
+    book: str, voucher: str, book_data: tuple | None = None, cover_path: str | None = None, chapters: list | None = None
+):
     """
     Decrypt AAXC audiobook file to M4B format with optional metadata, cover art, and chapters.
 
@@ -337,11 +392,11 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     output_file = f"{book}.m4b"
 
     # Load key and iv from .voucher JSON
-    with open(voucher, 'r') as f:
+    with open(voucher) as f:
         voucher_data = json.load(f)
 
-    key = voucher_data['key']
-    iv = voucher_data['iv']
+    key = voucher_data["key"]
+    iv = voucher_data["iv"]
 
     # Generate and write metadata (with chapters) if book_data is provided
     metadata_file = None
@@ -357,28 +412,28 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     # Build ffmpeg command using subprocess for precise control
     # Note: ffmpeg-python library has issues with map_metadata/map_chapters
     # See: https://github.com/kkroening/ffmpeg-python/issues/463
-    cmd = ['ffmpeg', '-y']
+    cmd = ["ffmpeg", "-y"]
 
     # Add decryption keys and primary audio input
-    cmd.extend(['-audible_key', key, '-audible_iv', iv, '-i', book])
+    cmd.extend(["-audible_key", key, "-audible_iv", iv, "-i", book])
 
     # Add cover image as second input if provided
     if cover_path and Path(cover_path).exists():
-        cmd.extend(['-i', cover_path])
+        cmd.extend(["-i", cover_path])
         logger.info("Embedding cover art from: %s", cover_path)
 
     # Add metadata file as input if generated (already includes chapters)
     if metadata_file and Path(metadata_file).exists():
-        cmd.extend(['-i', metadata_file])
+        cmd.extend(["-i", metadata_file])
 
     # Map audio stream from first input
-    cmd.extend(['-map', '0:a'])
+    cmd.extend(["-map", "0:a"])
 
     # Map cover as attached picture if provided
     if cover_path and Path(cover_path).exists():
-        cmd.extend(['-map', '1:v'])
-        cmd.extend(['-c:v', 'copy'])
-        cmd.extend(['-disposition:v', 'attached_pic'])
+        cmd.extend(["-map", "1:v"])
+        cmd.extend(["-c:v", "copy"])
+        cmd.extend(["-disposition:v", "attached_pic"])
 
     # Determine input index for metadata file
     # Input 0: audio (AAXC)
@@ -390,18 +445,18 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
 
     # Map metadata and chapters from the same metadata file
     if metadata_file and Path(metadata_file).exists():
-        cmd.extend(['-map_metadata', str(input_idx)])
-        cmd.extend(['-map_chapters', str(input_idx)])
+        cmd.extend(["-map_metadata", str(input_idx)])
+        cmd.extend(["-map_chapters", str(input_idx)])
 
     # Audio codec and other options
-    cmd.extend(['-c:a', 'copy'])
-    cmd.extend(['-dn'])
+    cmd.extend(["-c:a", "copy"])
+    cmd.extend(["-dn"])
 
     # Add output file
     cmd.append(output_file)
 
     # Run the command
-    logger.debug("FFmpeg command: %s", ' '.join(str(x) for x in cmd))
+    logger.debug("FFmpeg command: %s", " ".join(str(x) for x in cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -417,114 +472,154 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     return output_file
 
 
-def download_books(audible, download_folder, audiobook_folder, max:int=None):
-    waiting_download = get_books_to_download();
+def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook_folder: str):
+    """
+    Download, decrypt and file a single book. Raises on any failure so the
+    caller can decide how to handle it.
+
+    Args:
+        downloader: Downloader bound to an authenticated Audible client
+        book: Book tuple from the database
+        temp_dir: Temporary working folder for this book (created by download_book)
+        audiobook_folder: Root folder for the final organised library
+    """
+    asin = book[0]
+    title = book[1]
+    cover_url = book[12]
+    has_pdf = book[17]  # Index for has_pdf field
+    safe_title = sanitize_filename(title, fallback=asin)
+
+    # Download the Book
+    logger.info("Downloading %s", title)
+    download = downloader.download_book(book, str(temp_dir.parent))
+    if download is None:
+        raise RuntimeError(f"Could not obtain a download license for {title} ({asin})")
+    logger.info("Download complete")
+    logger.debug("Book: %s", download["book"])
+    logger.debug("Voucher: %s", download["voucher"])
+
+    # Download accessories before decryption so we can embed cover
+    pdf_path = None
+    temp_cover_path = None
+    annotations_path = None
+
+    # Download PDF if available
+    if has_pdf:
+        temp_pdf = temp_dir / f"{safe_title}.pdf"
+        if downloader.download_pdf(asin, str(temp_pdf)):
+            pdf_path = str(temp_pdf)
+
+    # Download high-resolution cover for embedding
+    if cover_url:
+        # Determine file extension from URL (usually .jpg)
+        cover_ext = ".jpg"
+        if ".png" in cover_url.lower():
+            cover_ext = ".png"
+        temp_cover = temp_dir / f"{safe_title}_cover{cover_ext}"
+        if downloader.download_cover(cover_url, str(temp_cover)):
+            temp_cover_path = str(temp_cover)
+
+    # Download annotations
+    temp_annotations = temp_dir / f"{safe_title}_annotations.json"
+    if downloader.download_annotations(asin, str(temp_annotations)):
+        annotations_path = str(temp_annotations)
+
+    # Decrypt the Book with metadata, cover art, and chapters embedded
+    logger.info("Decrypting and embedding metadata")
+    chapters_data = download.get("chapters")
+    audiobook = decrypt_aaxc(
+        download["book"], download["voucher"], book_data=book, cover_path=temp_cover_path, chapters=chapters_data
+    )
+
+    # Determine final location (all path segments sanitized)
+    series = json.loads(book[5]) if book[5] else []
+    authors = json.loads(book[3]) if book[3] else []
+    author_name = sanitize_filename(authors[0] if authors else None, fallback="Unknown Author")
+    if len(series) > 0:
+        series_title = sanitize_filename(series[0].get("title"), fallback="Unknown Series")
+        sequence = series[0].get("sequence")
+        prefix = f"{sanitize_filename(sequence)} - " if sequence else ""
+        final_folder = Path(audiobook_folder) / author_name / series_title / f"{prefix}{safe_title}"
+    else:
+        final_folder = Path(audiobook_folder) / author_name / safe_title
+    final_folder.mkdir(parents=True, exist_ok=True)
+
+    # Move the Book to final location
+    to_path = final_folder / f"{safe_title}.m4b"
+    shutil.copy(audiobook, to_path)
+    logger.info("Book copied to %s", to_path)
+
+    # Move accessories to final location
+    final_pdf_path = None
+    final_cover_path = None
+    final_annotations_path = None
+
+    # Move PDF to final location
+    if pdf_path and Path(pdf_path).exists():
+        final_pdf = final_folder / f"{safe_title}.pdf"
+        shutil.move(pdf_path, final_pdf)
+        final_pdf_path = str(final_pdf)
+        logger.info("PDF moved to %s", final_pdf)
+
+    # Move high-resolution cover to final location (separate from embedded cover)
+    if temp_cover_path and Path(temp_cover_path).exists():
+        cover_ext = Path(temp_cover_path).suffix
+        final_cover = final_folder / f"{safe_title}_cover{cover_ext}"
+        shutil.move(temp_cover_path, final_cover)
+        final_cover_path = str(final_cover)
+        logger.info("Cover moved to %s", final_cover)
+
+    # Move annotations to final location
+    if annotations_path and Path(annotations_path).exists():
+        final_annotations = final_folder / f"{safe_title}_annotations.json"
+        shutil.move(annotations_path, final_annotations)
+        final_annotations_path = str(final_annotations)
+        logger.info("Annotations moved to %s", final_annotations)
+
+    # Update database with accessory paths
+    update_book_accessories(
+        asin, pdf_path=final_pdf_path, cover_path=final_cover_path, annotations_path=final_annotations_path
+    )
+
+    # Mark Book downloaded
+    mark_book_downloaded(asin)
+
+
+def download_books(audible, download_folder, audiobook_folder, max: int | None = None):
+    """
+    Download, decrypt and file every book waiting for download (up to `max`).
+
+    Each book is processed independently: a failure is logged, its temporary
+    files are removed, and processing continues with the next book. The book
+    keeps its 'waiting_download' status so it is retried on the next run.
+    """
+    waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
-    number_to_download:int = max if max != None else total_to_download
+    number_to_download: int = max if max is not None else total_to_download
 
     logger.info("Downloading %d books of %d waiting download", number_to_download, total_to_download)
 
-    loop = waiting_download[0:int(number_to_download)]
+    loop = waiting_download[0 : int(number_to_download)]
+    downloader = Downloader(audible)
+    succeeded = 0
+    failed = []
 
     for book in loop:
-        # Extract book information
         asin = book[0]
         title = book[1]
-        cover_url = book[12]
-        has_pdf = book[17]  # Index for has_pdf field
+        temp_dir = temp_book_folder(download_folder, asin, title)
 
-        # Download the Book
-        logger.info("Downloading %s", title)
-        downloader = Downloader(audible)
-        download = downloader.download_book(book, download_folder)
-        logger.info("Download complete")
-        logger.debug("Book: %s", download['book'])
-        logger.debug("Voucher: %s", download['voucher'])
+        try:
+            _process_book(downloader, book, temp_dir, audiobook_folder)
+            succeeded += 1
+        except Exception:
+            logger.exception("Failed to process %s (%s), skipping", title, asin)
+            failed.append((asin, title))
+        finally:
+            # Cleanup temporary download folder whether we succeeded or not
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
-        # Download accessories before decryption so we can embed cover
-        pdf_path = None
-        temp_cover_path = None
-        annotations_path = None
-
-        # Create temporary directory for accessories
-        temp_dir = Path(download['book']).parent
-
-        # Download PDF if available
-        if has_pdf:
-            temp_pdf = temp_dir / f"{title}.pdf"
-            if downloader.download_pdf(asin, str(temp_pdf)):
-                pdf_path = str(temp_pdf)
-
-        # Download high-resolution cover for embedding
-        if cover_url:
-            # Determine file extension from URL (usually .jpg)
-            cover_ext = ".jpg"
-            if ".png" in cover_url.lower():
-                cover_ext = ".png"
-            temp_cover = temp_dir / f"{title}_cover{cover_ext}"
-            if downloader.download_cover(cover_url, str(temp_cover)):
-                temp_cover_path = str(temp_cover)
-
-        # Download annotations
-        temp_annotations = temp_dir / f"{title}_annotations.json"
-        if downloader.download_annotations(asin, str(temp_annotations)):
-            annotations_path = str(temp_annotations)
-
-        # Decrypt the Book with metadata, cover art, and chapters embedded
-        logger.info("Decrypting and embedding metadata")
-        chapters_data = download.get('chapters')
-        audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path, chapters=chapters_data)
-
-        # Determine final location
-        series = json.loads(book[5])
-        authors = json.loads(book[3])
-        if len(series) > 0:
-            final_folder = Path("{0}/{1}/{2}/{3} - {4}".format(audiobook_folder, authors[0], series[0]['title'], series[0]['sequence'], title))
-        else:
-            final_folder = Path("{0}/{1}/{2}".format(audiobook_folder, authors[0], title))
-        final_folder.mkdir(parents=True, exist_ok=True)
-
-        # Move the Book to final location
-        to_path = final_folder / f"{title}.m4b"
-        shutil.copy(audiobook, to_path)
-        logger.info("Book copied to %s", to_path)
-
-        # Move accessories to final location
-        final_pdf_path = None
-        final_cover_path = None
-        final_annotations_path = None
-
-        # Move PDF to final location
-        if pdf_path and Path(pdf_path).exists():
-            final_pdf = final_folder / f"{title}.pdf"
-            shutil.move(pdf_path, final_pdf)
-            final_pdf_path = str(final_pdf)
-            logger.info("PDF moved to %s", final_pdf)
-
-        # Move high-resolution cover to final location (separate from embedded cover)
-        if temp_cover_path and Path(temp_cover_path).exists():
-            cover_ext = Path(temp_cover_path).suffix
-            final_cover = final_folder / f"{title}_cover{cover_ext}"
-            shutil.move(temp_cover_path, final_cover)
-            final_cover_path = str(final_cover)
-            logger.info("Cover moved to %s", final_cover)
-
-        # Move annotations to final location
-        if annotations_path and Path(annotations_path).exists():
-            final_annotations = final_folder / f"{title}_annotations.json"
-            shutil.move(annotations_path, final_annotations)
-            final_annotations_path = str(final_annotations)
-            logger.info("Annotations moved to %s", final_annotations)
-
-        # Update database with accessory paths
-        update_book_accessories(asin, pdf_path=final_pdf_path, cover_path=final_cover_path, annotations_path=final_annotations_path)
-
-        # Cleanup temporary download folder
-        cleanup_folder = Path(audiobook).parent
-        shutil.rmtree(cleanup_folder)
-
-        # Mark Book downloaded
-        mark_book_downloaded(asin)
-
-    logger.info("Completed downloads")
-
+    logger.info("Completed downloads: %d succeeded, %d failed", succeeded, len(failed))
+    for asin, title in failed:
+        logger.warning("Not downloaded: %s (%s)", title, asin)

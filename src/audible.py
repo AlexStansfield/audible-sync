@@ -1,9 +1,11 @@
-import audible
 from collections.abc import Iterable
+
+import audible
 from src.model import Book
 
+
 def _prepare_book(item):
-    genres = set([])
+    genres = set()
     for genre in item["category_ladders"]:
         for ladder in genre["ladder"]:
             genres.add(ladder["name"])
@@ -11,7 +13,6 @@ def _prepare_book(item):
     series = []
     if isinstance(item["series"], Iterable):
         series = [{"title": item["title"], "sequence": item["sequence"]} for item in item["series"]]
-    
 
     # Get highest resolution cover (prefer 1215px, fallback to 500px)
     cover_url = item.get("product_images", {}).get("1215") or item.get("product_images", {}).get("500", "")
@@ -33,10 +34,11 @@ def _prepare_book(item):
         "date_added": item["library_status"]["date_added"],
         "release_date": item["release_date"],
         "cover_url": cover_url,
-        "has_pdf": has_pdf
+        "has_pdf": has_pdf,
     }
 
     return Book(**data_row)
+
 
 class Audible:
     def __init__(self, auth_file):
@@ -53,29 +55,32 @@ class Audible:
                 "category_ladders, claim_code_url, "
                 "is_finished, origin_asin, pdf_url, "
                 "percent_complete, provided_review"
-                ),
-            "sort_by": 'PurchaseDate',
-            "num_results": 1000
-            }
-        
-        if purchased_after != None:
+            ),
+            "sort_by": "PurchaseDate",
+            "num_results": 1000,
+        }
+
+        if purchased_after is not None:
             params["purchased_after"] = purchased_after
 
         response = self.client.get("library", params=params)
-        
+
         return [_prepare_book(item) for item in response["items"]]
 
     def get_book(self, asin):
-        response = self.client.get(path=f"library/{asin}", params={
-            "response_groups": (
-                "contributors, media, price, product_attrs, product_desc, "
-                "product_extended_attrs, product_plan_details, product_plans, "
-                "rating, sample, sku, series, ws4v, origin, "
-                "relationships, review_attrs, categories, badge_types, "
-                "category_ladders, claim_code_url, "
-                "is_finished, origin_asin, pdf_url, "
-                "percent_complete, provided_review"
+        response = self.client.get(
+            path=f"library/{asin}",
+            params={
+                "response_groups": (
+                    "contributors, media, price, product_attrs, product_desc, "
+                    "product_extended_attrs, product_plan_details, product_plans, "
+                    "rating, sample, sku, series, ws4v, origin, "
+                    "relationships, review_attrs, categories, badge_types, "
+                    "category_ladders, claim_code_url, "
+                    "is_finished, origin_asin, pdf_url, "
+                    "percent_complete, provided_review"
                 )
-            })
-        
+            },
+        )
+
         return _prepare_book(response["item"])
