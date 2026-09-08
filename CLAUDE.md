@@ -13,7 +13,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Config** | INI format (`config/config.ini`) |
 | **Lines of Code** | ~1200 lines across 8 Python modules, plus ~550 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
-| **Testing** | pytest (`tests/`), run with `uv run pytest`; unit tests required for new code |
+| **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
 | **CI** | GitHub Actions: lint, format check and tests on every push/PR to `dev` and `main` |
 | **Package Manager** | uv (`pyproject.toml` + `uv.lock`); `requirements.txt` is generated for pip users |
@@ -61,7 +61,8 @@ audible-sync/
 │   ├── test_database.py      # Schema, migration, queries against a temp DB
 │   ├── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
 │   ├── test_naming.py        # Template rendering, optional groups, default layout, validation
-│   └── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags
+│   ├── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags, M4B freeform tags
+│   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
 ├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
 ├── Dockerfile
@@ -174,7 +175,7 @@ The largest module. Key pieces:
 - `generate_metadata(book_tuple)` - title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment
 - `write_ffmpeg_metadata_file(metadata, path, chapters=None)` - writes an FFMETADATA1 file including `[CHAPTER]` blocks
 - `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None, *, encoding_format="m4b", bitrate=64)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv` and raises on non-zero exit. The argv comes from one of two helpers:
-  - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`
+  - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`. The MP4 muxer only writes the keys it knows and drops `series`, `series-part`, `author` and `media_type`; after FFmpeg succeeds `decrypt_aaxc` calls `write_m4b_extra_tags` (in `src/encoding.py`) to add those as iTunes freeform atoms. Do not use `-movflags use_metadata_tags` for this: it keeps every key but removes the embedded cover (verified 2026-09-08)
   - `_opus_ffmpeg_args` - `-c:a libopus -b:a {bitrate}k -vbr on` into the `oga` muxer. Ogg has no picture stream or chapter track, so the cover goes in as a `METADATA_BLOCK_PICTURE` tag and chapters as `CHAPTERxxx`/`CHAPTERxxxNAME` tags (built by `src/encoding.py`) inside the FFMETADATA file, and `-map_chapters -1` stops FFmpeg copying the AAXC's own chapters on top of them. FFmpeg renames `comment` to `DESCRIPTION` and `album_artist` to `ALBUMARTIST` in Ogg
 
 **Orchestration**
@@ -189,7 +190,7 @@ The largest module. Key pieces:
 
 ### encoding.py
 
-Everything format-specific that is not an ffmpeg flag. `FORMATS` maps `m4b`/`oga` to extensions; `validate_encoding(format, bitrate)` raises `ValueError` at startup for an unknown format or a bitrate outside 1..256 kbps (libopus rejects more). `image_info(bytes)` reads MIME, width, height and depth from JPEG (SOF marker) or PNG (IHDR) headers with the stdlib, returning zeros for anything else. `picture_block(path)` packs the FLAC-style picture block (type 3, MIME, "Cover Artwork", dimensions, data) and returns unwrapped base64 for the `METADATA_BLOCK_PICTURE` tag. `chapter_tags(chapters)` turns Audible chapters into `CHAPTER000=HH:MM:SS.mmm` / `CHAPTER000NAME=` pairs. No escaping here; `write_ffmpeg_metadata_file` escapes when writing.
+Everything format-specific that is not an ffmpeg flag. `FORMATS` maps `m4b`/`oga` to extensions; `write_m4b_extra_tags(path, metadata)` opens a finished M4B with mutagen and adds every metadata key outside `MP4_NATIVE_KEYS` as a `----:com.apple.iTunes:<key>` freeform atom (plus `stik=2` for audiobooks), returning the keys written; `validate_encoding(format, bitrate)` raises `ValueError` at startup for an unknown format or a bitrate outside 1..256 kbps (libopus rejects more). `image_info(bytes)` reads MIME, width, height and depth from JPEG (SOF marker) or PNG (IHDR) headers with the stdlib, returning zeros for anything else. `picture_block(path)` packs the FLAC-style picture block (type 3, MIME, "Cover Artwork", dimensions, data) and returns unwrapped base64 for the `METADATA_BLOCK_PICTURE` tag. `chapter_tags(chapters)` turns Audible chapters into `CHAPTER000=HH:MM:SS.mmm` / `CHAPTER000NAME=` pairs. No escaping here; `write_ffmpeg_metadata_file` escapes when writing.
 
 ### api.py
 
@@ -230,7 +231,7 @@ pip install audible-cli && audible quickstart   # creates ~/.audible/audible.jso
 uv run python -m src.main
 ```
 
-**Dependencies:** `pyproject.toml` lists only direct dependencies (`audible`, `httpx`, `tqdm`, `fastapi`, `uvicorn`) plus a `dev` group. After changing it run `uv lock` and regenerate `requirements.txt` with the export command shown in the tree above. The Dockerfile installs with `--no-dev`.
+**Dependencies:** `pyproject.toml` lists only direct dependencies (`audible`, `httpx`, `tqdm`, `mutagen`, `fastapi`, `uvicorn`) plus a `dev` group. After changing it run `uv lock` and regenerate `requirements.txt` with the export command shown in the tree above. The Dockerfile installs with `--no-dev`.
 
 FFmpeg must be on PATH (`brew install ffmpeg` / `apt install ffmpeg`).
 
@@ -279,8 +280,8 @@ uv run pytest -k sanitize   # subset
 - Refactor → existing tests still pass; add tests first if the code had none
 
 **How to test this codebase:**
-- Prefer pure functions. `sanitize_filename`, `generate_metadata`, `write_ffmpeg_metadata_file`, everything in `encoding.py` and the path-building logic are directly testable with no setup.
-- For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it.
+- Prefer pure functions. `sanitize_filename`, `generate_metadata`, `write_ffmpeg_metadata_file`, everything in `encoding.py` and the path-building logic are directly testable with no setup. `write_m4b_extra_tags` needs a real MP4: copy `tests/fixtures/silence.m4b` to `tmp_path` and read it back with `mutagen.mp4.MP4`.
+- For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it. The fixture also replaces `downloader.write_m4b_extra_tags` with a recorder, since the fake ffmpeg produces no file for mutagen to open.
 - Never hit the Audible API, the network or FFmpeg in tests. Mock `Audible`/`Downloader` methods and `subprocess.run` with `unittest.mock` or `monkeypatch`.
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
 - For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `update_book_accessories`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls. This is how the per-book error handling was verified.
@@ -296,7 +297,7 @@ The suite currently covers the sanitizer, metadata generation, the FFMETADATA wr
 - [ ] Series and non-series books land in the right folders
 - [ ] A title with `:` or `/` produces a sane path
 - [ ] A failing book is skipped, its temp folder removed, and the run continues
-- [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe`)
+- [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe -show_format`), including `series` and `series-part` for a series book
 - [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `comment=ASIN: ...` among the audio stream tags (`-show_streams`, Ogg tags are stream-level); the DB row has `encoding_format` and `downloaded_at`
 - [ ] Docker image builds and runs
 

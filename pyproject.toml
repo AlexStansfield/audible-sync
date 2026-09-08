@@ -8,6 +8,7 @@ dependencies = [
     "audible==0.10.0",
     "fastapi==0.115.12",
     "httpx==0.28.1",
+    "mutagen>=1.48.1",
     "tqdm==4.67.1",
     "uvicorn==0.34.0",
 ]
