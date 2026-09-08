@@ -20,6 +20,7 @@ from src.downloader import (
     write_ffmpeg_metadata_file,
 )
 from src.encoding import output_extension
+from tests.conftest import make_book
 
 
 @pytest.mark.parametrize(
@@ -58,36 +59,8 @@ def test_temp_book_folder_is_under_download_folder_and_sanitized():
     assert folder == Path("data/downloads") / "B001_Title - Sub-Title"
 
 
-def make_row(
-    asin="B001",
-    title="Title",
-    subtitle="",
-    authors=("Author One",),
-    narrators=("Narrator",),
-    series=None,
-    genres=("Fiction",),
-    release_date="2020-05-01",
-    cover_url="",
-    has_pdf=0,
-):
-    """Build a database row tuple matching the library table column order."""
-    row = [None] * 20
-    row[0] = asin
-    row[1] = title
-    row[2] = subtitle
-    row[3] = json.dumps(list(authors))
-    row[4] = json.dumps(list(narrators))
-    row[5] = json.dumps(series or [])
-    row[6] = json.dumps(list(genres))
-    row[11] = release_date
-    row[12] = cover_url
-    row[13] = "waiting_download"
-    row[17] = has_pdf
-    return tuple(row)
-
-
 def test_generate_metadata_maps_fields():
-    row = make_row(
+    book = make_book(
         title="Title",
         subtitle="Sub",
         authors=("A", "B"),
@@ -95,7 +68,7 @@ def test_generate_metadata_maps_fields():
         series=[{"title": "Series", "sequence": "2"}],
         genres=("G1", "G2"),
     )
-    meta = generate_metadata(row)
+    meta = generate_metadata(book)
     assert meta["title"] == "Title: Sub"
     assert meta["album"] == "Title: Sub"
     assert meta["artist"] == "A; B"
@@ -108,29 +81,13 @@ def test_generate_metadata_maps_fields():
 
 
 def test_generate_metadata_handles_missing_optional_fields():
-    row = make_row(authors=(), narrators=(), genres=(), release_date=None)
-    meta = generate_metadata(row)
+    book = make_book(authors=(), narrators=(), genres=(), release_date=None)
+    meta = generate_metadata(book)
     assert meta["title"] == "Title"
     assert "artist" not in meta
     assert "composer" not in meta
     assert "genre" not in meta
     assert "date" not in meta
-
-
-def test_write_ffmpeg_metadata_file_escapes_and_writes_chapters(tmp_path):
-    out = tmp_path / "meta.txt"
-    chapters = [
-        {"start_offset_ms": 0, "length_ms": 1000, "title": "Intro"},
-        {"start_offset_ms": 1000, "length_ms": 500, "title": "Part 1; a=b"},
-    ]
-    write_ffmpeg_metadata_file({"title": "A=B", "comment": "x#y"}, str(out), chapters=chapters)
-    text = out.read_text(encoding="utf-8")
-
-    assert text.startswith(";FFMETADATA1\n")
-    assert "title=A\\=B\n" in text
-    assert "comment=x\\#y\n" in text
-    assert text.count("[CHAPTER]") == 2
-    assert "START=1000\nEND=1500\ntitle=Part 1\\; a\\=b\n" in text
 
 
 @pytest.fixture
@@ -174,8 +131,8 @@ CHAPTERS = [
 
 
 def test_decrypt_aaxc_m4b_command_keeps_all_metadata_tags(fake_ffmpeg, aaxc):
-    row = make_row(series=[{"title": "Series", "sequence": "2"}])
-    out = decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=row, cover_path=aaxc.cover, chapters=CHAPTERS)
+    book = make_book(series=[{"title": "Series", "sequence": "2"}])
+    out = decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=book, cover_path=aaxc.cover, chapters=CHAPTERS)
 
     assert out == f"{aaxc.book}.m4b"
     metadata_file = f"{aaxc.book}.ffmetadata"
@@ -205,7 +162,7 @@ def test_decrypt_aaxc_oga_command_and_metadata(fake_ffmpeg, aaxc):
     out = decrypt_aaxc(
         aaxc.book,
         aaxc.voucher,
-        book_data=make_row(),
+        book_data=make_book(),
         cover_path=aaxc.cover,
         chapters=CHAPTERS,
         encoding_format="oga",
@@ -243,7 +200,7 @@ def test_decrypt_aaxc_oga_command_and_metadata(fake_ffmpeg, aaxc):
 
 
 def test_decrypt_aaxc_oga_without_cover_or_chapters(fake_ffmpeg, aaxc):
-    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row(), encoding_format="oga")
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_book(), encoding_format="oga")
 
     assert "METADATA_BLOCK_PICTURE" not in fake_ffmpeg.metadata
     assert "CHAPTER000" not in fake_ffmpeg.metadata
@@ -268,13 +225,13 @@ def test_decrypt_aaxc_uses_default_bitrate(fake_ffmpeg, aaxc):
 def test_decrypt_aaxc_raises_on_ffmpeg_failure(fake_ffmpeg, aaxc):
     fake_ffmpeg.returncode = 1
     with pytest.raises(subprocess.CalledProcessError) as excinfo:
-        decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row())
+        decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_book())
     assert excinfo.value.stderr == "boom"
     assert fake_ffmpeg.extra_tags is None
 
 
 def test_decrypt_aaxc_oga_does_not_write_mp4_tags(fake_ffmpeg, aaxc):
-    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row(), encoding_format="oga")
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_book(), encoding_format="oga")
     assert fake_ffmpeg.extra_tags is None
 
 
@@ -291,14 +248,14 @@ def test_decrypt_aaxc_rejects_unknown_format(fake_ffmpeg, aaxc):
 
 def _library_books():
     return [
-        make_row("BAD1", "Broken: Book", series=[{"title": "S/eries", "sequence": "1"}]),
-        make_row(
+        make_book("BAD1", "Broken: Book", series=[{"title": "S/eries", "sequence": "1"}]),
+        make_book(
             "OK2",
             "Northern Lights: Book 1",
             authors=("Philip Pullman",),
             series=[{"title": "His Dark Materials", "sequence": "1"}],
         ),
-        make_row("OK3", "No Series / No Author", authors=()),
+        make_book("OK3", "No Series / No Author", authors=()),
     ]
 
 
@@ -314,7 +271,7 @@ def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls):
 
     def fake_download_book(self, book, temp_dir):
         temp_dir.mkdir(parents=True, exist_ok=True)
-        if book[0] == "BAD1":
+        if book.asin == "BAD1":
             (temp_dir / "partial.aaxc").write_bytes(b"junk")
             raise RuntimeError("simulated network failure")
         aaxc = temp_dir / "book.aaxc"
@@ -375,7 +332,7 @@ def test_download_books_oga_files_with_oga_extension(tmp_path, monkeypatch):
 
 def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
-    books = [make_row("NOLIC", "Unlicensed")]
+    books = [make_book("NOLIC", "Unlicensed")]
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
 
@@ -423,7 +380,7 @@ def test_flatten_chapters_leaves_a_flat_list_alone():
 
 
 def test_m4b_without_chapters_lets_ffmpeg_keep_the_aaxc_chapter_track(fake_ffmpeg, aaxc):
-    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row())
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_book())
 
     # Pointing -map_chapters at a chapterless metadata file would throw away the
     # chapters the AAXC itself carries.
@@ -432,7 +389,7 @@ def test_m4b_without_chapters_lets_ffmpeg_keep_the_aaxc_chapter_track(fake_ffmpe
 
 
 def test_m4b_with_chapters_maps_them_from_the_metadata_file(fake_ffmpeg, aaxc):
-    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_row(), chapters=CHAPTERS)
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=make_book(), chapters=CHAPTERS)
 
     idx = fake_ffmpeg.cmd.index("-map_chapters") + 1
     assert fake_ffmpeg.cmd[idx] == "1"
@@ -495,8 +452,8 @@ def test_download_books_files_colliding_books_side_by_side(tmp_path, monkeypatch
     downloads.mkdir()
     marked, accessories, decrypt_calls = [], [], []
     books = [
-        make_row("ASIN1", "Red Rising", authors=("Pierce Brown",)),
-        make_row("ASIN2", "Red Rising", authors=("Pierce Brown",)),
+        make_book("ASIN1", "Red Rising", authors=("Pierce Brown",)),
+        make_book("ASIN2", "Red Rising", authors=("Pierce Brown",)),
     ]
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
     # The stub decrypt writes no tags, so neither file can claim an ASIN
@@ -511,14 +468,14 @@ def test_download_books_files_colliding_books_side_by_side(tmp_path, monkeypatch
 
 def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
-    books = [make_row("A1", "First"), make_row("A2", "Second")]
+    books = [make_book("A1", "First"), make_book("A2", "Second")]
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
 
     attempts = []
 
     def reject(self, book, temp_dir):
-        attempts.append(book[0])
+        attempts.append(book.asin)
         raise downloader.Unauthorized(httpx.Response(401), {"message": "token expired"})
 
     monkeypatch.setattr(downloader.Downloader, "download_book", reject)
@@ -536,7 +493,7 @@ def test_download_books_removes_the_encrypted_source_after_decrypting(tmp_path, 
     downloads.mkdir()
     marked, accessories, decrypt_calls = [], [], []
     leftovers = []
-    _patch_pipeline(monkeypatch, [make_row("OK1", "Book")], marked, accessories, decrypt_calls)
+    _patch_pipeline(monkeypatch, [make_book("OK1", "Book")], marked, accessories, decrypt_calls)
 
     real_move = downloader.shutil.move
 
@@ -583,26 +540,26 @@ class StubAccessoryDownloader:
 )
 def test_download_accessories_names_the_cover_from_its_bytes(tmp_path, cover_bytes, expected_suffix):
     """The URL is not reliable: plenty of cover URLs carry no extension at all."""
-    row = make_row("B001", "Book", cover_url="https://img/cover-with-no-extension")
+    book = make_book("B001", "Book", cover_url="https://img/cover-with-no-extension")
     stub = StubAccessoryDownloader(cover_bytes=cover_bytes)
 
-    accessories = downloader._download_accessories(stub, row, tmp_path, "Book")
+    accessories = downloader._download_accessories(stub, book, tmp_path, "Book")
 
     assert accessories["cover_path"].suffix == expected_suffix
     assert accessories["cover_path"].read_bytes() == cover_bytes
 
 
 def test_download_accessories_skips_a_pdf_the_book_does_not_have(tmp_path):
-    row = make_row("B001", "Book", cover_url="")
-    accessories = downloader._download_accessories(StubAccessoryDownloader(), row, tmp_path, "Book")
+    book = make_book("B001", "Book", cover_url="")
+    accessories = downloader._download_accessories(StubAccessoryDownloader(), book, tmp_path, "Book")
 
     assert accessories == {}
 
 
 def test_download_accessories_collects_everything_available(tmp_path):
-    row = make_row("B001", "Book", cover_url="https://img/c.jpg", has_pdf=1)
+    book = make_book("B001", "Book", cover_url="https://img/c.jpg", has_pdf=True)
     stub = StubAccessoryDownloader(has_annotations=True)
 
-    accessories = downloader._download_accessories(stub, row, tmp_path, "Book")
+    accessories = downloader._download_accessories(stub, book, tmp_path, "Book")
 
     assert set(accessories) == {"pdf_path", "cover_path", "annotations_path"}

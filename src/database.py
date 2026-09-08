@@ -9,7 +9,17 @@ DB_FILE = "data/audible_sync.db"
 
 
 def _get_connection() -> sqlite3.Connection:
-    return sqlite3.connect(DB_FILE)
+    """
+    Connection whose rows come back as `sqlite3.Row`, so reads can be mapped by
+    column name.
+
+    `_migrate_schema` appends columns to an older database in whatever order it
+    finds them missing, so the position of a column in `SELECT *` was never a
+    reliable thing to index.
+    """
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():
@@ -102,6 +112,7 @@ def update_books(books: list[Book]) -> int:
     transaction had already inserted, so a repeated ASIN inside a single API
     response raised IntegrityError and rolled the whole sync back.
     """
+    # Decoded again by `Book.from_row`; keep the two sides in step.
     rows = [
         (
             book.asin,
@@ -140,7 +151,7 @@ def update_books(books: list[Book]) -> int:
     return books_synced
 
 
-def get_books(limit: int | None = None) -> list[tuple]:
+def get_books(limit: int | None = None) -> list[Book]:
     """All books, newest `date_added` first."""
     sql = "SELECT * FROM library ORDER BY date_added DESC"
     params: tuple = ()
@@ -149,20 +160,20 @@ def get_books(limit: int | None = None) -> list[tuple]:
         params = (limit,)
 
     with closing(_get_connection()) as conn:
-        return conn.execute(sql, params).fetchall()
+        return [Book.from_row(row) for row in conn.execute(sql, params)]
 
 
-def get_books_to_download() -> list[tuple]:
+def get_books_to_download() -> list[Book]:
     """Books still waiting to be downloaded, oldest first."""
     with closing(_get_connection()) as conn:
-        return conn.execute(
-            "SELECT * FROM library WHERE status = 'waiting_download' ORDER BY date_added ASC"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM library WHERE status = 'waiting_download' ORDER BY date_added ASC")
+        return [Book.from_row(row) for row in rows]
 
 
-def get_book_by_asin(asin: str) -> tuple | None:
+def get_book_by_asin(asin: str) -> Book | None:
     with closing(_get_connection()) as conn:
-        return conn.execute("SELECT * FROM library WHERE asin=?", (asin,)).fetchone()
+        row = conn.execute("SELECT * FROM library WHERE asin=?", (asin,)).fetchone()
+    return Book.from_row(row) if row is not None else None
 
 
 def latest_date_added() -> str | None:
