@@ -1,13 +1,15 @@
 import json
 import logging
 import re
+import shutil
 import subprocess
 from pathlib import Path
-import shutil
+
 import httpx
-from tqdm import tqdm
-from src.audible import Audible
 from audible.aescipher import decrypt_voucher_from_licenserequest
+from tqdm import tqdm
+
+from src.audible import Audible
 from src.database import get_books_to_download, mark_book_downloaded, update_book_accessories
 
 logger = logging.getLogger(__name__)
@@ -42,8 +44,8 @@ def sanitize_filename(name, fallback: str = "Unknown") -> str:
     result = str(name)
     result = result.replace(":", " -")
     result = re.sub(r"[/\\]", "-", result)
-    result = _INVALID_PATH_CHARS.sub("", result)
-    result = re.sub(r"\s+", " ", result).strip(" .")
+    result = re.sub(r"\s+", " ", result)
+    result = _INVALID_PATH_CHARS.sub("", result).strip(" .")
     result = result[:_MAX_NAME_LENGTH].rstrip(" .")
 
     return result or fallback
@@ -75,9 +77,7 @@ class Downloader:
 
     @staticmethod
     def get_download_link(license_response):
-        return license_response["content_license"]["content_metadata"]["content_url"][
-            "offline_url"
-        ]
+        return license_response["content_license"]["content_metadata"]["content_url"]["offline_url"]
 
     @staticmethod
     def download_file(url, filename):
@@ -108,10 +108,7 @@ class Downloader:
         """
         try:
             url = f"content/{asin}/metadata"
-            response = self.audible.client.get(
-                url,
-                params={"response_groups": "chapter_info"}
-            )
+            response = self.audible.client.get(url, params={"response_groups": "chapter_info"})
             return response.get("content_metadata", {}).get("chapter_info")
         except Exception as e:
             logger.warning("Could not fetch chapter info for %s: %s", asin, e)
@@ -123,7 +120,7 @@ class Downloader:
         safe_title = sanitize_filename(title, fallback=asin)
         lr = self.get_license_response(asin, quality="High")
 
-        if lr == None:
+        if lr is None:
             logger.error("Unable to download book: %s", title)
             return
 
@@ -156,7 +153,7 @@ class Downloader:
         """Download PDF companion file if available"""
         try:
             # Get the domain from the auth object (defaults to 'com')
-            domain = getattr(self.audible.auth.locale, 'domain', 'com')
+            domain = getattr(self.audible.auth.locale, "domain", "com")
             url = f"https://www.audible.{domain}/companion-file/{asin}"
 
             logger.info("Downloading PDF for %s", asin)
@@ -169,8 +166,8 @@ class Downloader:
                     return False
 
                 # Check content type to ensure we got a PDF and not HTML login page
-                content_type = r.headers.get('content-type', '').lower()
-                if 'pdf' not in content_type and 'application/octet-stream' not in content_type:
+                content_type = r.headers.get("content-type", "").lower()
+                if "pdf" not in content_type and "application/octet-stream" not in content_type:
                     logger.warning("Received non-PDF content for %s: %s", asin, content_type)
                     return False
 
@@ -255,6 +252,7 @@ class Downloader:
             logger.error("Error downloading annotations for %s: %s", asin, e)
             return False
 
+
 def generate_metadata(book_data: tuple) -> dict:
     """
     Generate comprehensive metadata dictionary from book data tuple.
@@ -280,49 +278,44 @@ def generate_metadata(book_data: tuple) -> dict:
     full_title = title
     if subtitle:
         full_title = f"{title}: {subtitle}"
-    metadata['title'] = full_title
-    metadata['album'] = full_title
+    metadata["title"] = full_title
+    metadata["album"] = full_title
 
     # Authors (primary artist)
     if authors:
-        metadata['artist'] = "; ".join(authors)
-        metadata['album_artist'] = "; ".join(authors)
-        metadata['author'] = "; ".join(authors)
+        metadata["artist"] = "; ".join(authors)
+        metadata["album_artist"] = "; ".join(authors)
+        metadata["author"] = "; ".join(authors)
 
     # Narrators (composer field often used for narrators in audiobooks)
     if narrators:
-        metadata['composer'] = "; ".join(narrators)
+        metadata["composer"] = "; ".join(narrators)
 
     # Series information
     if series:
         series_info = series[0]
-        metadata['series'] = series_info.get('title', '')
-        metadata['series-part'] = series_info.get('sequence', '')
+        metadata["series"] = series_info.get("title", "")
+        metadata["series-part"] = series_info.get("sequence", "")
 
     # Genre
     if genres:
-        metadata['genre'] = "; ".join(genres)
+        metadata["genre"] = "; ".join(genres)
 
-    # Release date (year)
+    # Release date (year). Audible returns ISO dates such as "2020-01-15"
     if release_date:
-        try:
-            # Try to extract year from release_date string
-            year = release_date.split('-')[0] if '-' in release_date else release_date[:4]
-            metadata['date'] = year
-        except:
-            pass
+        metadata["date"] = str(release_date)[:4]
 
     # ASIN as comment for reference
-    metadata['comment'] = f"ASIN: {asin}"
+    metadata["comment"] = f"ASIN: {asin}"
 
     # Media type
-    metadata['media_type'] = 'audiobook'
+    metadata["media_type"] = "audiobook"
 
     logger.debug("Generated metadata: %s", metadata)
     return metadata
 
 
-def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list = None) -> str:
+def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list | None = None) -> str:
     """
     Write metadata and optional chapters to FFmpeg FFMETADATA format file.
 
@@ -334,39 +327,55 @@ def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list 
     Returns:
         Path to the created metadata file
     """
-    with open(output_path, 'w', encoding='utf-8') as f:
-        f.write(';FFMETADATA1\n')
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(";FFMETADATA1\n")
 
         # Write metadata tags
         for key, value in metadata.items():
             # Escape special characters for FFmpeg metadata format
-            escaped_value = str(value).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
-            f.write(f'{key}={escaped_value}\n')
+            escaped_value = (
+                str(value)
+                .replace("\\", "\\\\")
+                .replace("\n", "\\n")
+                .replace("=", "\\=")
+                .replace(";", "\\;")
+                .replace("#", "\\#")
+            )
+            f.write(f"{key}={escaped_value}\n")
 
         # Write chapters if provided
         if chapters:
-            f.write('\n')
+            f.write("\n")
             for chapter in chapters:
-                start_ms = chapter.get('start_offset_ms', 0)
-                length_ms = chapter.get('length_ms', 0)
+                start_ms = chapter.get("start_offset_ms", 0)
+                length_ms = chapter.get("length_ms", 0)
                 end_ms = start_ms + length_ms
-                title = chapter.get('title', 'Chapter')
+                title = chapter.get("title", "Chapter")
 
                 # Escape title for FFmpeg
-                escaped_title = str(title).replace('\\', '\\\\').replace('\n', '\\n').replace('=', '\\=').replace(';', '\\;').replace('#', '\\#')
+                escaped_title = (
+                    str(title)
+                    .replace("\\", "\\\\")
+                    .replace("\n", "\\n")
+                    .replace("=", "\\=")
+                    .replace(";", "\\;")
+                    .replace("#", "\\#")
+                )
 
-                f.write('[CHAPTER]\n')
-                f.write('TIMEBASE=1/1000\n')
-                f.write(f'START={start_ms}\n')
-                f.write(f'END={end_ms}\n')
-                f.write(f'title={escaped_title}\n')
-                f.write('\n')
+                f.write("[CHAPTER]\n")
+                f.write("TIMEBASE=1/1000\n")
+                f.write(f"START={start_ms}\n")
+                f.write(f"END={end_ms}\n")
+                f.write(f"title={escaped_title}\n")
+                f.write("\n")
 
     logger.debug("Wrote FFmpeg metadata file: %s", output_path)
     return output_path
 
 
-def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: str = None, chapters: list = None):
+def decrypt_aaxc(
+    book: str, voucher: str, book_data: tuple | None = None, cover_path: str | None = None, chapters: list | None = None
+):
     """
     Decrypt AAXC audiobook file to M4B format with optional metadata, cover art, and chapters.
 
@@ -383,11 +392,11 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     output_file = f"{book}.m4b"
 
     # Load key and iv from .voucher JSON
-    with open(voucher, 'r') as f:
+    with open(voucher) as f:
         voucher_data = json.load(f)
 
-    key = voucher_data['key']
-    iv = voucher_data['iv']
+    key = voucher_data["key"]
+    iv = voucher_data["iv"]
 
     # Generate and write metadata (with chapters) if book_data is provided
     metadata_file = None
@@ -403,28 +412,28 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
     # Build ffmpeg command using subprocess for precise control
     # Note: ffmpeg-python library has issues with map_metadata/map_chapters
     # See: https://github.com/kkroening/ffmpeg-python/issues/463
-    cmd = ['ffmpeg', '-y']
+    cmd = ["ffmpeg", "-y"]
 
     # Add decryption keys and primary audio input
-    cmd.extend(['-audible_key', key, '-audible_iv', iv, '-i', book])
+    cmd.extend(["-audible_key", key, "-audible_iv", iv, "-i", book])
 
     # Add cover image as second input if provided
     if cover_path and Path(cover_path).exists():
-        cmd.extend(['-i', cover_path])
+        cmd.extend(["-i", cover_path])
         logger.info("Embedding cover art from: %s", cover_path)
 
     # Add metadata file as input if generated (already includes chapters)
     if metadata_file and Path(metadata_file).exists():
-        cmd.extend(['-i', metadata_file])
+        cmd.extend(["-i", metadata_file])
 
     # Map audio stream from first input
-    cmd.extend(['-map', '0:a'])
+    cmd.extend(["-map", "0:a"])
 
     # Map cover as attached picture if provided
     if cover_path and Path(cover_path).exists():
-        cmd.extend(['-map', '1:v'])
-        cmd.extend(['-c:v', 'copy'])
-        cmd.extend(['-disposition:v', 'attached_pic'])
+        cmd.extend(["-map", "1:v"])
+        cmd.extend(["-c:v", "copy"])
+        cmd.extend(["-disposition:v", "attached_pic"])
 
     # Determine input index for metadata file
     # Input 0: audio (AAXC)
@@ -436,18 +445,18 @@ def decrypt_aaxc(book: str, voucher: str, book_data: tuple = None, cover_path: s
 
     # Map metadata and chapters from the same metadata file
     if metadata_file and Path(metadata_file).exists():
-        cmd.extend(['-map_metadata', str(input_idx)])
-        cmd.extend(['-map_chapters', str(input_idx)])
+        cmd.extend(["-map_metadata", str(input_idx)])
+        cmd.extend(["-map_chapters", str(input_idx)])
 
     # Audio codec and other options
-    cmd.extend(['-c:a', 'copy'])
-    cmd.extend(['-dn'])
+    cmd.extend(["-c:a", "copy"])
+    cmd.extend(["-dn"])
 
     # Add output file
     cmd.append(output_file)
 
     # Run the command
-    logger.debug("FFmpeg command: %s", ' '.join(str(x) for x in cmd))
+    logger.debug("FFmpeg command: %s", " ".join(str(x) for x in cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
@@ -486,8 +495,8 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
     if download is None:
         raise RuntimeError(f"Could not obtain a download license for {title} ({asin})")
     logger.info("Download complete")
-    logger.debug("Book: %s", download['book'])
-    logger.debug("Voucher: %s", download['voucher'])
+    logger.debug("Book: %s", download["book"])
+    logger.debug("Voucher: %s", download["voucher"])
 
     # Download accessories before decryption so we can embed cover
     pdf_path = None
@@ -517,16 +526,18 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
 
     # Decrypt the Book with metadata, cover art, and chapters embedded
     logger.info("Decrypting and embedding metadata")
-    chapters_data = download.get('chapters')
-    audiobook = decrypt_aaxc(download['book'], download['voucher'], book_data=book, cover_path=temp_cover_path, chapters=chapters_data)
+    chapters_data = download.get("chapters")
+    audiobook = decrypt_aaxc(
+        download["book"], download["voucher"], book_data=book, cover_path=temp_cover_path, chapters=chapters_data
+    )
 
     # Determine final location (all path segments sanitized)
     series = json.loads(book[5]) if book[5] else []
     authors = json.loads(book[3]) if book[3] else []
     author_name = sanitize_filename(authors[0] if authors else None, fallback="Unknown Author")
     if len(series) > 0:
-        series_title = sanitize_filename(series[0].get('title'), fallback="Unknown Series")
-        sequence = series[0].get('sequence')
+        series_title = sanitize_filename(series[0].get("title"), fallback="Unknown Series")
+        sequence = series[0].get("sequence")
         prefix = f"{sanitize_filename(sequence)} - " if sequence else ""
         final_folder = Path(audiobook_folder) / author_name / series_title / f"{prefix}{safe_title}"
     else:
@@ -566,13 +577,15 @@ def _process_book(downloader: Downloader, book: tuple, temp_dir: Path, audiobook
         logger.info("Annotations moved to %s", final_annotations)
 
     # Update database with accessory paths
-    update_book_accessories(asin, pdf_path=final_pdf_path, cover_path=final_cover_path, annotations_path=final_annotations_path)
+    update_book_accessories(
+        asin, pdf_path=final_pdf_path, cover_path=final_cover_path, annotations_path=final_annotations_path
+    )
 
     # Mark Book downloaded
     mark_book_downloaded(asin)
 
 
-def download_books(audible, download_folder, audiobook_folder, max: int = None):
+def download_books(audible, download_folder, audiobook_folder, max: int | None = None):
     """
     Download, decrypt and file every book waiting for download (up to `max`).
 
@@ -582,11 +595,11 @@ def download_books(audible, download_folder, audiobook_folder, max: int = None):
     """
     waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
-    number_to_download: int = max if max != None else total_to_download
+    number_to_download: int = max if max is not None else total_to_download
 
     logger.info("Downloading %d books of %d waiting download", number_to_download, total_to_download)
 
-    loop = waiting_download[0:int(number_to_download)]
+    loop = waiting_download[0 : int(number_to_download)]
     downloader = Downloader(audible)
     succeeded = 0
     failed = []
