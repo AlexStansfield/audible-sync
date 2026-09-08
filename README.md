@@ -38,6 +38,32 @@ The `config/config.ini` file has the following sections and options:
  - `downloads`: folder where files are temporarily downloaded to before being converted
  - `audiobooks`: folder to copy the converted audiobooks to
 
+### `naming`
+
+Controls where each converted book is filed inside the `audiobooks` folder and what the files are called. Both options are templates. Leave the section out to keep the default layout.
+
+ - `folder`: folder for each book, relative to `audiobooks`. Default: `{author}/[{series}/][{sequence} - ]{title}`
+ - `filename`: file name without the extension. The PDF, cover (`_cover.jpg`) and annotations (`_annotations.json`) use the same name. Default: `{title}`
+
+Text inside square brackets is only included when every placeholder inside it has a value, so with the default template a book that is not part of a series is filed as `{author}/{title}`. A folder segment that ends up empty is skipped. Every value is made file-system safe before use: `:` becomes ` -`, `/` becomes `-`, and characters that are invalid on Windows are removed.
+
+| Placeholder | Value |
+|-------------|-------|
+| `{author}` | first author (`Unknown Author` if none) |
+| `{authors}` | all authors, comma separated |
+| `{narrator}` | first narrator |
+| `{narrators}` | all narrators, comma separated |
+| `{title}` | book title |
+| `{subtitle}` | book subtitle, often empty |
+| `{series}` | series name, empty if the book is not in a series |
+| `{sequence}` | position in the series, for example `1` |
+| `{year}` | release year |
+| `{asin}` | Audible identifier |
+
+With the defaults, *One Word Kill* (book 1 of the Nick Hayes Series) becomes `Mark Lawrence/Nick Hayes Series/1 - One Word Kill/One Word Kill.m4b`.
+
+An unknown placeholder stops the app at startup with an error naming it. Changing the templates only affects books downloaded afterwards; existing files are not renamed.
+
 ## Running
 
 ### Docker
@@ -110,6 +136,5 @@ It will support:
 - re-encoding the books to OGA format in order to reduce size
 - fetching PDF files included with the book
 - fetching extra metadata and cover art
-- configurable folder and filename structure for converted books
 
 The current todo list can be found [here](todo.md).

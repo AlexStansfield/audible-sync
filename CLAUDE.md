@@ -30,10 +30,10 @@ Guidance for AI assistants working with the audible-sync codebase.
 - Incremental library sync from the Audible API
 - Download and decrypt to M4B, with metadata, cover art and chapters embedded
 - Companion PDF, high-res cover and annotations downloaded alongside the book
-- Path-safe file naming and per-book error handling (a failing book is skipped, not fatal)
+- Path-safe file naming from configurable templates, and per-book error handling (a failing book is skipped, not fatal)
 - Docker image built by GitHub Actions on version tags
 
-**Remaining for Milestone 2:** configurable file naming from metadata, OGA (Opus) encoding with a bitrate setting. See `todo.md`.
+**Remaining for Milestone 2:** OGA (Opus) encoding with a bitrate setting. See `todo.md`.
 
 ## Codebase Structure
 
@@ -53,11 +53,13 @@ audible-sync/
 │   ├── database.py           # SQLite schema, migrations, queries
 │   ├── audible.py            # Audible API client and response mapping
 │   ├── sync.py               # Incremental library sync
+│   ├── naming.py             # Sanitizer and folder/filename templates ([naming] in config.ini)
 │   ├── downloader.py         # Download, accessories, metadata, decryption, filing
 │   └── api.py                # FastAPI stub (broken, Milestone 3)
 ├── tests/
 │   ├── test_database.py      # Schema, migration, queries against a temp DB
-│   └── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
+│   ├── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
+│   └── test_naming.py        # Template rendering, optional groups, default layout, validation
 ├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
 ├── Dockerfile
@@ -168,14 +170,14 @@ The largest module. Key pieces:
 - `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv`, maps the cover as `attached_pic`, and maps metadata + chapters from the FFMETADATA file. Raises on non-zero exit.
 
 **Orchestration**
-- `_process_book(downloader, book, temp_dir, audiobook_folder)` - the full pipeline for one book: download, accessories, decrypt, file into the library, record accessory paths, mark downloaded. Raises on any failure.
-- `download_books(audible, download_folder, audiobook_folder, max=None)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. Ends with a succeeded/failed summary.
+- `_process_book(downloader, book, temp_dir, audiobook_folder, folder_template, filename_template)` - the full pipeline for one book: download, accessories, decrypt, file into the library, record accessory paths, mark downloaded. Raises on any failure.
+- `download_books(audible, download_folder, audiobook_folder, max=None, *, folder_template, filename_template)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. Ends with a succeeded/failed summary.
 
-**Final layout (all segments sanitized):**
-- With series: `audiobooks/{author}/{series}/{sequence} - {title}/{title}.m4b`
-- Without series: `audiobooks/{author}/{title}/{title}.m4b`
-- Missing author → `Unknown Author`; missing sequence drops the `{sequence} - ` prefix
-- PDF, `{title}_cover.jpg` and `{title}_annotations.json` sit next to the M4B
+**Final layout** comes from the `[naming]` templates in `config.ini`, rendered by `src/naming.py`:
+- `folder` (default `{author}/[{series}/][{sequence} - ]{title}`) and `filename` (default `{title}`); `[...]` groups are dropped when any placeholder inside is empty, empty segments are skipped, every value is sanitized
+- Defaults give `audiobooks/{author}/{series}/{sequence} - {title}/{title}.m4b`, or `audiobooks/{author}/{title}/{title}.m4b` without a series
+- Missing author → `Unknown Author`; empty folder or filename → ASIN; unknown placeholder → `ValueError` at startup (`validate_templates` in `main.py`)
+- PDF, `{filename}_cover.jpg` and `{filename}_annotations.json` sit next to the M4B; the extension comes from `OUTPUT_EXTENSION` in `downloader.py`
 
 ### api.py
 
@@ -331,10 +333,9 @@ See `todo.md` for the authoritative list.
 
 **Milestone 1 - complete:** sync, download, decrypt, config, Docker, CI.
 
-**Milestone 2 - in progress:** logging, PDF/cover/annotations, metadata and chapter embedding are done. Remaining:
-1. Configurable file naming from metadata (README already promises this)
-2. OGA (Opus) encoding with a configurable bitrate; note Ogg needs cover as `METADATA_BLOCK_PICTURE` and chapters as `CHAPTERxxx` comments, which FFmpeg does not do automatically
-3. Async download progress is listed here but only pays off with a web UI; recommended to move to Milestone 3
+**Milestone 2 - in progress:** logging, PDF/cover/annotations, metadata and chapter embedding, and configurable file naming are done. Remaining:
+1. OGA (Opus) encoding with a configurable bitrate; swap `OUTPUT_EXTENSION` in `downloader.py`. Note Ogg needs cover as `METADATA_BLOCK_PICTURE` and chapters as `CHAPTERxxx` comments, which FFmpeg does not do automatically
+2. Async download progress is listed here but only pays off with a web UI; recommended to move to Milestone 3
 
 **Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema additions: `encoding_format`, `downloaded_at`, a `settings` table and a `sync_runs` table.
 
