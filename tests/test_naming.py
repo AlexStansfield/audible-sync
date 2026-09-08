@@ -25,7 +25,7 @@ def make_row(
     release_date="2020-05-01",
 ):
     """Build a database row tuple matching the library table column order."""
-    row = [None] * 18
+    row = [None] * 20
     row[0] = asin
     row[1] = title
     row[2] = subtitle

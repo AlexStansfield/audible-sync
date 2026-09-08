@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import UTC, datetime
 
 import pytest
 
@@ -26,6 +27,8 @@ def test_init_db_creates_library_table_with_all_columns(db):
     assert columns[:2] == ["asin", "title"]
     assert columns[13] == "status"
     assert columns[17] == "has_pdf"
+    assert columns[18] == "encoding_format"
+    assert columns[19] == "downloaded_at"
 
 
 def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
@@ -41,7 +44,8 @@ def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
     conn = sqlite3.connect(db_file)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(library)")}
     conn.close()
-    assert {"pdf_path", "cover_path", "annotations_path", "has_pdf"} <= columns
+    expected = {"pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format", "downloaded_at"}
+    assert expected <= columns
 
 
 def test_update_books_inserts_new_and_skips_existing(db):
@@ -80,6 +84,28 @@ def test_mark_book_downloaded_removes_from_waiting(db):
     waiting = [row[0] for row in database.get_books_to_download()]
     assert waiting == ["B002"]
     assert database.get_book_by_asin("B001")[13] == "downloaded"
+
+
+def test_mark_book_downloaded_records_format_and_timestamp(db, monkeypatch):
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T03:04:05+00:00")
+    database.update_books([make_book("B001")])
+    database.mark_book_downloaded("B001", encoding_format="oga")
+
+    row = database.get_book_by_asin("B001")
+    assert row[18] == "oga"
+    assert row[19] == "2026-01-02T03:04:05+00:00"
+
+
+def test_mark_book_downloaded_default_timestamp_is_utc_iso(db):
+    database.update_books([make_book("B001")])
+    before = datetime.now(UTC).replace(microsecond=0)
+    database.mark_book_downloaded("B001")
+
+    row = database.get_book_by_asin("B001")
+    assert row[18] is None
+    stamp = datetime.fromisoformat(row[19])
+    assert stamp.tzinfo is not None and stamp.utcoffset().total_seconds() == 0
+    assert before <= stamp <= datetime.now(UTC)
 
 
 def test_update_book_accessories_only_sets_given_paths(db):
