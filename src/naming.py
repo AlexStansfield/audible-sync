@@ -16,6 +16,15 @@ from pathlib import Path
 # '/' and '\\' are handled separately so they can be replaced rather than dropped.
 _INVALID_PATH_CHARS = re.compile(r'[<>"|?*\x00-\x1f]')
 _MAX_NAME_LENGTH = 150
+# ext4, NTFS and SMB limit a single path component to 255 bytes, not characters. The
+# budget is lower than that to leave room for the suffixes callers append to a stem
+# ("_annotations.json", "{asin}_", ".aaxc.ffmetadata").
+_MAX_NAME_BYTES = 200
+# Device names Windows and Windows SMB clients cannot use as a file or folder name,
+# with or without an extension. Compared case-insensitively against the stem.
+_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"} | {f"COM{n}" for n in range(1, 10)} | {f"LPT{n}" for n in range(1, 10)}
+)
 
 DEFAULT_FOLDER_TEMPLATE = "{author}/[{series}/][{sequence} - ]{title}"
 DEFAULT_FILENAME_TEMPLATE = "{title}"
@@ -37,7 +46,8 @@ def sanitize_filename(name, fallback: str = "Unknown") -> str:
     - '/' and '\\' become '-'
     - Other characters that are invalid on Windows/SMB are removed
     - Whitespace is collapsed, leading/trailing spaces and dots are stripped
-    - Result is truncated to a safe length
+    - Names reserved by Windows (CON, NUL, COM1, ...) get a trailing underscore
+    - Result is truncated to a safe length in both characters and UTF-8 bytes
 
     Args:
         name: The raw name (title, author, series, ...). May be None.
@@ -52,11 +62,30 @@ def sanitize_filename(name, fallback: str = "Unknown") -> str:
     result = str(name)
     result = result.replace(":", " -")
     result = re.sub(r"[/\\]", "-", result)
+    # Collapse first so tabs and newlines become spaces, then again after dropping the
+    # invalid characters so removing one does not leave a double space behind.
     result = re.sub(r"\s+", " ", result)
-    result = _INVALID_PATH_CHARS.sub("", result).strip(" .")
-    result = result[:_MAX_NAME_LENGTH].rstrip(" .")
+    result = _INVALID_PATH_CHARS.sub("", result)
+    result = re.sub(r"\s+", " ", result).strip(" .")
+    result = _truncate_to_bytes(result[:_MAX_NAME_LENGTH]).rstrip(" .")
+
+    if result.split(".")[0].upper() in _RESERVED_NAMES:
+        result = f"{result}_"
 
     return result or fallback
+
+
+def _truncate_to_bytes(value: str, limit: int = _MAX_NAME_BYTES) -> str:
+    """
+    Trim a name to at most `limit` bytes of UTF-8 without splitting a character.
+
+    File systems cap a path component in bytes, so a title in a script that encodes to
+    three bytes per character overflows long before the character cap is reached.
+    """
+    encoded = value.encode("utf-8")
+    if len(encoded) <= limit:
+        return value
+    return encoded[:limit].decode("utf-8", errors="ignore")
 
 
 def temp_book_folder(download_folder: str, asin: str, title: str) -> Path:
@@ -85,6 +114,10 @@ def book_template_values(book: tuple) -> dict[str, str]:
     series = json.loads(book[5]) if book[5] else []
     release_date = str(book[11]) if book[11] else ""
     first_series = series[0] if series else {}
+    # A sequence without a series title would render as a bare "2 - Title" folder
+    # directly under the author, which loses the series context entirely.
+    series_title = first_series.get("title")
+    sequence = first_series.get("sequence") if series_title else ""
 
     def clean(value) -> str:
         return sanitize_filename(value, fallback="") if value not in (None, "") else ""
@@ -97,8 +130,8 @@ def book_template_values(book: tuple) -> dict[str, str]:
         "authors": sanitize_filename(", ".join(authors), fallback="Unknown Author") if authors else "Unknown Author",
         "narrator": clean(narrators[0]) if narrators else "",
         "narrators": clean(", ".join(narrators)),
-        "series": clean(first_series.get("title")),
-        "sequence": clean(first_series.get("sequence")),
+        "series": clean(series_title),
+        "sequence": clean(sequence),
         "year": clean(release_date[:4]),
     }
 
