@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 from src.audible import Audible
 from src.database import get_books_to_download, mark_book_downloaded, update_book_accessories
+from src.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, chapter_tags, output_extension, picture_block
 from src.naming import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_FOLDER_TEMPLATE,
@@ -19,9 +20,6 @@ from src.naming import (
 )
 
 logger = logging.getLogger(__name__)
-
-# Extension of the converted audiobook. The OGA encoding option will make this configurable.
-OUTPUT_EXTENSION = ".m4b"
 
 
 class Downloader:
@@ -342,10 +340,22 @@ def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list 
 
 
 def decrypt_aaxc(
-    book: str, voucher: str, book_data: tuple | None = None, cover_path: str | None = None, chapters: list | None = None
-):
+    book: str,
+    voucher: str,
+    book_data: tuple | None = None,
+    cover_path: str | None = None,
+    chapters: list | None = None,
+    *,
+    encoding_format: str = DEFAULT_FORMAT,
+    bitrate: int = DEFAULT_BITRATE,
+) -> str:
     """
-    Decrypt AAXC audiobook file to M4B format with optional metadata, cover art, and chapters.
+    Decrypt an AAXC audiobook with optional metadata, cover art and chapters embedded.
+
+    With ``m4b`` the AAC audio is copied unchanged into an MP4 container. With
+    ``oga`` it is re-encoded to Opus at ``bitrate`` kbps in an Ogg container; the
+    cover becomes a METADATA_BLOCK_PICTURE comment and the chapters CHAPTERxxx
+    comments, because FFmpeg cannot map either into Ogg itself.
 
     Args:
         book: Path to the AAXC file
@@ -353,11 +363,13 @@ def decrypt_aaxc(
         book_data: Optional book data tuple from database for metadata generation
         cover_path: Optional path to cover image to embed
         chapters: Optional list of chapter dictionaries to embed
+        encoding_format: Output format, a key of ``src.encoding.FORMATS``
+        bitrate: Opus bitrate in kbps, ignored for ``m4b``
 
     Returns:
-        Path to the output M4B file
+        Path to the output file
     """
-    output_file = f"{book}.m4b"
+    output_file = f"{book}{output_extension(encoding_format)}"
 
     # Load key and iv from .voucher JSON
     with open(voucher) as f:
@@ -366,16 +378,60 @@ def decrypt_aaxc(
     key = voucher_data["key"]
     iv = voucher_data["iv"]
 
+    metadata_file = f"{book}.ffmetadata"
+    if encoding_format == "oga":
+        cmd, metadata_file = _opus_ffmpeg_args(
+            book, key, iv, output_file, metadata_file, bitrate, book_data, cover_path, chapters
+        )
+    else:
+        cmd, metadata_file = _m4b_ffmpeg_args(
+            book, key, iv, output_file, metadata_file, book_data, cover_path, chapters
+        )
+
+    # Run the command
+    logger.debug("FFmpeg command: %s", " ".join(str(x) for x in cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        logger.error("FFmpeg error: %s", result.stderr)
+        raise Exception(f"FFmpeg conversion failed: {result.stderr}")
+
+    # Cleanup temporary metadata file
+    if metadata_file and Path(metadata_file).exists():
+        Path(metadata_file).unlink()
+        logger.debug("Cleaned up metadata file: %s", metadata_file)
+
+    logger.info("Conversion complete: %s", output_file)
+    return output_file
+
+
+def _m4b_ffmpeg_args(
+    book: str,
+    key: str,
+    iv: str,
+    output_file: str,
+    metadata_file: str,
+    book_data: tuple | None,
+    cover_path: str | None,
+    chapters: list | None,
+) -> tuple[list[str], str | None]:
+    """
+    Build the ffmpeg command for an M4B stream copy. The cover is mapped as an
+    attached picture and chapters come from the FFMETADATA file.
+
+    Returns:
+        The command and the metadata file path (None if none was written)
+    """
     # Generate and write metadata (with chapters) if book_data is provided
-    metadata_file = None
     if book_data:
         metadata = generate_metadata(book_data)
-        metadata_file = f"{book}.ffmetadata"
         write_ffmpeg_metadata_file(metadata, metadata_file, chapters=chapters)
         if chapters:
             logger.info("Metadata file with %d chapters created: %s", len(chapters), metadata_file)
         else:
             logger.info("Metadata file created: %s", metadata_file)
+    else:
+        metadata_file = None
 
     # Build ffmpeg command using subprocess for precise control
     # Note: ffmpeg-python library has issues with map_metadata/map_chapters
@@ -422,22 +478,57 @@ def decrypt_aaxc(
 
     # Add output file
     cmd.append(output_file)
+    return cmd, metadata_file
 
-    # Run the command
-    logger.debug("FFmpeg command: %s", " ".join(str(x) for x in cmd))
-    result = subprocess.run(cmd, capture_output=True, text=True)
 
-    if result.returncode != 0:
-        logger.error("FFmpeg error: %s", result.stderr)
-        raise Exception(f"FFmpeg conversion failed: {result.stderr}")
+def _opus_ffmpeg_args(
+    book: str,
+    key: str,
+    iv: str,
+    output_file: str,
+    metadata_file: str,
+    bitrate: int,
+    book_data: tuple | None,
+    cover_path: str | None,
+    chapters: list | None,
+) -> tuple[list[str], str | None]:
+    """
+    Build the ffmpeg command for an Ogg Opus re-encode. Ogg has no attached picture
+    stream or chapter track, so the cover (METADATA_BLOCK_PICTURE) and chapters
+    (CHAPTERxxx) travel as plain tags in the FFMETADATA file, and any chapters in the
+    AAXC itself are dropped with ``-map_chapters -1`` so they are not duplicated.
 
-    # Cleanup temporary metadata file
-    if metadata_file and Path(metadata_file).exists():
-        Path(metadata_file).unlink()
-        logger.debug("Cleaned up metadata file: %s", metadata_file)
+    Returns:
+        The command and the metadata file path (None if none was written)
+    """
+    tags = generate_metadata(book_data) if book_data else {}
 
-    logger.info("Conversion complete: %s", output_file)
-    return output_file
+    if chapters:
+        tags.update(chapter_tags(chapters))
+        logger.info("Embedding %d chapters as vorbis comments", len(chapters))
+
+    if cover_path and Path(cover_path).exists():
+        tags["METADATA_BLOCK_PICTURE"] = picture_block(cover_path)
+        logger.info("Embedding cover art as METADATA_BLOCK_PICTURE from: %s", cover_path)
+
+    if tags:
+        write_ffmpeg_metadata_file(tags, metadata_file)
+        logger.info("Metadata file created: %s", metadata_file)
+    else:
+        metadata_file = None
+
+    cmd = ["ffmpeg", "-y"]
+    cmd.extend(["-audible_key", key, "-audible_iv", iv, "-i", book])
+    if metadata_file:
+        cmd.extend(["-i", metadata_file])
+    cmd.extend(["-map", "0:a"])
+    if metadata_file:
+        cmd.extend(["-map_metadata", "1"])
+    cmd.extend(["-map_chapters", "-1"])
+    cmd.extend(["-c:a", "libopus", "-b:a", f"{bitrate}k", "-vbr", "on"])
+    cmd.extend(["-dn"])
+    cmd.append(output_file)
+    return cmd, metadata_file
 
 
 def _process_book(
@@ -447,6 +538,8 @@ def _process_book(
     audiobook_folder: str,
     folder_template: str = DEFAULT_FOLDER_TEMPLATE,
     filename_template: str = DEFAULT_FILENAME_TEMPLATE,
+    encoding_format: str = DEFAULT_FORMAT,
+    bitrate: int = DEFAULT_BITRATE,
 ):
     """
     Download, decrypt and file a single book. Raises on any failure so the
@@ -459,6 +552,8 @@ def _process_book(
         audiobook_folder: Root folder for the final organised library
         folder_template: Naming template for the book folder (see src.naming)
         filename_template: Naming template for the file name without extension
+        encoding_format: Output format (see src.encoding.FORMATS)
+        bitrate: Opus bitrate in kbps, only used for oga
     """
     asin = book[0]
     title = book[1]
@@ -505,7 +600,13 @@ def _process_book(
     logger.info("Decrypting and embedding metadata")
     chapters_data = download.get("chapters")
     audiobook = decrypt_aaxc(
-        download["book"], download["voucher"], book_data=book, cover_path=temp_cover_path, chapters=chapters_data
+        download["book"],
+        download["voucher"],
+        book_data=book,
+        cover_path=temp_cover_path,
+        chapters=chapters_data,
+        encoding_format=encoding_format,
+        bitrate=bitrate,
     )
 
     # Determine final location from the naming templates (all path segments sanitized)
@@ -513,7 +614,7 @@ def _process_book(
     final_folder.mkdir(parents=True, exist_ok=True)
 
     # Move the Book to final location
-    to_path = final_folder / f"{stem}{OUTPUT_EXTENSION}"
+    to_path = final_folder / f"{stem}{output_extension(encoding_format)}"
     shutil.copy(audiobook, to_path)
     logger.info("Book copied to %s", to_path)
 
@@ -549,8 +650,8 @@ def _process_book(
         asin, pdf_path=final_pdf_path, cover_path=final_cover_path, annotations_path=final_annotations_path
     )
 
-    # Mark Book downloaded
-    mark_book_downloaded(asin)
+    # Mark Book downloaded, recording how it was encoded
+    mark_book_downloaded(asin, encoding_format=encoding_format)
 
 
 def download_books(
@@ -561,6 +662,8 @@ def download_books(
     *,
     folder_template: str = DEFAULT_FOLDER_TEMPLATE,
     filename_template: str = DEFAULT_FILENAME_TEMPLATE,
+    encoding_format: str = DEFAULT_FORMAT,
+    bitrate: int = DEFAULT_BITRATE,
 ):
     """
     Download, decrypt and file every book waiting for download (up to `max`).
@@ -571,12 +674,15 @@ def download_books(
 
     `folder_template` and `filename_template` control where each book is filed
     under `audiobook_folder` (see src.naming for the placeholder syntax).
+    `encoding_format` selects m4b (stream copy) or oga (Opus at `bitrate` kbps).
     """
     waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
     number_to_download: int = max if max is not None else total_to_download
 
-    logger.info("Downloading %d books of %d waiting download", number_to_download, total_to_download)
+    logger.info(
+        "Downloading %d books of %d waiting download as %s", number_to_download, total_to_download, encoding_format
+    )
 
     loop = waiting_download[0 : int(number_to_download)]
     downloader = Downloader(audible)
@@ -596,6 +702,8 @@ def download_books(
                 audiobook_folder,
                 folder_template=folder_template,
                 filename_template=filename_template,
+                encoding_format=encoding_format,
+                bitrate=bitrate,
             )
             succeeded += 1
         except Exception:
