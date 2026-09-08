@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime
 
 from src.model import Book
@@ -7,7 +8,7 @@ from src.model import Book
 DB_FILE = "data/audible_sync.db"
 
 
-def _get_connection():
+def _get_connection() -> sqlite3.Connection:
     return sqlite3.connect(DB_FILE)
 
 
@@ -43,7 +44,28 @@ def init_db():
     # Migrate existing databases to add new columns
     _migrate_schema(conn)
 
+    _create_indexes(conn)
+
     conn.close()
+
+
+def _create_indexes(conn: sqlite3.Connection) -> None:
+    """
+    Index the columns every run filters or sorts on.
+
+    Sync reads the newest `date_added` and the downloader selects on `status`;
+    both are full table scans otherwise. Guarded by the columns actually present
+    so an older database that predates a column is still upgradable.
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(library)")
+    existing_columns = {row[1] for row in cursor.fetchall()}
+
+    for column in ("date_added", "status"):
+        if column in existing_columns:
+            cursor.execute(f"CREATE INDEX IF NOT EXISTS idx_library_{column} ON library({column})")
+
+    conn.commit()
 
 
 def _migrate_schema(conn):
@@ -71,74 +93,87 @@ def _migrate_schema(conn):
     conn.commit()
 
 
-def update_books(books: list[Book]):
-    conn = _get_connection()
-    cursor = conn.cursor()
+def update_books(books: list[Book]) -> int:
+    """
+    Insert books that are not in the library yet and return how many were added.
 
-    books_synced = 0
-    for book in books:
-        # Check if the book already exists in the database
-        existing_book = get_book_by_asin(book.asin)
+    `asin` is the primary key, so INSERT OR IGNORE does the de-duplication in one
+    statement. Checking first on a second connection could not see the rows this
+    transaction had already inserted, so a repeated ASIN inside a single API
+    response raised IntegrityError and rolled the whole sync back.
+    """
+    rows = [
+        (
+            book.asin,
+            book.title,
+            book.subtitle,
+            json.dumps(book.authors),
+            json.dumps(book.narrators),
+            json.dumps(book.series),
+            json.dumps(book.genres),
+            book.length,
+            book.is_finished,
+            book.percent_complete,
+            book.date_added,
+            book.release_date,
+            book.cover_url,
+            "waiting_download",
+            book.has_pdf,
+        )
+        for book in books
+    ]
 
-        # If the book doesn't exist, insert it into the database
-        if existing_book is None:
-            cursor.execute(
-                """
-            INSERT INTO library (asin, title, subtitle, authors, narrators, series, genres, length,
-                                 is_finished, percent_complete, date_added, release_date, cover_url,
-                                 status, has_pdf)
+    with closing(_get_connection()) as conn:
+        cursor = conn.cursor()
+        cursor.executemany(
+            """
+            INSERT OR IGNORE INTO library (asin, title, subtitle, authors, narrators, series, genres, length,
+                                           is_finished, percent_complete, date_added, release_date, cover_url,
+                                           status, has_pdf)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (
-                    book.asin,
-                    book.title,
-                    book.subtitle,
-                    json.dumps(book.authors),
-                    json.dumps(book.narrators),
-                    json.dumps(book.series),
-                    json.dumps(book.genres),
-                    book.length,
-                    book.is_finished,
-                    book.percent_complete,
-                    book.date_added,
-                    book.release_date,
-                    book.cover_url,
-                    "waiting_download",
-                    book.has_pdf,
-                ),
-            )
-            books_synced += 1
-
-    conn.commit()
-    conn.close()
+            rows,
+        )
+        books_synced = cursor.rowcount
+        conn.commit()
 
     return books_synced
 
 
-def get_books(limit=None):
-    conn = _get_connection()
-    cursor = conn.cursor()
+def get_books(limit: int | None = None) -> list[tuple]:
+    """All books, newest `date_added` first."""
     sql = "SELECT * FROM library ORDER BY date_added DESC"
-    if limit:
-        sql = f"{sql} LIMIT {limit}"
+    params: tuple = ()
+    if limit is not None:
+        sql = f"{sql} LIMIT ?"
+        params = (limit,)
 
-    cursor.execute(sql)
-    return cursor.fetchall()
-
-
-def get_books_to_download():
-    conn = _get_connection()
-    cursor = conn.cursor()
-    sql = "SELECT * FROM library WHERE status = 'waiting_download' ORDER BY date_added ASC"
-    cursor.execute(sql)
-    return cursor.fetchall()
+    with closing(_get_connection()) as conn:
+        return conn.execute(sql, params).fetchall()
 
 
-def get_book_by_asin(asin):
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM library WHERE asin=?", (asin,))
-    return cursor.fetchone()
+def get_books_to_download() -> list[tuple]:
+    """Books still waiting to be downloaded, oldest first."""
+    with closing(_get_connection()) as conn:
+        return conn.execute(
+            "SELECT * FROM library WHERE status = 'waiting_download' ORDER BY date_added ASC"
+        ).fetchall()
+
+
+def get_book_by_asin(asin: str) -> tuple | None:
+    with closing(_get_connection()) as conn:
+        return conn.execute("SELECT * FROM library WHERE asin=?", (asin,)).fetchone()
+
+
+def latest_date_added() -> str | None:
+    """
+    The newest `date_added` in the library, or None when it is empty.
+
+    Sync uses this as its incremental cursor. Reading it directly keeps that
+    cursor independent of how `get_books` happens to sort or paginate.
+    """
+    with closing(_get_connection()) as conn:
+        return conn.execute("SELECT MAX(date_added) FROM library").fetchone()[0]
 
 
 def _utcnow() -> str:
@@ -146,25 +181,48 @@ def _utcnow() -> str:
     return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
-def mark_book_downloaded(asin, encoding_format: str | None = None):
-    """Set the book to downloaded and record when and in which format it was converted."""
-    conn = _get_connection()
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE library SET status = 'downloaded', encoding_format = ?, downloaded_at = ? WHERE asin = ?",
-        (encoding_format, _utcnow(), asin),
-    )
-    conn.commit()
-    conn.close()
+def mark_book_downloaded(
+    asin: str,
+    encoding_format: str | None = None,
+    *,
+    pdf_path: str | None = None,
+    cover_path: str | None = None,
+    annotations_path: str | None = None,
+) -> None:
+    """
+    Set the book to downloaded and record when, in which format, and where its
+    accessories were filed.
+
+    The accessory paths are written in the same statement as the status so a book
+    cannot end up with its paths recorded but its status left behind (or the
+    reverse) if the process stops between two commits.
+    """
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            """
+            UPDATE library
+               SET status = 'downloaded',
+                   encoding_format = ?,
+                   downloaded_at = ?,
+                   pdf_path = COALESCE(?, pdf_path),
+                   cover_path = COALESCE(?, cover_path),
+                   annotations_path = COALESCE(?, annotations_path)
+             WHERE asin = ?
+            """,
+            (encoding_format, _utcnow(), pdf_path, cover_path, annotations_path, asin),
+        )
+        conn.commit()
 
 
-def update_book_accessories(asin, pdf_path=None, cover_path=None, annotations_path=None):
+def update_book_accessories(
+    asin: str,
+    pdf_path: str | None = None,
+    cover_path: str | None = None,
+    annotations_path: str | None = None,
+) -> None:
     """Update the paths for downloaded accessories (PDF, cover, annotations)"""
-    conn = _get_connection()
-    cursor = conn.cursor()
-
     updates = []
-    values = []
+    values: list[str] = []
 
     if pdf_path is not None:
         updates.append("pdf_path = ?")
@@ -176,10 +234,10 @@ def update_book_accessories(asin, pdf_path=None, cover_path=None, annotations_pa
         updates.append("annotations_path = ?")
         values.append(annotations_path)
 
-    if updates:
-        values.append(asin)
-        sql = f"UPDATE library SET {', '.join(updates)} WHERE asin = ?"
-        cursor.execute(sql, values)
-        conn.commit()
+    if not updates:
+        return
 
-    conn.close()
+    values.append(asin)
+    with closing(_get_connection()) as conn:
+        conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE asin = ?", values)
+        conn.commit()

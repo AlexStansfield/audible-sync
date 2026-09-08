@@ -120,3 +120,69 @@ def test_update_book_accessories_only_sets_given_paths(db):
     row = database.get_book_by_asin("B001")
     assert row[14] == "/p.pdf"
     assert row[16] == "/a.json"
+
+
+def test_update_books_handles_a_duplicate_asin_within_one_batch(db):
+    """A repeated ASIN in one API response used to abort the sync with nothing committed."""
+    inserted = database.update_books([make_book("B001"), make_book("B001"), make_book("B002")])
+
+    assert inserted == 2
+    assert sorted(row[0] for row in database.get_books()) == ["B001", "B002"]
+
+
+def test_update_books_on_an_empty_list_inserts_nothing(db):
+    assert database.update_books([]) == 0
+    assert database.get_books() == []
+
+
+def test_latest_date_added_is_none_for_an_empty_library(db):
+    assert database.latest_date_added() is None
+
+
+def test_latest_date_added_returns_the_newest_regardless_of_insert_order(db):
+    database.update_books(
+        [
+            make_book("MID", date_added="2024-06-01T00:00:00Z"),
+            make_book("NEW", date_added="2024-12-01T00:00:00Z"),
+            make_book("OLD", date_added="2024-01-01T00:00:00Z"),
+        ]
+    )
+
+    assert database.latest_date_added() == "2024-12-01T00:00:00Z"
+
+
+def test_mark_book_downloaded_records_accessory_paths_in_one_statement(db):
+    database.update_books([make_book("B001")])
+
+    database.mark_book_downloaded(
+        "B001",
+        encoding_format="m4b",
+        pdf_path="/lib/book.pdf",
+        cover_path="/lib/book_cover.jpg",
+        annotations_path="/lib/book_annotations.json",
+    )
+
+    row = database.get_book_by_asin("B001")
+    assert row[13] == "downloaded"
+    assert row[14] == "/lib/book.pdf"
+    assert row[15] == "/lib/book_cover.jpg"
+    assert row[16] == "/lib/book_annotations.json"
+
+
+def test_mark_book_downloaded_keeps_accessory_paths_it_is_not_given(db):
+    database.update_books([make_book("B001")])
+    database.mark_book_downloaded("B001", encoding_format="m4b", pdf_path="/lib/book.pdf")
+
+    database.mark_book_downloaded("B001", encoding_format="oga")
+
+    row = database.get_book_by_asin("B001")
+    assert row[14] == "/lib/book.pdf"
+    assert row[18] == "oga"
+
+
+def test_init_db_indexes_the_columns_every_run_filters_on(db):
+    conn = sqlite3.connect(database.DB_FILE)
+    indexes = {row[1] for row in conn.execute("PRAGMA index_list(library)")}
+    conn.close()
+
+    assert {"idx_library_date_added", "idx_library_status"} <= indexes
