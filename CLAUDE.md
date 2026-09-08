@@ -297,7 +297,7 @@ The suite currently covers the sanitizer, metadata generation, the FFMETADATA wr
 - [ ] A title with `:` or `/` produces a sane path
 - [ ] A failing book is skipped, its temp folder removed, and the run continues
 - [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe`)
-- [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `DESCRIPTION : ASIN: ...`; the DB row has `encoding_format` and `downloaded_at`
+- [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `comment=ASIN: ...` among the audio stream tags (`-show_streams`, Ogg tags are stream-level); the DB row has `encoding_format` and `downloaded_at`
 - [ ] Docker image builds and runs
 
 ### Debugging
