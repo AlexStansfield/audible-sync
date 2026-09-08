@@ -66,9 +66,9 @@ An unknown placeholder stops the app at startup with an error naming it. Changin
 
 ### `encoding`
 
-Controls the output format. Leave the section out to keep M4B.
+Optional, and off by default: unless you set it, the audio is kept exactly as Audible supplies it (AAC in an M4B container, no re-encoding).
 
- - `format`: `m4b` keeps the original AAC audio from Audible in an MP4 container, no re-encode and no quality loss. `oga` re-encodes to Opus in an Ogg container, which is much smaller for speech at the same perceived quality. Default: `m4b`
+ - `format`: `m4b` keeps the original AAC audio, no re-encode and no quality loss. `oga` re-encodes to Opus in an Ogg container, which is much smaller for speech at the same perceived quality. Default: `m4b`
  - `bitrate`: Opus bitrate in kbps, only used with `oga`, 1 to 256. `64` matches Audible's own quality; `32` to `48` is still very good for spoken word. Default: `64`
 
 Both formats get the same metadata, cover art and chapters. In Ogg files the cover is stored as a `METADATA_BLOCK_PICTURE` tag and the chapters as `CHAPTERxxx` tags, which is what players such as Audiobookshelf, VLC and Foobar2000 expect. `oga` needs an FFmpeg 5 or newer built with libopus (`ffmpeg -encoders | grep libopus`); the Docker image has it. Changing the format only affects books downloaded afterwards.

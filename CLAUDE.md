@@ -212,8 +212,8 @@ downloads = data/downloads
 audiobooks = audiobooks
 
 [encoding]
-format = m4b            ; m4b (stream copy) or oga (Ogg Opus re-encode)
-bitrate = 64            ; kbps, oga only, 1-256
+; format = oga          ; opt-in Ogg Opus re-encode; unset = m4b stream copy, no re-encoding
+; bitrate = 64          ; kbps, oga only, 1-256
 ```
 
 Read in `main.py` with `configparser`. The config file is copied into the Docker image, so committed values become the image defaults. Users override by mounting `./config` (see `compose.yml`).
