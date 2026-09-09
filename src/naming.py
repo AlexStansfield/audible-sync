@@ -8,9 +8,10 @@ every placeholder inside it has a value, so `[{series}/]` disappears for books
 that are not part of a series.
 """
 
-import json
 import re
 from pathlib import Path
+
+from src.model import Book
 
 # Characters that are invalid in file names on Windows/SMB shares (plus control chars).
 # '/' and '\\' are handled separately so they can be replaced rather than dropped.
@@ -93,9 +94,9 @@ def temp_book_folder(download_folder: str, asin: str, title: str) -> Path:
     return Path(download_folder) / f"{asin}_{sanitize_filename(title, fallback=asin)}"
 
 
-def book_template_values(book: tuple) -> dict[str, str]:
+def book_template_values(book: Book) -> dict[str, str]:
     """
-    Build the placeholder values for a book from its database row.
+    Build the placeholder values for a book.
 
     Every value is already path-safe (see `sanitize_filename`), so a title
     containing '/' cannot introduce an extra folder level. Placeholders with no
@@ -103,16 +104,16 @@ def book_template_values(book: tuple) -> dict[str, str]:
     `author`/`authors` (fall back to "Unknown Author").
 
     Args:
-        book: Book tuple from the database (indices as per the library schema)
+        book: The book to build placeholder values for
 
     Returns:
         Dictionary keyed by placeholder name
     """
-    asin = book[0]
-    authors = json.loads(book[3]) if book[3] else []
-    narrators = json.loads(book[4]) if book[4] else []
-    series = json.loads(book[5]) if book[5] else []
-    release_date = str(book[11]) if book[11] else ""
+    asin = book.asin
+    authors = book.authors
+    narrators = book.narrators
+    series = book.series
+    release_date = str(book.release_date) if book.release_date else ""
     first_series = series[0] if series else {}
     # A sequence without a series title would render as a bare "2 - Title" folder
     # directly under the author, which loses the series context entirely.
@@ -124,8 +125,8 @@ def book_template_values(book: tuple) -> dict[str, str]:
 
     return {
         "asin": asin,
-        "title": sanitize_filename(book[1], fallback=asin),
-        "subtitle": clean(book[2]),
+        "title": sanitize_filename(book.title, fallback=asin),
+        "subtitle": clean(book.subtitle),
         "author": sanitize_filename(authors[0], fallback="Unknown Author") if authors else "Unknown Author",
         "authors": sanitize_filename(", ".join(authors), fallback="Unknown Author") if authors else "Unknown Author",
         "narrator": clean(narrators[0]) if narrators else "",
@@ -187,7 +188,7 @@ def validate_templates(folder_template: str, filename_template: str) -> None:
 
 
 def book_output_paths(
-    book: tuple,
+    book: Book,
     audiobook_folder: str,
     folder_template: str = DEFAULT_FOLDER_TEMPLATE,
     filename_template: str = DEFAULT_FILENAME_TEMPLATE,
@@ -196,7 +197,7 @@ def book_output_paths(
     Work out where a converted book and its accessories should be filed.
 
     Args:
-        book: Book tuple from the database
+        book: The book being filed
         audiobook_folder: Root folder of the organised library
         folder_template: Folder template, relative to `audiobook_folder`
         filename_template: File name template without extension

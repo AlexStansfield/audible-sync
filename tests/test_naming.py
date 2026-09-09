@@ -1,4 +1,3 @@
-import json
 from pathlib import Path
 
 import pytest
@@ -12,62 +11,40 @@ from src.naming import (
     sanitize_filename,
     validate_templates,
 )
+from tests.conftest import make_book
 
 LIBRARY = "audiobooks"
 
 
-def make_row(
-    asin="B001",
-    title="Title",
-    subtitle="",
-    authors=("Author One",),
-    narrators=("Narrator",),
-    series=None,
-    release_date="2020-05-01",
-):
-    """Build a database row tuple matching the library table column order."""
-    row = [None] * 20
-    row[0] = asin
-    row[1] = title
-    row[2] = subtitle
-    row[3] = json.dumps(list(authors))
-    row[4] = json.dumps(list(narrators))
-    row[5] = json.dumps(series or [])
-    row[6] = json.dumps(["Fiction"])
-    row[11] = release_date
-    row[12] = ""
-    row[13] = "waiting_download"
-    row[17] = 0
-    return tuple(row)
-
-
 def test_default_layout_with_series_and_sequence():
-    row = make_row(
+    book = make_book(
         title="One Word Kill", authors=("Mark Lawrence",), series=[{"title": "Nick Hayes Series", "sequence": "1"}]
     )
-    folder, stem = book_output_paths(row, LIBRARY)
+    folder, stem = book_output_paths(book, LIBRARY)
     assert folder == Path(LIBRARY) / "Mark Lawrence" / "Nick Hayes Series" / "1 - One Word Kill"
     assert stem == "One Word Kill"
 
 
 def test_default_layout_without_series():
-    row = make_row(title="Snow Crash", authors=("Neal Stephenson",))
-    folder, stem = book_output_paths(row, LIBRARY)
+    book = make_book(title="Snow Crash", authors=("Neal Stephenson",))
+    folder, stem = book_output_paths(book, LIBRARY)
     assert folder == Path(LIBRARY) / "Neal Stephenson" / "Snow Crash"
     assert stem == "Snow Crash"
 
 
 def test_default_layout_with_series_but_no_sequence():
-    row = make_row(title="Dune", authors=("Frank Herbert",), series=[{"title": "The Dune Sequence", "sequence": None}])
-    folder, stem = book_output_paths(row, LIBRARY)
+    book = make_book(
+        title="Dune", authors=("Frank Herbert",), series=[{"title": "The Dune Sequence", "sequence": None}]
+    )
+    folder, stem = book_output_paths(book, LIBRARY)
     assert folder == Path(LIBRARY) / "Frank Herbert" / "The Dune Sequence" / "Dune"
     assert stem == "Dune"
 
 
 def test_explicit_defaults_match_implicit_defaults():
-    row = make_row(series=[{"title": "S", "sequence": "2"}])
-    explicit = book_output_paths(row, LIBRARY, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILENAME_TEMPLATE)
-    assert explicit == book_output_paths(row, LIBRARY)
+    book = make_book(series=[{"title": "S", "sequence": "2"}])
+    explicit = book_output_paths(book, LIBRARY, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILENAME_TEMPLATE)
+    assert explicit == book_output_paths(book, LIBRARY)
 
 
 @pytest.mark.parametrize(
@@ -86,21 +63,21 @@ def test_render_template_optional_groups(template, values, expected):
 
 
 def test_bare_template_drops_empty_folder_segment():
-    row = make_row(title="Snow Crash", authors=("Neal Stephenson",))
-    folder, _ = book_output_paths(row, LIBRARY, folder_template="{author}/{series}/{title}")
+    book = make_book(title="Snow Crash", authors=("Neal Stephenson",))
+    folder, _ = book_output_paths(book, LIBRARY, folder_template="{author}/{series}/{title}")
     assert folder == Path(LIBRARY) / "Neal Stephenson" / "Snow Crash"
 
 
 def test_title_with_path_characters_stays_one_segment():
-    row = make_row(title="Good Omens / The Nice Bit: Part 1", authors=("A",))
-    folder, stem = book_output_paths(row, LIBRARY, folder_template="{title}")
+    book = make_book(title="Good Omens / The Nice Bit: Part 1", authors=("A",))
+    folder, stem = book_output_paths(book, LIBRARY, folder_template="{title}")
     assert folder == Path(LIBRARY) / "Good Omens - The Nice Bit - Part 1"
     assert stem == "Good Omens - The Nice Bit - Part 1"
 
 
 def test_dot_segments_cannot_escape_library_root():
-    row = make_row(title="T")
-    folder, _ = book_output_paths(row, LIBRARY, folder_template="../..//{title}")
+    book = make_book(title="T")
+    folder, _ = book_output_paths(book, LIBRARY, folder_template="../..//{title}")
     assert folder == Path(LIBRARY) / "T"
 
 
@@ -125,14 +102,14 @@ def test_default_templates_validate():
 
 
 def test_empty_folder_and_stem_fall_back_to_asin():
-    row = make_row(asin="B00X", title="T")
-    folder, stem = book_output_paths(row, LIBRARY, folder_template="{series}", filename_template="{subtitle}")
+    book = make_book(asin="B00X", title="T")
+    folder, stem = book_output_paths(book, LIBRARY, folder_template="{series}", filename_template="{subtitle}")
     assert folder == Path(LIBRARY) / "B00X"
     assert stem == "B00X"
 
 
 def test_template_values_join_lists_and_extract_year():
-    row = make_row(
+    book = make_book(
         asin="B00Y",
         subtitle="A Sub: Title",
         authors=("A One", "B Two"),
@@ -140,7 +117,7 @@ def test_template_values_join_lists_and_extract_year():
         series=[{"title": "S", "sequence": "3"}],
         release_date="1999-12-31",
     )
-    values = book_template_values(row)
+    values = book_template_values(book)
     assert values["asin"] == "B00Y"
     assert values["author"] == "A One"
     assert values["authors"] == "A One, B Two"
@@ -153,8 +130,8 @@ def test_template_values_join_lists_and_extract_year():
 
 
 def test_template_values_for_sparse_book():
-    row = make_row(asin="B00Z", title="", authors=(), narrators=(), release_date=None)
-    values = book_template_values(row)
+    book = make_book(asin="B00Z", title="", authors=(), narrators=(), release_date=None)
+    values = book_template_values(book)
     assert values["title"] == "B00Z"
     assert values["author"] == "Unknown Author"
     assert values["authors"] == "Unknown Author"
@@ -184,7 +161,7 @@ def test_sanitize_filename_does_not_leave_double_spaces_behind_dropped_character
 
 
 def test_sequence_without_series_title_does_not_become_a_folder():
-    row = make_row(title="Dune", authors=("Frank Herbert",), series=[{"title": None, "sequence": "2"}])
-    folder, stem = book_output_paths(row, LIBRARY)
+    book = make_book(title="Dune", authors=("Frank Herbert",), series=[{"title": None, "sequence": "2"}])
+    folder, stem = book_output_paths(book, LIBRARY)
     assert folder == Path(LIBRARY) / "Frank Herbert" / "Dune"
     assert stem == "Dune"

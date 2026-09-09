@@ -111,7 +111,15 @@ This is a one-shot run: sync + download, then exit.
 
 ### model.py
 
-`Book` is a plain data container. Fields: `asin`, `title`, `subtitle`, `authors`, `narrators`, `series` (list of `{"title", "sequence"}`), `genres`, `length` (minutes), `is_finished`, `percent_complete`, `date_added`, `release_date`, `cover_url`, `has_pdf`. Status is stored only in the database.
+`Book` is a dataclass and models both an Audible API item and a row of `library`.
+
+**API fields:** `asin`, `title`, `subtitle`, `authors`, `narrators`, `series` (list of `{"title", "sequence"}`, either of which may be `None`), `genres`, `length` (minutes), `is_finished`, `percent_complete`, `date_added`, `release_date`, `cover_url`, `has_pdf`.
+
+**Database-only fields**, `None` on a book that came straight from the API: `status`, `pdf_path`, `cover_path`, `annotations_path`, `encoding_format`, `downloaded_at`.
+
+`date_added` is an **ISO 8601 string** exactly as Audible returns it (e.g. `2024-01-01T00:00:00Z`), stored, sorted and compared as text. It is never parsed into a `datetime`.
+
+`Book.from_row(row)` is the single owner of the JSON decode and the SQLite 0/1 to bool coercion. It reads by column name through `dict(row).get(...)`, so a column the row does not carry falls back to the field default and a legacy database still reads; only `asin` is required. The hand-written `__repr__` is kept on purpose - the generated one would put the cover URL and three file paths into every log line that formats a book. Dataclass field order deliberately does not mirror the table (`has_pdf` sits with the API fields); nothing is positional against a row any more.
 
 ### database.py
 
@@ -119,29 +127,17 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
 
 **Functions:**
 - `init_db()`
-- `update_books(books)` - `INSERT OR IGNORE` in one statement, status `waiting_download`; returns count inserted. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not
-- `get_books(limit=None)` - all books, newest `date_added` first
-- `get_books_to_download()` - status `waiting_download`, oldest first
-- `get_book_by_asin(asin)`
+- `update_books(books)` - `INSERT OR IGNORE` in one statement, status `waiting_download`; returns count inserted. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not. Writes 15 of the 20 columns on purpose and hardcodes the status, so keep it an explicit column list rather than generating one from the dataclass; its `json.dumps` must stay in step with `Book.from_row`'s decode
+- `get_books(limit=None) -> list[Book]` - all books, newest `date_added` first
+- `get_books_to_download() -> list[Book]` - status `waiting_download`, oldest first
+- `get_book_by_asin(asin) -> Book | None`
 - `latest_date_added()` - `MAX(date_added)`, the incremental sync cursor. Independent of how `get_books` sorts
 - `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value
 - `update_book_accessories(asin, pdf_path=, cover_path=, annotations_path=)` - accessory paths only; unused by the pipeline, kept for the API
 
-**Rows are tuples, not Book objects.** Column indices:
+**Reads return `Book` objects, not tuples.** `_get_connection()` sets `row_factory = sqlite3.Row` and every reader maps rows through `Book.from_row()`. Access is by column name, which is why `SELECT *` stays correct even on an older database where `_migrate_schema` appended columns in a different order than the DDL - positional indexing was silently wrong there. Never index a row positionally.
 
-```
-0:  asin              9:  percent_complete
-1:  title             10: date_added
-2:  subtitle          11: release_date
-3:  authors (JSON)    12: cover_url
-4:  narrators (JSON)  13: status
-5:  series (JSON)     14: pdf_path
-6:  genres (JSON)     15: cover_path
-7:  length            16: annotations_path
-8:  is_finished       17: has_pdf
-                      18: encoding_format
-                      19: downloaded_at
-```
+Note `_migrate_schema` only adds the six accessory columns, so a database predating the rest of the schema still lacks `date_added`; `get_books`, `get_books_to_download` and `latest_date_added` all reference it and raise on that schema. `get_book_by_asin` works, because `from_row` falls back to field defaults. Widening the migration belongs with the status/state-machine work.
 
 All functions close their connections (`contextlib.closing`). `init_db` also indexes `date_added` and `status`, guarded by the columns actually present so an old database still migrates.
 
@@ -180,7 +176,7 @@ The largest module. Key pieces:
 **Chapters:** `flatten_chapters(chapters)` descends into the nested `chapters` list Audible returns for books split into parts. Taking only the top level left a multi-part book with a few hours-long "Part One" markers instead of its real chapters.
 
 **Metadata and decryption**
-- `generate_metadata(book_tuple)` - title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment
+- `generate_metadata(book)` - takes a `Book`; title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment
 - `write_ffmpeg_metadata_file(metadata, path, chapters=None)` - writes an FFMETADATA1 file including `[CHAPTER]` blocks, escaping through `_escape_ffmetadata`. A newline is escaped as a backslash followed by the real newline; writing the two characters `\` and `n` would be read back as a literal `n`
 - `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None, *, encoding_format="m4b", bitrate=64)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv` and raises on non-zero exit. The argv comes from one of two helpers:
   - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`. `-map_chapters` is only passed when there **are** chapters: pointing it at a chapterless metadata file discards the chapter track the AAXC itself carries, which FFmpeg would otherwise have copied. The MP4 muxer only writes the keys it knows and drops `series`, `series-part`, `author` and `media_type`; after FFmpeg succeeds `decrypt_aaxc` calls `write_m4b_extra_tags` (in `src/encoding.py`) to add those as iTunes freeform atoms. Do not use `-movflags use_metadata_tags` for this: it keeps every key but removes the embedded cover (verified 2026-09-08)
@@ -303,9 +299,9 @@ uv run pytest -k sanitize   # subset
 - For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it. The fixture also replaces `downloader.write_m4b_extra_tags` with a recorder, since the fake ffmpeg produces no file for mutagen to open.
 - Never hit the Audible API, the network or FFmpeg in tests. Mock `Audible`/`Downloader` methods and `subprocess.run` with `unittest.mock` or `monkeypatch`.
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
-- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). This is how the per-book error handling was verified. `Downloader.download_book` takes `(book, temp_dir)` and returns a `DownloadedBook`.
+- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
 - For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible.py`.
-- Keep fixtures small and inline; a shared `conftest.py` is fine once two files need the same one.
+- `tests/conftest.py` holds the shared `make_book()` factory; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
 
 The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
 
@@ -365,7 +361,7 @@ Two workflows in `.github/workflows/`:
 - Test coverage is thin outside `downloader.py` and `database.py`; `audible.py` and `sync.py` have no tests yet
 - Two books whose templates render to the same name are filed side by side (` [{asin}]` suffix) rather than merged; the naming template is what actually needs disambiguating
 - `Downloader`'s network-facing methods still have no unit tests
-- The structural work listed under **Milestone 3 Step 0** in `todo.md`: raw row tuples with magic indices, config threaded as keyword arguments, a two-value status string, and no `sync_runs` table
+- The structural work still listed under **Milestone 3 Step 0** in `todo.md`: config threaded as keyword arguments, a two-value status string, and no `sync_runs` table
 
 ## Roadmap
 
@@ -383,7 +379,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.0
+**Document Version:** 4.1
 **Last Updated:** 2026-09-08
-**Codebase Version:** Milestone 2 complete, pre-Milestone-3 review fixes (branch fix/pre-api-review)
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 in progress (database returns objects)
 **Primary Branch:** `dev`

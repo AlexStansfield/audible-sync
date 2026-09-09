@@ -74,7 +74,7 @@ A pre-pivot code review (2026-09-08) fixed the correctness problems on
 change now and expensive once endpoints, a scheduler and a UI depend on them.
 Each one blocks a Milestone 3 requirement, so they come before the endpoints.
 
-- [ ] **Return objects from the database, not raw tuples.** Every read returns a
+- [x] **Return objects from the database, not raw tuples.** Every read returns a
   positional `sqlite3` tuple and `downloader.py`, `naming.py` and the tests
   hard-code indices (`book[12]` is the cover URL, `book[17]` is `has_pdf`) with
   the same `json.loads` boilerplate repeated in each. `CLAUDE.md` has to carry a
@@ -127,6 +127,47 @@ Smaller items to fold in while doing the above:
   (`known-third-party` in `pyproject.toml` is the workaround holding it together).
 - [ ] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
 - [ ] Add tests for the network-facing `Downloader` methods, which have none.
+- [x] **`download_annotations` turns a 404 into a permanent failure.** The
+  accessory contract says the three methods return `False` only when the thing
+  is genuinely absent and raise otherwise, and `download_pdf`/`download_cover`
+  both special-case 404. `download_annotations` does not: the Amazon sidecar
+  endpoint 404s for a book that has never been opened, `audible.Client` raises
+  `NotFoundError`, `_process_book` propagates it, and the book stays
+  `waiting_download` forever. Every run re-licenses and re-downloads the whole
+  AAXC before failing again on the same 404, so it burns a full book of
+  bandwidth per retry. Measured 2026-09-09: 4 of a 25-book sample 404 (~16%,
+  roughly 49 of the 306-title library), and it is what stopped *Northern
+  Lights* in a real run. Catch `NotFoundError` and return `False`, and add a
+  test - this is the one accessory method with no 404 path.
+  Fixed 2026-09-09: it now catches `NotFoundError` and returns `False`, matching
+  `download_pdf` and `download_cover`, with tests covering the 404, a non-404
+  error still raising, and the empty and populated responses.
+
+- [ ] **`series[0]` is an arbitrary pick for a book in more than one series.**
+  `_prepare_book` keeps every series entry in whatever order the API returned,
+  and both `book_template_values` and `generate_metadata` then take `series[0]`.
+  11 of the 306 titles here are in two series, and the order is not even stable
+  between endpoints: for *Northern Lights* the `library` list endpoint returns
+  Audible's typo'd "His Dark Materialsik" first while `library/{asin}` returns
+  the real "His Dark Materials" first. The visible result is that books 1 and 2
+  of the trilogy file under `His Dark Materialsik/` and book 3 under
+  `His Dark Materials/`, splitting one series across two folders. Other picks
+  are merely debatable (*Dune* files under "The Dune Sequence" at sequence 12
+  rather than "Dune" at 1). Needs a deliberate rule - prefer the series the
+  sequence makes sense for, or let the naming template choose - rather than
+  index 0. Noticed 2026-09-09 during a real run.
+
+- [ ] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
+  the series entry with `series_info.get("sequence", "")`, but `_prepare_book`
+  always creates the key (`entry.get("sequence")`), so a series entry whose
+  sequence is null yields `None`, not the intended `""`. That `None` is written
+  straight through: the FFMETADATA file gets a literal `series-part=None` line
+  and `write_m4b_extra_tags` copies it into the iTunes freeform atom, so the
+  book shows "None" as its series number in a player. `.get("title", "")` on
+  the line above has the same shape. Fix both with `or ""` and cover the null
+  case in `test_generate_metadata`. Reproduced 2026-09-09; currently latent,
+  as no book in the 306-title library has a null title or sequence, but
+  `naming.py` already guards the same shape and `test_naming` exercises it.
 
 ### Tasks
 

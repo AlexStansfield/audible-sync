@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 import httpx
 from audible.aescipher import decrypt_voucher_from_licenserequest
-from audible.exceptions import AuthFlowError, NoRefreshToken, Unauthorized
+from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Unauthorized
 from tqdm import tqdm
 
 from src.audible import Audible
@@ -22,6 +22,7 @@ from src.encoding import (
     read_embedded_asin,
     write_m4b_extra_tags,
 )
+from src.model import Book
 from src.naming import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_FOLDER_TEMPLATE,
@@ -146,15 +147,15 @@ class Downloader:
             logger.warning("Could not fetch chapter info for %s: %s", asin, e)
             return None
 
-    def download_book(self, book: tuple, temp_dir: Path) -> DownloadedBook:
+    def download_book(self, book: Book, temp_dir: Path) -> DownloadedBook:
         """
         Download the AAXC, its voucher and the chapter list into `temp_dir`.
 
         The voucher is decrypted before the audio is fetched so a key problem is
         found in a second rather than after several hundred megabytes.
         """
-        asin = book[0]
-        title = book[1]
+        asin = book.asin
+        title = book.title
         safe_title = sanitize_filename(title, fallback=asin)
 
         license_response = self.get_license_response(asin, quality="High")
@@ -234,13 +235,23 @@ class Downloader:
         Download user annotations and bookmarks.
 
         Returns False when the book has none; transport failures are raised.
+
+        The sidecar endpoint 404s for a book that has never been opened, which is
+        "no annotations", not an error. `audible.Client` turns that into a
+        `NotFoundError`, and letting it propagate left the book `waiting_download`
+        forever: the 404 is permanent, so every later run re-licensed and
+        re-downloaded the whole AAXC before failing on it again.
         """
         logger.info("Downloading annotations for %s", asin)
         url = "https://cde-ta-g7g.amazon.com/FionaCDEServiceEngine/sidecar"
         params = {"type": "AUDI", "key": asin}
 
         # Use the authenticated client (automatically parses JSON responses)
-        annotations_data = self.audible.client.get(url, params=params)
+        try:
+            annotations_data = self.audible.client.get(url, params=params)
+        except NotFoundError:
+            logger.info("No annotations found for %s", asin)
+            return False
 
         # Only save if there are actual annotations
         if not annotations_data or not (annotations_data.get("clips") or annotations_data.get("bookmarks")):
@@ -271,24 +282,24 @@ def flatten_chapters(chapters: list | None) -> list:
     return flat
 
 
-def generate_metadata(book_data: tuple) -> dict:
+def generate_metadata(book: Book) -> dict:
     """
-    Generate comprehensive metadata dictionary from book data tuple.
+    Generate comprehensive metadata dictionary from a book.
 
     Args:
-        book_data: Book tuple from database (indices as per database schema)
+        book: The book to describe
 
     Returns:
         Dictionary with metadata fields for FFmpeg
     """
-    asin = book_data[0]
-    title = book_data[1]
-    subtitle = book_data[2]
-    authors = json.loads(book_data[3]) if book_data[3] else []
-    narrators = json.loads(book_data[4]) if book_data[4] else []
-    series = json.loads(book_data[5]) if book_data[5] else []
-    genres = json.loads(book_data[6]) if book_data[6] else []
-    release_date = book_data[11]
+    asin = book.asin
+    title = book.title
+    subtitle = book.subtitle
+    authors = book.authors
+    narrators = book.narrators
+    series = book.series
+    genres = book.genres
+    release_date = book.release_date
 
     metadata = {}
 
@@ -395,7 +406,7 @@ def write_ffmpeg_metadata_file(metadata: dict, output_path: str, chapters: list 
 def decrypt_aaxc(
     book: str,
     voucher: str,
-    book_data: tuple | None = None,
+    book_data: Book | None = None,
     cover_path: str | None = None,
     chapters: list | None = None,
     *,
@@ -413,7 +424,7 @@ def decrypt_aaxc(
     Args:
         book: Path to the AAXC file
         voucher: Path to the voucher JSON file
-        book_data: Optional book data tuple from database for metadata generation
+        book_data: Optional book to generate metadata from
         cover_path: Optional path to cover image to embed
         chapters: Optional list of chapter dictionaries to embed
         encoding_format: Output format, a key of ``src.encoding.FORMATS``
@@ -433,7 +444,7 @@ def decrypt_aaxc(
 
     # Built once and shared by the FFMETADATA file and the freeform MP4 atoms, so the
     # two can never describe the same book differently.
-    metadata = generate_metadata(book_data) if book_data else None
+    metadata = generate_metadata(book_data) if book_data is not None else None
     has_cover = bool(cover_path and Path(cover_path).exists())
     metadata_file: str | None = None
 
@@ -602,16 +613,16 @@ def _resolve_output_path(final_folder: Path, stem: str, extension: str, asin: st
     return final_folder / f"{unique_stem}{extension}", unique_stem
 
 
-def _download_accessories(downloader: Downloader, book: tuple, temp_dir: Path, safe_title: str) -> dict[str, Path]:
+def _download_accessories(downloader: Downloader, book: Book, temp_dir: Path, safe_title: str) -> dict[str, Path]:
     """
     Fetch the PDF, cover and annotations into the working folder.
 
     Returns the ones that exist, keyed by the database column they belong to.
     A book with no PDF or no annotations is normal; a failed request raises.
     """
-    asin = book[0]
-    cover_url = book[12]
-    has_pdf = book[17]
+    asin = book.asin
+    cover_url = book.cover_url
+    has_pdf = book.has_pdf
     accessories: dict[str, Path] = {}
 
     if has_pdf:
@@ -637,7 +648,7 @@ def _download_accessories(downloader: Downloader, book: tuple, temp_dir: Path, s
 
 def _process_book(
     downloader: Downloader,
-    book: tuple,
+    book: Book,
     temp_dir: Path,
     audiobook_folder: str,
     folder_template: str = DEFAULT_FOLDER_TEMPLATE,
@@ -651,7 +662,7 @@ def _process_book(
 
     Args:
         downloader: Downloader bound to an authenticated Audible client
-        book: Book tuple from the database
+        book: The book to process
         temp_dir: Temporary working folder for this book
         audiobook_folder: Root folder for the final organised library
         folder_template: Naming template for the book folder (see src.naming)
@@ -659,8 +670,8 @@ def _process_book(
         encoding_format: Output format (see src.encoding.FORMATS)
         bitrate: Opus bitrate in kbps, only used for oga
     """
-    asin = book[0]
-    title = book[1]
+    asin = book.asin
+    title = book.title
     safe_title = sanitize_filename(title, fallback=asin)
 
     # Download the Book
@@ -753,8 +764,8 @@ def download_books(
     failed = []
 
     for book in loop:
-        asin = book[0]
-        title = book[1]
+        asin = book.asin
+        title = book.title
         temp_dir = temp_book_folder(download_folder, asin, title)
 
         try:
