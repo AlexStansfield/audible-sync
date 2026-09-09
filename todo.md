@@ -98,7 +98,7 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
   rather than the working directory, or `uvicorn` started elsewhere creates an
   empty database somewhere else. *Blocks: get and change settings by API.*
 
-- [ ] **Replace the two-value status string with a real state machine.**
+- [x] **Replace the two-value status string with a real state machine.**
   `waiting_download` and `downloaded` are string literals inlined in three SQL
   statements with no enum and no terminal failure state, so a book that can never
   succeed is re-licensed, re-downloaded and re-failed on every run forever. There
@@ -107,6 +107,21 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
   `last_error` and `last_attempt_at` columns, a claim step, and an upsert in
   `update_books` so `is_finished` and `percent_complete` refresh after first sync.
   *Blocks: the scheduler, and any UI that shows why a book failed.*
+  Done 2026-09-09: `BookStatus` is a `StrEnum` in `model.py` with `waiting_download`,
+  `downloading`, `downloaded` and terminal `failed`, so no stored row had to be
+  rewritten. `claim_book_for_download` takes a book in one UPDATE and reclaims a
+  download abandoned beyond `STALE_CLAIM_SECONDS`; `mark_book_failed` decides
+  retry-or-give-up inside the UPDATE from the attempts the claim incremented, capped by
+  the new `[sync] max-attempts` (default 3); a refused licence fails on the first try;
+  `release_book` hands the claim back for an auth abort, which is not the book's fault.
+  `update_books` is now an upsert that refreshes the mutable API fields only - never
+  `date_added`, the sync cursor, nor anything the downloader owns.
+  A refused licence is **not** terminal: Audible withdraws Plus titles a customer
+  added while they were included (16 of 306 here on 2026-09-09, including *The Time
+  Traveler's Wife* and *Red Rising*) and later offers them again. `customer_rights.
+  is_consumable` is read at sync time, a withdrawn book is parked as `unavailable`
+  so it leaves the queue, and the upsert returns it to `waiting_download` as soon as
+  a sync sees it consumable - no manual step.
 
 - [ ] **Record sync runs and stream download progress.** The incremental cursor is
   derived from the newest `date_added` in the library table, so there is no source

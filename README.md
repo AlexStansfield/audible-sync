@@ -4,7 +4,7 @@ A python app that will fetch your library from audible, download the books and c
 
 On each run it will sync the latest purchases from your audible library to the app database.
 
-It records the download status of each book so will only fetch the missing books
+It records the download status of each book so will only fetch the missing books. A book that keeps failing is retried up to `max-attempts` times and then left alone, with the reason recorded, rather than re-downloaded on every run forever.
 
 ## Disclaimer
 
@@ -33,6 +33,7 @@ Every path setting may be absolute or relative. A relative path is resolved agai
 ### `sync`
 
  - `max-download`: total number of books to download and decrypt on each app run, leave unset to get everything waiting to be downloaded
+ - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`. A book Audible will not license is failed on the first try, since it cannot succeed later
  - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
 
 ### `folders`

@@ -1,11 +1,57 @@
 import json
 import sqlite3
 from dataclasses import dataclass, field
+from enum import StrEnum
+
+
+class BookStatus(StrEnum):
+    """
+    Where a book is in the download pipeline.
+
+    A `StrEnum` rather than a plain `Enum` so a member *is* the text stored in the
+    `status` column: the database keeps the values it already holds, no migration
+    has to rewrite a row, and a comparison against a plain string still works.
+
+    `DOWNLOADING` exists so a scheduler tick starting while a download is running
+    cannot pick the same row, and `FAILED` is terminal - without it a book that
+    could never succeed was re-licensed, re-downloaded and re-failed on every run.
+
+    `UNAVAILABLE` is deliberately **not** terminal. A Plus title the customer added
+    while it was included stays in the library after Audible withdraws it but cannot
+    be licensed, and Audible does bring such titles back: 16 of a 306-title library
+    were withdrawn when this was measured (2026-09-09). Those books leave the download
+    queue so they stop costing a licence request every run, and `update_books` returns
+    them to `waiting_download` as soon as a sync sees them consumable again.
+    """
+
+    WAITING_DOWNLOAD = "waiting_download"
+    DOWNLOADING = "downloading"
+    DOWNLOADED = "downloaded"
+    UNAVAILABLE = "unavailable"
+    FAILED = "failed"
 
 
 def _json_list(value: str | None) -> list:
     """Decode a JSON list column, treating NULL, '' and a stored `null` as an empty list."""
     return (json.loads(value) or []) if value else []
+
+
+def _book_status(value: str | None) -> BookStatus | None:
+    """
+    Map the stored `status` text onto the enum, tolerating anything unrecognised.
+
+    A database written by an older version, or edited by hand, can hold a value this
+    build has never heard of. Raising here would make the whole row unreadable, so an
+    unknown status reads back as None - the same "we do not know" the field already
+    carries for a book that came straight from the API. Nothing selects on the Python
+    value (the queue is a SQL predicate), so such a row is simply never picked up.
+    """
+    if value is None:
+        return None
+    try:
+        return BookStatus(value)
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -38,9 +84,17 @@ class Book:
     release_date: str | None = None
     cover_url: str = ""
     has_pdf: bool = False
+    # False while Audible has withdrawn a Plus title the customer still holds. Read from
+    # `customer_rights.is_consumable`, and the reason a book sits in `UNAVAILABLE`.
+    is_consumable: bool = True
 
     # Database only, so None on a book that came straight from the Audible API
-    status: str | None = None
+    status: BookStatus | None = None
+    # `attempts` counts claims, not failures, so it survives a success as a record of
+    # what the book cost. Its default must stay in step with the column default.
+    attempts: int = 0
+    last_error: str | None = None
+    last_attempt_at: str | None = None
     pdf_path: str | None = None
     cover_path: str | None = None
     annotations_path: str | None = None
@@ -73,7 +127,14 @@ class Book:
             release_date=data.get("release_date"),
             cover_url=data.get("cover_url") or "",
             has_pdf=bool(data.get("has_pdf")),
-            status=data.get("status"),
+            # NULL on a row written before the column existed means "not known to be
+            # withdrawn", so it must read True: defaulting to False would park a whole
+            # legacy library as unavailable.
+            is_consumable=bool(data["is_consumable"]) if data.get("is_consumable") is not None else True,
+            status=_book_status(data.get("status")),
+            attempts=data.get("attempts") or 0,
+            last_error=data.get("last_error"),
+            last_attempt_at=data.get("last_attempt_at"),
             pdf_path=data.get("pdf_path"),
             cover_path=data.get("cover_path"),
             annotations_path=data.get("annotations_path"),

@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from src.paths import REPO_ROOT
-from src.settings import Settings, validate_max_download
+from src.settings import Settings, validate_max_attempts, validate_max_download
 
 
 def write_config(tmp_path, body: str) -> Path:
@@ -19,6 +19,7 @@ debug = true
 
 [sync]
 max-download = 5
+max-attempts = 4
 audible-auth-file = /keys/audible.json
 
 [folders]
@@ -40,6 +41,7 @@ def test_from_ini_reads_every_setting(tmp_path):
 
     assert settings.debug is True
     assert settings.max_download == 5
+    assert settings.max_attempts == 4
     assert settings.auth_file == Path("/keys/audible.json")
     assert settings.download_folder == Path("/var/tmp/downloads")
     assert settings.audiobook_folder == Path("/mnt/media/audiobooks")
@@ -130,6 +132,11 @@ def test_max_download(tmp_path, body, expected):
     assert Settings.from_ini(write_config(tmp_path, body)).max_download == expected
 
 
+@pytest.mark.parametrize(("body", "expected"), [("[sync]\nmax-attempts = 5\n", 5), ("[sync]\n", 3), ("[general]\n", 3)])
+def test_max_attempts(tmp_path, body, expected):
+    assert Settings.from_ini(write_config(tmp_path, body)).max_attempts == expected
+
+
 def test_from_ini_raises_on_a_missing_config_file(tmp_path):
     """configparser ignores a path that does not exist, so a typo would otherwise
     run silently on defaults."""
@@ -152,6 +159,8 @@ def test_from_ini_resolves_a_relative_config_path(tmp_path):
         ("[encoding]\nbitrate = 257\n", "bitrate"),
         ("[sync]\nmax-download = 0\n", "max-download must be 1 or more"),
         ("[sync]\nmax-download = -1\n", "max-download must be 1 or more"),
+        ("[sync]\nmax-attempts = 0\n", "max-attempts must be 1 or more"),
+        ("[sync]\nmax-attempts = -1\n", "max-attempts must be 1 or more"),
     ],
 )
 def test_from_ini_validates_up_front(tmp_path, body, message):
@@ -193,3 +202,15 @@ def test_validate_max_download_rejects_zero_and_negative_limits(value):
     """A negative limit used to slice the newest book off the queue on every run."""
     with pytest.raises(ValueError, match="max-download must be 1 or more"):
         validate_max_download(value)
+
+
+@pytest.mark.parametrize("value", [1, 3, 10])
+def test_validate_max_attempts_accepts_positive_caps(value):
+    validate_max_attempts(value)
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_validate_max_attempts_rejects_zero_and_negative_caps(value):
+    """Zero would fail every book on its first claim, before it had been tried once."""
+    with pytest.raises(ValueError, match="max-attempts must be 1 or more"):
+        validate_max_attempts(value)

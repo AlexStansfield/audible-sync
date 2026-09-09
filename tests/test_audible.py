@@ -165,3 +165,26 @@ def test_client_is_given_a_timeout_that_fits_a_full_page(monkeypatch):
 
     assert captured["timeout"] == src.audible._API_TIMEOUT
     assert captured["timeout"] > 10
+
+
+def test_prepare_book_reads_the_consumable_flag():
+    """`customer_rights.is_consumable` is how a withdrawn Plus title is spotted at sync time."""
+    assert _prepare_book(make_item(customer_rights={"is_consumable": True})).is_consumable is True
+    assert _prepare_book(make_item(customer_rights={"is_consumable": False})).is_consumable is False
+
+
+@pytest.mark.parametrize("item", [{}, {"customer_rights": None}, {"customer_rights": {}}])
+def test_prepare_book_treats_a_missing_consumable_flag_as_available(item):
+    """
+    Fails open on purpose.
+
+    Defaulting to False when the response group is absent, or Audible stops sending it,
+    would park the entire library as unavailable in one sync. The licence request is
+    still the thing that decides.
+    """
+    assert _prepare_book(make_item(**item)).is_consumable is True
+
+
+def test_response_groups_ask_for_customer_rights():
+    """Without this group every book reads back as consumable and nothing is ever parked."""
+    assert "customer_rights" in RESPONSE_GROUPS

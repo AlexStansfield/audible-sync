@@ -21,6 +21,7 @@ from src.downloader import (
     write_ffmpeg_metadata_file,
 )
 from src.encoding import output_extension
+from src.model import BookStatus
 from tests.conftest import make_book, make_settings
 
 
@@ -260,9 +261,29 @@ def _library_books():
     ]
 
 
-def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls):
-    """Stub everything that would hit the network, ffmpeg or the database."""
+def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, claimed=None, failures=None):
+    """
+    Stub everything that would hit the network, ffmpeg or the database.
+
+    The database functions are patched as attributes of `downloader`, which is where
+    `download_books` looks them up; miss one and the test writes to the real library.
+    """
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
+
+    def fake_claim(asin, **kwargs):
+        if claimed is not None:
+            claimed.append(asin)
+        return True
+
+    def fake_fail(asin, error, *, max_attempts, terminal=False):
+        if failures is not None:
+            failures.append((asin, error, terminal, max_attempts))
+        return BookStatus.FAILED if terminal else BookStatus.WAITING_DOWNLOAD
+
+    monkeypatch.setattr(downloader, "claim_book_for_download", fake_claim)
+    monkeypatch.setattr(downloader, "mark_book_failed", fake_fail)
+    monkeypatch.setattr(downloader, "release_book", lambda asin: None)
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: None)
 
     def fake_mark(asin, **kw):
         marked.append((asin, kw["encoding_format"]))
@@ -335,8 +356,14 @@ def test_download_books_oga_files_with_oga_extension(tmp_path, monkeypatch):
 def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
     books = [make_book("NOLIC", "Unlicensed")]
+    parked = []
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
+    monkeypatch.setattr(
+        downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
+    )
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: parked.append((asin, error)))
 
     def refuse(self, book, temp_dir):
         raise LicenseError("Audible did not grant a license for NOLIC (status Denied): not in catalogue")
@@ -347,9 +374,14 @@ def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkey
         object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib")
     )
 
-    assert "did not grant a license" in caplog.text
+    assert "will not license" in caplog.text
     assert "not in catalogue" in caplog.text
-    assert "1 failed" in caplog.text
+    # Parked, not failed: Audible offers withdrawn Plus titles again, and the run is clean
+    assert "0 succeeded, 0 failed" in caplog.text
+    assert "1 books are not currently available" in caplog.text
+    asin, error = parked[0]
+    assert asin == "NOLIC"
+    assert "not in catalogue" in error
 
 
 def test_write_ffmpeg_metadata_file_escapes_newlines_the_way_ffmpeg_reads_them(tmp_path):
@@ -523,8 +555,14 @@ def test_download_books_files_colliding_books_side_by_side(tmp_path, monkeypatch
 def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
     books = [make_book("A1", "First"), make_book("A2", "Second")]
+    released = []
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
+    monkeypatch.setattr(
+        downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("credentials are not the book's fault")
+    )
+    monkeypatch.setattr(downloader, "release_book", released.append)
 
     attempts = []
 
@@ -541,6 +579,8 @@ def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch
     # Every remaining book would fail the same way, so the run stops after the first
     assert attempts == ["A1"]
     assert "rejected our credentials" in caplog.text
+    # The claim goes back untouched: an expiring token must not fail a good book
+    assert released == ["A1"]
 
 
 def test_download_books_removes_the_encrypted_source_after_decrypting(tmp_path, monkeypatch):
@@ -619,3 +659,115 @@ def test_download_accessories_collects_everything_available(tmp_path):
     accessories = downloader._download_accessories(stub, book, tmp_path, "Book")
 
     assert set(accessories) == {"pdf_path", "cover_path", "annotations_path"}
+
+
+def test_download_books_claims_each_book_before_downloading_it(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    claimed, marked, accessories, decrypt_calls = [], [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls, claimed=claimed)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
+    )
+
+    assert claimed == ["BAD1", "OK2", "OK3"]
+
+
+def test_download_books_skips_a_book_another_run_is_already_downloading(tmp_path, monkeypatch, caplog):
+    """The claim is what stops a scheduler tick picking up an in-flight book."""
+    caplog.set_level(logging.INFO)
+    downloads = tmp_path / "downloads"
+    library = tmp_path / "audiobooks"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls, failures = [], [], [], []
+    books = [make_book("BUSY", "Taken"), make_book("OK2", "Mine")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, failures=failures)
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: asin != "BUSY")
+
+    downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
+
+    # Not downloaded, but not counted as a failure either: somebody else has it
+    assert marked == [("OK2", "m4b")]
+    assert failures == []
+    assert "another run is already downloading it" in caplog.text
+    assert "1 succeeded, 0 failed" in caplog.text
+
+
+def test_download_books_records_a_retryable_failure_against_the_book(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls, failures = [], [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls, failures=failures)
+
+    settings = make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_attempts=5)
+    downloader.download_books(object(), settings)
+
+    assert len(failures) == 1
+    asin, error, terminal, max_attempts = failures[0]
+    assert asin == "BAD1"
+    assert terminal is False
+    # The cap comes from the settings, and the message says what actually went wrong
+    assert max_attempts == 5
+    assert error == "RuntimeError: simulated network failure"
+
+
+def test_download_books_logs_when_it_gives_up_on_a_book(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
+    monkeypatch.setattr(downloader, "mark_book_failed", lambda asin, error, **kw: downloader.BookStatus.FAILED)
+
+    settings = make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_attempts=3)
+    downloader.download_books(object(), settings)
+
+    assert "Giving up on Broken: Book (BAD1) after 3 attempts" in caplog.text
+
+
+def test_download_books_does_not_log_giving_up_while_a_book_still_has_attempts_left(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
+    )
+
+    assert "Giving up on" not in caplog.text
+
+
+def test_download_books_parks_an_unlicensable_book_without_burning_attempts(tmp_path, monkeypatch):
+    """A withdrawn Plus title is not a failure: it must not count towards max_attempts."""
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls, parked = [], [], [], []
+    books = [make_book("GONE", "Withdrawn"), make_book("OK2", "Fine")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: parked.append(asin))
+    monkeypatch.setattr(
+        downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
+    )
+
+    def refuse(self, book, temp_dir):
+        if book.asin == "GONE":
+            raise LicenseError("Audible did not grant a license for GONE (status Denied)")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        aaxc = temp_dir / "book.aaxc"
+        aaxc.write_bytes(b"aaxc")
+        voucher = aaxc.with_suffix(".json")
+        voucher.write_text("{}")
+        return DownloadedBook(aaxc=aaxc, voucher=voucher, chapters=None)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", refuse)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
+    )
+
+    assert parked == ["GONE"]
+    # The run carries on and is not counted as a failure
+    assert marked == [("OK2", "m4b")]

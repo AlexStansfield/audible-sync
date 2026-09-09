@@ -2,13 +2,14 @@ import sqlite3
 
 import pytest
 
-from src.model import Book
+from src.model import Book, BookStatus
 
 ALL_COLUMNS = (
     "asin TEXT PRIMARY KEY, title TEXT, subtitle TEXT, authors JSON, narrators JSON, series JSON, "
     "genres JSON, length INTEGER, is_finished BOOLEAN, percent_complete REAL, date_added TEXT, "
     "release_date TEXT, cover_url TEXT, status TEXT, pdf_path TEXT, cover_path TEXT, "
-    "annotations_path TEXT, has_pdf BOOLEAN, encoding_format TEXT, downloaded_at TEXT"
+    "annotations_path TEXT, has_pdf BOOLEAN, encoding_format TEXT, downloaded_at TEXT, "
+    "is_consumable BOOLEAN, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_attempt_at TEXT"
 )
 
 
@@ -147,3 +148,66 @@ def test_book_defaults_do_not_share_list_instances():
     first.authors.append("Ann")
 
     assert Book("B002", "Two").authors == []
+
+
+@pytest.mark.parametrize("stored", ["waiting_download", "downloading", "downloaded", "failed"])
+def test_from_row_coerces_the_status_to_the_enum(stored):
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", "status": stored})
+
+    assert Book.from_row(row).status is BookStatus(stored)
+
+
+def test_from_row_falls_back_to_none_on_an_unrecognised_status():
+    """A database written by another version must stay readable, not raise on one column."""
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", "status": "archived"})
+
+    assert Book.from_row(row).status is None
+
+
+def test_book_status_members_compare_equal_to_their_stored_text():
+    """Why `StrEnum`: the column keeps the text it already holds, so no row was rewritten."""
+    assert BookStatus.DOWNLOADED == "downloaded"
+    assert BookStatus.WAITING_DOWNLOAD == "waiting_download"
+
+
+def test_from_row_reads_the_retry_columns():
+    row = fetch(
+        ALL_COLUMNS,
+        {
+            "asin": "B001",
+            "title": "T",
+            "attempts": 2,
+            "last_error": "LicenseError: denied",
+            "last_attempt_at": "2026-01-02T03:04:05+00:00",
+        },
+    )
+
+    book = Book.from_row(row)
+
+    assert book.attempts == 2
+    assert book.last_error == "LicenseError: denied"
+    assert book.last_attempt_at == "2026-01-02T03:04:05+00:00"
+
+
+def test_from_row_defaults_the_retry_columns_when_the_row_lacks_them():
+    """`attempts` must default to 0, matching the column default the round-trip test relies on."""
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T"}, select="asin, title")
+    book = Book.from_row(row)
+
+    assert book.attempts == 0
+    assert book.last_error is None
+    assert book.last_attempt_at is None
+
+
+def test_from_row_reads_the_consumable_flag():
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", "is_consumable": 0})
+
+    assert Book.from_row(row).is_consumable is False
+
+
+@pytest.mark.parametrize("values", [{"is_consumable": None}, {}])
+def test_from_row_treats_an_unset_consumable_column_as_available(values):
+    """NULL means the row predates the column, not that the book was withdrawn."""
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", **values})
+
+    assert Book.from_row(row).is_consumable is True

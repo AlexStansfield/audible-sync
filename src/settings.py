@@ -38,6 +38,9 @@ def _default_auth_file() -> Path:
     return Path.home() / ".audible" / "audible.json"
 
 
+DEFAULT_MAX_ATTEMPTS = 3
+
+
 def validate_max_download(max_download: int | None) -> None:
     """
     Check the download limit up front, like the naming and encoding settings.
@@ -47,6 +50,18 @@ def validate_max_download(max_download: int | None) -> None:
     """
     if max_download is not None and max_download < 1:
         raise ValueError(f"sync max-download must be 1 or more, got {max_download}")
+
+
+def validate_max_attempts(max_attempts: int) -> None:
+    """
+    Check the retry cap up front, like the download limit.
+
+    Raises:
+        ValueError: if the cap is not a positive number. Zero would fail every book on
+            its first claim, before it had been tried even once
+    """
+    if max_attempts < 1:
+        raise ValueError(f"sync max-attempts must be 1 or more, got {max_attempts}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +80,9 @@ class Settings:
 
     # [sync]
     max_download: int | None = None
+    # Plain `int`, not `int | None`: unlike `max_download` there is no "unlimited"
+    # reading here, because retrying forever is the bug this cap exists to fix.
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
     auth_file: Path = field(default_factory=_default_auth_file)
 
     # [folders]
@@ -83,6 +101,7 @@ class Settings:
         validate_templates(self.folder_template, self.filename_template)
         validate_encoding(self.encoding_format, self.bitrate)
         validate_max_download(self.max_download)
+        validate_max_attempts(self.max_attempts)
 
     @classmethod
     def from_ini(cls, path: str | Path = DEFAULT_CONFIG_FILE) -> "Settings":
@@ -111,6 +130,7 @@ class Settings:
         return cls(
             debug=config.getboolean("general", "debug", fallback=False),
             max_download=config.getint("sync", "max-download", fallback=None),
+            max_attempts=config.getint("sync", "max-attempts", fallback=DEFAULT_MAX_ATTEMPTS),
             auth_file=resolve_path(auth_file) if auth_file else _default_auth_file(),
             download_folder=resolve_path(config.get("folders", "downloads", fallback=DEFAULT_DOWNLOAD_FOLDER)),
             audiobook_folder=resolve_path(config.get("folders", "audiobooks", fallback=DEFAULT_AUDIOBOOK_FOLDER)),
