@@ -21,7 +21,7 @@ from src.downloader import (
     write_ffmpeg_metadata_file,
 )
 from src.encoding import output_extension
-from tests.conftest import make_book
+from tests.conftest import make_book, make_settings
 
 
 @pytest.mark.parametrize(
@@ -299,7 +299,7 @@ def test_download_books_skips_failed_book_and_cleans_temp(tmp_path, monkeypatch)
     marked, accessories, decrypt_calls = [], [], []
     _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
 
-    downloader.download_books(object(), str(downloads), str(library))
+    downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
     assert marked == [("OK2", "m4b"), ("OK3", "m4b")]
     assert accessories == [{}, {}]
@@ -319,7 +319,8 @@ def test_download_books_oga_files_with_oga_extension(tmp_path, monkeypatch):
     marked, accessories, decrypt_calls = [], [], []
     _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
 
-    downloader.download_books(object(), str(downloads), str(library), encoding_format="oga", bitrate=48)
+    settings = make_settings(download_folder=downloads, audiobook_folder=library, encoding_format="oga", bitrate=48)
+    downloader.download_books(object(), settings)
 
     assert marked == [("OK2", "oga"), ("OK3", "oga")]
     assert all(call["encoding_format"] == "oga" and call["bitrate"] == 48 for call in decrypt_calls)
@@ -342,7 +343,9 @@ def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkey
 
     monkeypatch.setattr(downloader.Downloader, "download_book", refuse)
 
-    downloader.download_books(object(), str(tmp_path / "dl"), str(tmp_path / "lib"))
+    downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib")
+    )
 
     assert "did not grant a license" in caplog.text
     assert "not in catalogue" in caplog.text
@@ -510,7 +513,7 @@ def test_download_books_files_colliding_books_side_by_side(tmp_path, monkeypatch
     # The stub decrypt writes no tags, so neither file can claim an ASIN
     monkeypatch.setattr(downloader, "read_embedded_asin", lambda path: None)
 
-    downloader.download_books(object(), str(downloads), str(library))
+    downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
     final = sorted(p.name for p in library.rglob("*.m4b"))
     assert final == ["Red Rising [ASIN2].m4b", "Red Rising.m4b"]
@@ -531,7 +534,9 @@ def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch
 
     monkeypatch.setattr(downloader.Downloader, "download_book", reject)
 
-    downloader.download_books(object(), str(tmp_path / "dl"), str(tmp_path / "lib"))
+    downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib")
+    )
 
     # Every remaining book would fail the same way, so the run stops after the first
     assert attempts == ["A1"]
@@ -553,7 +558,7 @@ def test_download_books_removes_the_encrypted_source_after_decrypting(tmp_path, 
         return real_move(src, dst)
 
     monkeypatch.setattr(downloader.shutil, "move", spy_move)
-    downloader.download_books(object(), str(downloads), str(library))
+    downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
     # By the time the finished book is filed, the AAXC and voucher are already gone
     assert leftovers[0] == ["book.aaxc.m4b"]

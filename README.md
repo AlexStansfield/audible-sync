@@ -26,7 +26,9 @@ If you decide not to store the file at the default location you can update the `
 
 ## Config
 
-The `config/config.ini` file has the following sections and options:
+The `config/config.ini` file has the following sections and options.
+
+Every path setting may be absolute or relative. A relative path is resolved against the application folder — the repository root, or `/app` inside the Docker image — not the folder you happen to run the app from, so the app behaves the same started from anywhere. `~` is expanded, and an absolute path lets you file books outside the repository.
 
 ### `sync`
 
@@ -35,8 +37,10 @@ The `config/config.ini` file has the following sections and options:
 
 ### `folders`
 
- - `downloads`: folder where files are temporarily downloaded to before being converted
- - `audiobooks`: folder to copy the converted audiobooks to
+ - `downloads`: folder where files are temporarily downloaded to before being converted. Default: `data/downloads`
+ - `audiobooks`: folder to copy the converted audiobooks to. Default: `audiobooks`
+
+Both are optional; leave the section out to keep the defaults.
 
 ### `naming`
 

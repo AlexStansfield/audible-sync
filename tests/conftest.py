@@ -1,4 +1,7 @@
+from dataclasses import replace
+
 from src.model import Book
+from src.settings import Settings
 
 
 def make_book(
@@ -36,3 +39,13 @@ def make_book(
         has_pdf=has_pdf,
         **kwargs,
     )
+
+
+def make_settings(**overrides) -> Settings:
+    """
+    `Settings` with the shipped defaults and whatever a test needs changed.
+
+    Built with `dataclasses.replace`, so an override that would not survive
+    `Settings.from_ini` still raises here.
+    """
+    return replace(Settings(), **overrides)

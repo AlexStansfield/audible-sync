@@ -4,8 +4,9 @@ from contextlib import closing
 from datetime import UTC, datetime
 
 from src.model import Book
+from src.paths import REPO_ROOT
 
-DB_FILE = "data/audible_sync.db"
+DB_FILE = str(REPO_ROOT / "data" / "audible_sync.db")
 
 
 def _get_connection() -> sqlite3.Connection:

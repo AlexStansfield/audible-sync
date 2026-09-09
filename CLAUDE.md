@@ -11,7 +11,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Entry Point** | `python -m src.main` (or `uv run python -m src.main`) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | INI format (`config/config.ini`) |
-| **Lines of Code** | ~1800 lines across 9 Python modules, plus ~1400 lines of tests |
+| **Lines of Code** | ~1900 lines across 11 Python modules, plus ~1700 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
@@ -48,7 +48,9 @@ audible-sync/
 │   ├── audible_sync.db       # SQLite database (created at runtime, gitignored)
 │   └── downloads/            # Temporary per-book working folders
 ├── src/
-│   ├── main.py               # Entry point, logging setup, orchestration
+│   ├── main.py               # Entry point: main(), run_pipeline(), logging setup
+│   ├── settings.py           # Frozen Settings dataclass, Settings.from_ini, validation
+│   ├── paths.py              # REPO_ROOT and resolve_path: every path is anchored here
 │   ├── model.py              # Book data model
 │   ├── database.py           # SQLite schema, migrations, queries
 │   ├── audible.py            # Audible API client and response mapping
@@ -63,7 +65,9 @@ audible-sync/
 │   ├── test_naming.py        # Sanitizer, templates, optional groups, default layout, validation
 │   ├── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags, M4B freeform tags, ASIN readback
 │   ├── test_audible.py       # Field mapping, missing keys, per-item skip, pagination
-│   ├── test_main.py          # max-download validation, log level
+│   ├── test_settings.py      # Config parsing, defaults, path anchoring, validation
+│   ├── test_paths.py         # Repo-root anchoring, absolute paths, ~ expansion
+│   ├── test_main.py          # Log level, run_pipeline wiring, main ordering
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
 ├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
@@ -78,7 +82,8 @@ audible-sync/
 
 ```
 main.py (orchestrator)
-  ├─→ database.py   (persistence)
+  ├─→ settings.py   (config, validation)  ─→ paths.py
+  ├─→ database.py   (persistence)         ─→ paths.py
   ├─→ audible.py    (API integration)
   ├─→ sync.py       (library sync)
   └─→ downloader.py (download, metadata, decrypt, file)
@@ -95,19 +100,37 @@ Audible API → audible.py → sync.py → database.py → SQLite
 
 - No `__init__.py` files; flat `src/` directory run as modules (`python -m src.main`)
 - Absolute imports: `from src.module import ...`
-- Config and DB paths are relative to the working directory, so run from the repo root
+- Config and DB paths are anchored to the repo root by `src/paths.py`, so the app can be started from any working directory. Never build a path from a relative string; put it through `resolve_path`
+- `settings.py` must never import `downloader.py`: the downloader imports `Settings`, so the reverse edge is a circular import. This is why `validate_max_download` lives in `settings.py`
 
 ## Key Modules
 
 ### main.py
 
-- `configure_logging(debug)` sets the root logger from the `[general] debug` flag. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
-- Loads `config/config.ini`, initialises the DB, creates the download and audiobook folders
-- Validates the naming templates, the encoding settings and `max-download` (`validate_max_download`) before anything is downloaded
-- Resolves the auth file: `[sync] audible-auth-file`, else `~/.audible/audible.json`
-- Runs `sync_library()` then `download_books()` with the optional `max-download` limit
+Three functions, no module-level work:
+
+- `configure_logging(debug)` sets the root logger from `settings.debug`. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
+- `run_pipeline(settings)` creates the folders, initialises the DB, builds the `Audible` client from `settings.auth_file`, then runs `sync_library()` and `download_books(audible, settings)`. Importable and free of logging side effects, so the service and scheduler can run the same pipeline
+- `main()` is the CLI entry point: `Settings.from_ini()`, then `configure_logging`, then `run_pipeline`. Settings are read (and therefore validated) first, so a bad template or bitrate fails before any folder is created - the old inline code created the folders before it validated anything
 
 This is a one-shot run: sync + download, then exit.
+
+### settings.py
+
+`Settings` is a frozen (`slots=True`) dataclass holding every configured value: `debug`, `max_download`, `auth_file`, `download_folder`, `audiobook_folder`, `folder_template`, `filename_template`, `encoding_format`, `bitrate`. It is the only thing that reads configuration, so the CLI, the coming API and the scheduler all work from the same validated object rather than loose keyword arguments.
+
+- `__post_init__` runs `validate_templates`, `validate_encoding` and `validate_max_download`, so **no** route in - `from_ini`, `dataclasses.replace`, a direct call - can produce settings that would fail part way through a run. It only validates; normalisation belongs to the builders, which keeps the field types honest
+- `Settings.from_ini(path=DEFAULT_CONFIG_FILE)` reads the INI, passes every configured path through `resolve_path` and falls back to the documented default for each key. It raises `FileNotFoundError` on a missing file, because `configparser.read` ignores one and a mistyped path would otherwise run silently on defaults. `Settings.from_db` follows with the settings table
+- Both `[folders]` keys have fallbacks. They used to have none, so an incomplete config died with a bare `KeyError` after the folders had already been created
+- `auth_file` uses a `default_factory`, so `$HOME` is read when the settings are built rather than when the module is imported
+- The two folder defaults are module constants (`DEFAULT_DOWNLOAD_FOLDER`, `DEFAULT_AUDIOBOOK_FOLDER`), already resolved, because ruff's RUF009 forbids a function call in a dataclass default
+- `create_folders()` is the one side-effecting method: the two `mkdir(parents=True, exist_ok=True)` calls
+
+### paths.py
+
+`REPO_ROOT` (the directory containing `src/`, `/app` in the image) and `resolve_path(value)`, which expands `~` and anchors a relative path to `REPO_ROOT`. Absolute paths pass through unchanged and the result is deliberately **not** `resolve()`d: the audiobook folder is a bind mount under Docker and often a symlink to a network share.
+
+It is its own module rather than part of `settings.py` because `database.py` needs `REPO_ROOT` too, and `Settings.from_db` will import `database.py`.
 
 ### model.py
 
@@ -183,16 +206,16 @@ The largest module. Key pieces:
   - `_opus_ffmpeg_args` - `-c:a libopus -b:a {bitrate}k -vbr on` into the `oga` muxer. Ogg has no picture stream or chapter track, so the cover goes in as a `METADATA_BLOCK_PICTURE` tag and chapters as `CHAPTERxxx`/`CHAPTERxxxNAME` tags (built by `src/encoding.py`) inside the FFMETADATA file, and `-map_chapters -1` stops FFmpeg copying the AAXC's own chapters on top of them. FFmpeg renames `comment` to `DESCRIPTION` and `album_artist` to `ALBUMARTIST` in Ogg
 
 **Orchestration**
-- `_process_book(downloader, book, temp_dir, audiobook_folder, folder_template, filename_template, encoding_format, bitrate)` - the full pipeline for one book: download, accessories, decrypt, release the AAXC, file into the library, mark downloaded with the accessory paths in one statement. Raises on any failure.
+- `_process_book(downloader, book, temp_dir, settings)` - the full pipeline for one book: download, accessories, decrypt, release the AAXC, file into the library, mark downloaded with the accessory paths in one statement. Raises on any failure.
 - `_download_accessories(downloader, book, temp_dir, safe_title)` - PDF, cover and annotations, keyed by the database column they belong to. The cover extension comes from the image bytes (`image_info`), not the URL, because plenty of cover URLs carry no extension and the name is kept permanently.
 - `_resolve_output_path(final_folder, stem, extension, asin)` - keeps two books that render to the same name apart. Every output carries its own ASIN in the comment tag, so a file belonging to this book is reused and anything else gets ` [{asin}]` appended. Without this the second book silently overwrote the first (the live library has two *Red Rising* ASINs that collide).
 - The finished book is **moved**, not copied, and the AAXC and voucher are deleted straight after decryption, which keeps peak disk at roughly one copy of the book rather than three.
-- `download_books(audible, download_folder, audiobook_folder, max=None, *, folder_template, filename_template, encoding_format, bitrate)` - loops over waiting books. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. An `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop instead, because every remaining book would fail the same way. Ends with a succeeded/failed summary.
+- `download_books(audible, settings)` - loops over waiting books, up to `settings.max_download`. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. An `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop instead, because every remaining book would fail the same way. Ends with a succeeded/failed summary.
 
 **Final layout** comes from the `[naming]` templates in `config.ini`, rendered by `src/naming.py`:
 - `folder` (default `{author}/[{series}/][{sequence} - ]{title}`) and `filename` (default `{title}`); `[...]` groups are dropped when any placeholder inside is empty, empty segments are skipped, every value is sanitized
 - Defaults give `audiobooks/{author}/{series}/{sequence} - {title}/{title}.m4b`, or `audiobooks/{author}/{title}/{title}.m4b` without a series (`.oga` when `[encoding] format = oga`)
-- Missing author → `Unknown Author`; empty folder or filename → ASIN; unknown placeholder → `ValueError` at startup (`validate_templates` in `main.py`)
+- Missing author → `Unknown Author`; empty folder or filename → ASIN; unknown placeholder → `ValueError` at startup (`validate_templates`, called from `Settings.__post_init__`)
 - PDF, `{filename}_cover.jpg` and `{filename}_annotations.json` sit next to the audio file; the extension comes from `output_extension()` in `src/encoding.py`
 
 ### naming.py
@@ -232,7 +255,7 @@ audiobooks = audiobooks
 ; bitrate = 64          ; kbps, oga only, 1-256
 ```
 
-Read in `main.py` with `configparser`. The config file is copied into the Docker image, so committed values become the image defaults. Users override by mounting `./config` (see `compose.yml`).
+Read in `src/settings.py` with `configparser`, into a frozen `Settings`. Relative paths are anchored to the repo root, so the app can be started from any working directory. The config file is copied into the Docker image, so committed values become the image defaults. Users override by mounting `./config` (see `compose.yml`).
 
 ## Development
 
@@ -299,9 +322,9 @@ uv run pytest -k sanitize   # subset
 - For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it. The fixture also replaces `downloader.write_m4b_extra_tags` with a recorder, since the fake ffmpeg produces no file for mutagen to open.
 - Never hit the Audible API, the network or FFmpeg in tests. Mock `Audible`/`Downloader` methods and `subprocess.run` with `unittest.mock` or `monkeypatch`.
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
-- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
+- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). It takes `(audible, settings)`; build the settings with `make_settings(download_folder=..., audiobook_folder=...)`. This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
 - For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible.py`.
-- `tests/conftest.py` holds the shared `make_book()` factory; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
+- `tests/conftest.py` holds the shared `make_book()` and `make_settings()` factories. `make_settings(**overrides)` is `dataclasses.replace(Settings(), **overrides)`, so an override that would not survive `from_ini` still raises; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
 
 The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
 
@@ -361,7 +384,7 @@ Two workflows in `.github/workflows/`:
 - Test coverage is thin outside `downloader.py` and `database.py`; `audible.py` and `sync.py` have no tests yet
 - Two books whose templates render to the same name are filed side by side (` [{asin}]` suffix) rather than merged; the naming template is what actually needs disambiguating
 - `Downloader`'s network-facing methods still have no unit tests
-- The structural work still listed under **Milestone 3 Step 0** in `todo.md`: config threaded as keyword arguments, a two-value status string, and no `sync_runs` table
+- The structural work still listed under **Milestone 3 Step 0** in `todo.md`: a two-value status string, and no `sync_runs` table
 
 ## Roadmap
 
@@ -379,7 +402,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.1
-**Last Updated:** 2026-09-08
-**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 in progress (database returns objects)
+**Document Version:** 4.2
+**Last Updated:** 2026-09-09
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 in progress (database returns objects, settings object)
 **Primary Branch:** `dev`

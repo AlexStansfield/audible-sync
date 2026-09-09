@@ -89,7 +89,7 @@ def _truncate_to_bytes(value: str, limit: int = _MAX_NAME_BYTES) -> str:
     return encoded[:limit].decode("utf-8", errors="ignore")
 
 
-def temp_book_folder(download_folder: str, asin: str, title: str) -> Path:
+def temp_book_folder(download_folder: str | Path, asin: str, title: str) -> Path:
     """Temporary working folder for a book while it is downloaded and decrypted"""
     return Path(download_folder) / f"{asin}_{sanitize_filename(title, fallback=asin)}"
 
@@ -189,7 +189,7 @@ def validate_templates(folder_template: str, filename_template: str) -> None:
 
 def book_output_paths(
     book: Book,
-    audiobook_folder: str,
+    audiobook_folder: str | Path,
     folder_template: str = DEFAULT_FOLDER_TEMPLATE,
     filename_template: str = DEFAULT_FILENAME_TEMPLATE,
 ) -> tuple[Path, str]:
