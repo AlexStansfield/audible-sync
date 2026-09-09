@@ -1,7 +1,8 @@
 import logging
+from datetime import UTC, datetime
 
 import src.sync as sync_module
-from src.sync import sync_library
+from src.sync import SyncResult, _api_timestamp, sync_library
 from tests.conftest import make_book
 
 
@@ -17,29 +18,68 @@ class FakeAudible:
         return self.books
 
 
-def _patch(monkeypatch, *, cursor, needs_refresh, updated):
+def _patch(monkeypatch, *, cursor=None, run_start=None, needs_refresh=False, updated=None):
+    """
+    Replace everything sync_library reads.
+
+    `run_start` is the previous run's start time, the preferred cursor source;
+    `cursor` is the `MAX(date_added)` fallback used when there is no run.
+    """
+    updated = [] if updated is None else updated
+    monkeypatch.setattr(sync_module, "latest_successful_sync_start", lambda: run_start)
     monkeypatch.setattr(sync_module, "latest_date_added", lambda: cursor)
     monkeypatch.setattr(sync_module, "needs_consumability_refresh", lambda: needs_refresh)
     monkeypatch.setattr(sync_module, "update_books", lambda books: updated.append(books) or len(books))
+    return updated
+
+
+def test_api_timestamp_uses_audibles_z_format():
+    """
+    Stored run timestamps carry `+00:00`; Audible's own are the `Z` form. Passing one
+    through unconverted would send the API a format it never produces.
+    """
+    assert _api_timestamp(datetime(2026, 9, 9, 5, 16, 15, tzinfo=UTC)) == "2026-09-09T05:16:15Z"
 
 
 def test_sync_library_fetches_everything_on_an_empty_database(monkeypatch):
-    updated = []
-    _patch(monkeypatch, cursor=None, needs_refresh=False, updated=updated)
+    _patch(monkeypatch)
     audible = FakeAudible([make_book("B001")])
 
-    assert sync_library(audible) == 1
+    assert sync_library(audible) == SyncResult(books_seen=1, books_added=1)
     assert audible.calls == [None]
 
 
 def test_sync_library_fetches_incrementally_when_the_library_is_current(monkeypatch):
-    updated = []
-    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=False, updated=updated)
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
     audible = FakeAudible([make_book("B001")])
 
     sync_library(audible)
 
     # One request only: nothing is parked, so there is nothing the cursor cannot see
+    assert audible.calls == ["2024-01-01T00:00:00Z"]
+
+
+def test_sync_library_prefers_the_previous_runs_start_with_an_hours_overlap(monkeypatch):
+    """
+    A run's start time is the real "last synced". The hour of overlap absorbs clock
+    skew: `purchased_after` is filtered on Audible's clock, so a local clock running
+    even slightly fast would step straight over a purchase.
+    """
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", run_start="2026-09-09T05:16:15+00:00")
+    audible = FakeAudible([make_book("B001")])
+
+    sync_library(audible)
+
+    assert audible.calls == ["2026-09-09T04:16:15Z"]
+
+
+def test_sync_library_falls_back_to_the_library_cursor_with_no_recorded_run(monkeypatch):
+    """A database that predates sync_runs must behave exactly as it did before."""
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", run_start=None)
+    audible = FakeAudible([make_book("B001")])
+
+    sync_library(audible)
+
     assert audible.calls == ["2024-01-01T00:00:00Z"]
 
 
@@ -49,8 +89,7 @@ def test_sync_library_rereads_the_whole_library_while_a_book_is_parked(monkeypat
     withdrawn Plus title Audible has offered again would stay parked forever.
     """
     caplog.set_level(logging.INFO)
-    updated = []
-    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True, updated=updated)
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
     audible = FakeAudible([make_book("B001")])
 
     sync_library(audible)
@@ -59,19 +98,17 @@ def test_sync_library_rereads_the_whole_library_while_a_book_is_parked(monkeypat
     assert "refresh availability" in caplog.text
 
 
-def test_sync_library_counts_only_the_incremental_insert(monkeypatch):
-    """The refresh pass must not inflate the number of new books reported."""
-    updated = []
-    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True, updated=updated)
+def test_sync_library_counts_only_the_incremental_fetch(monkeypatch):
+    """The refresh pass re-reads everything, so folding it in would report the library size."""
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
     audible = FakeAudible([make_book("B001"), make_book("B002")])
 
-    assert sync_library(audible) == 2
+    assert sync_library(audible) == SyncResult(books_seen=2, books_added=2)
 
 
 def test_sync_library_does_not_refresh_twice_on_a_first_full_sync(monkeypatch):
     """The first sync already read everything, so a second pass would be wasted."""
-    updated = []
-    _patch(monkeypatch, cursor=None, needs_refresh=True, updated=updated)
+    _patch(monkeypatch, needs_refresh=True)
     audible = FakeAudible([make_book("B001")])
 
     sync_library(audible)
