@@ -127,6 +127,17 @@ Smaller items to fold in while doing the above:
   (`known-third-party` in `pyproject.toml` is the workaround holding it together).
 - [ ] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
 - [ ] Add tests for the network-facing `Downloader` methods, which have none.
+- [ ] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
+  the series entry with `series_info.get("sequence", "")`, but `_prepare_book`
+  always creates the key (`entry.get("sequence")`), so a series entry whose
+  sequence is null yields `None`, not the intended `""`. That `None` is written
+  straight through: the FFMETADATA file gets a literal `series-part=None` line
+  and `write_m4b_extra_tags` copies it into the iTunes freeform atom, so the
+  book shows "None" as its series number in a player. `.get("title", "")` on
+  the line above has the same shape. Fix both with `or ""` and cover the null
+  case in `test_generate_metadata`. Reproduced 2026-09-09; currently latent,
+  as no book in the 306-title library has a null title or sequence, but
+  `naming.py` already guards the same shape and `test_naming` exercises it.
 
 ### Tasks
 
