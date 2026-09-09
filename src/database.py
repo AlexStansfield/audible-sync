@@ -3,7 +3,7 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
-from src.model import Book, BookStatus
+from src.model import Book, BookStatus, SyncOutcome, SyncRun
 from src.paths import REPO_ROOT
 
 DB_FILE = str(REPO_ROOT / "data" / "audible_sync.db")
@@ -32,6 +32,13 @@ def _get_connection() -> sqlite3.Connection:
 def init_db():
     conn = _get_connection()
     cursor = conn.cursor()
+
+    # A reader no longer blocks the writer, which matters now a scheduler tick can run
+    # while another process is downloading. The mode is a property of the database file
+    # rather than of the connection, so setting it once here holds for every later
+    # connection - including ones opened by a process that never calls init_db.
+    cursor.execute("PRAGMA journal_mode=WAL")
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS library (
             asin TEXT PRIMARY KEY,
@@ -62,6 +69,27 @@ def init_db():
             last_attempt_at TEXT
         )
     """)
+
+    # One row per pipeline run, covering both halves of it: the library sync and the
+    # downloads that followed. The newest start time of a run whose sync completed is
+    # the next run's incremental cursor, which the library table could never provide -
+    # `MAX(date_added)` says what was purchased, not when we last looked.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sync_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            started_at TEXT NOT NULL,
+            -- NULL while the run is in flight. A row still `running` long after its
+            -- started_at is a run that was killed, which is the state the todo item
+            -- existed to make visible.
+            finished_at TEXT,
+            outcome TEXT NOT NULL,
+            books_seen INTEGER NOT NULL DEFAULT 0,
+            books_added INTEGER NOT NULL DEFAULT 0,
+            books_downloaded INTEGER NOT NULL DEFAULT 0,
+            books_failed INTEGER NOT NULL DEFAULT 0,
+            error TEXT
+        )
+    """)
     conn.commit()
 
     # Migrate existing databases to add new columns
@@ -82,12 +110,19 @@ def _create_indexes(conn: sqlite3.Connection) -> None:
     lookup from the composite's leading column too, which makes the old single-column
     `idx_library_status` redundant - it is dropped rather than left alongside.
 
+    `sync_runs` gets the shape of the cursor query: filter on `outcome`, take the
+    newest `started_at`.
+
     Guarded by the columns actually present so an older database that predates a column
     is still upgradable: the composite raises on a schema with no `date_added`.
     """
     cursor = conn.cursor()
     cursor.execute("PRAGMA table_info(library)")
     existing_columns = {row[1] for row in cursor.fetchall()}
+
+    cursor.execute("PRAGMA table_info(sync_runs)")
+    if cursor.fetchall():
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_runs_outcome_started_at ON sync_runs(outcome, started_at)")
 
     if "date_added" in existing_columns:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_library_date_added ON library(date_added)")
@@ -506,3 +541,100 @@ def update_book_accessories(
     with closing(_get_connection()) as conn:
         conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE asin = ?", values)
         conn.commit()
+
+
+# --- sync_runs -------------------------------------------------------------------
+# Grouped by table rather than split across the readers and writers above: the four
+# functions below are only meaningful together, and only `latest_successful_sync_start`
+# is read by the pipeline itself.
+
+# A run whose sync finished is a valid cursor even if its downloads did not, so both
+# count. A run still `running`, or one that failed before reading the library, does not.
+_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL)
+
+
+def start_sync_run() -> int:
+    """
+    Open a run row and return its id.
+
+    Written before anything is fetched, so a run that is killed leaves a row that is
+    still `running` with no `finished_at` - the record that tells a run which died half
+    way from one that completed and found nothing.
+    """
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            "INSERT INTO sync_runs (started_at, outcome) VALUES (?, ?)",
+            (_utcnow(), SyncOutcome.RUNNING),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def finish_sync_run(
+    run_id: int,
+    *,
+    outcome: SyncOutcome,
+    books_seen: int = 0,
+    books_added: int = 0,
+    books_downloaded: int = 0,
+    books_failed: int = 0,
+    error: str | None = None,
+) -> None:
+    """
+    Close a run row with its outcome and counters.
+
+    Args:
+        run_id: The id `start_sync_run` returned
+        outcome: How the run ended. Only `success` and `partial` become a cursor for
+            the next run, because only those read the library through
+        books_seen: Books the incremental fetch returned
+        books_added: Books that fetch inserted
+        books_downloaded: Books downloaded, decrypted and filed
+        books_failed: Books that were tried and did not finish
+        error: The exception that stopped the run, if one did
+    """
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            """
+            UPDATE sync_runs
+            SET finished_at = ?,
+                outcome = ?,
+                books_seen = ?,
+                books_added = ?,
+                books_downloaded = ?,
+                books_failed = ?,
+                error = ?
+            WHERE id = ?
+            """,
+            (_utcnow(), outcome, books_seen, books_added, books_downloaded, books_failed, error, run_id),
+        )
+        conn.commit()
+
+
+def latest_successful_sync_start() -> str | None:
+    """
+    When the last run that read the library through started, or None if there is none.
+
+    This is the incremental sync cursor. It is the run's **start** rather than its
+    finish because anything Audible added while the run was reading has to be picked up
+    next time; `sync.py` widens it further to absorb clock skew.
+
+    `partial` counts alongside `success`: its sync completed, and a book that failed to
+    download is tracked by the library state machine, not by the cursor.
+    """
+    with closing(_get_connection()) as conn:
+        return conn.execute(
+            "SELECT MAX(started_at) FROM sync_runs WHERE outcome IN (?, ?)",
+            _CURSOR_OUTCOMES,
+        ).fetchone()[0]
+
+
+def get_sync_runs(limit: int = 20) -> list[SyncRun]:
+    """
+    Run history, newest first.
+
+    Unused by the pipeline: this is the read the API and the UI are for.
+    """
+    with closing(_get_connection()) as conn:
+        rows = conn.execute("SELECT * FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ?", (limit,)).fetchall()
+    return [SyncRun.from_row(row) for row in rows]

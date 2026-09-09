@@ -31,6 +31,29 @@ class BookStatus(StrEnum):
     FAILED = "failed"
 
 
+class SyncOutcome(StrEnum):
+    """
+    How one pipeline run ended.
+
+    A `StrEnum` for the same reason as `BookStatus`: a member *is* the text stored in
+    the `outcome` column, so a comparison against a plain string still works and no
+    row has to be rewritten to change the Python side.
+
+    `RUNNING` is written when the run starts and replaced when it ends, so a row still
+    `RUNNING` with no `finished_at` is a run that died half way - the thing the
+    library table could never tell apart from a run that simply found nothing.
+
+    `PARTIAL` means the sync completed but the downloads did not all succeed. It counts
+    as a cursor for the next run, because the library really was read; which books
+    failed is the `library` state machine's business, not the run's.
+    """
+
+    RUNNING = "running"
+    SUCCESS = "success"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 def _json_list(value: str | None) -> list:
     """Decode a JSON list column, treating NULL, '' and a stored `null` as an empty list."""
     return (json.loads(value) or []) if value else []
@@ -50,6 +73,21 @@ def _book_status(value: str | None) -> BookStatus | None:
         return None
     try:
         return BookStatus(value)
+    except ValueError:
+        return None
+
+
+def _sync_outcome(value: str | None) -> SyncOutcome | None:
+    """
+    Map the stored `outcome` text onto the enum, tolerating anything unrecognised.
+
+    Same reasoning as `_book_status`: a database written by another version has to stay
+    readable, and the cursor query selects on the SQL value rather than the Python one.
+    """
+    if value is None:
+        return None
+    try:
+        return SyncOutcome(value)
     except ValueError:
         return None
 
@@ -148,4 +186,46 @@ class Book:
         return (
             f"Book(asin={self.asin}, title={self.title}, authors={self.authors}, "
             f"release_date={self.release_date}, is_finished={self.is_finished})"
+        )
+
+
+@dataclass
+class SyncRun:
+    """
+    One row of the `sync_runs` table: a single pass of the pipeline.
+
+    A run spans both halves of the pipeline, so the counters cover the library sync
+    (`books_seen`, `books_added`) and the downloads (`books_downloaded`,
+    `books_failed`) that followed it.
+
+    `started_at` is the only field the pipeline itself reads back: the next run's
+    incremental cursor is the newest start time of a run whose sync completed.
+    Timestamps are ISO 8601 UTC strings written by `database._utcnow`, so they sort
+    and compare as text like every other timestamp in the schema.
+    """
+
+    id: int
+    started_at: str
+    finished_at: str | None = None
+    outcome: SyncOutcome | None = None
+    books_seen: int = 0
+    books_added: int = 0
+    books_downloaded: int = 0
+    books_failed: int = 0
+    error: str | None = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "SyncRun":
+        """Build a run from a `sync_runs` row, reading by column name like `Book.from_row`."""
+        data = dict(row)
+        return cls(
+            id=data["id"],
+            started_at=data["started_at"],
+            finished_at=data.get("finished_at"),
+            outcome=_sync_outcome(data.get("outcome")),
+            books_seen=data.get("books_seen") or 0,
+            books_added=data.get("books_added") or 0,
+            books_downloaded=data.get("books_downloaded") or 0,
+            books_failed=data.get("books_failed") or 0,
+            error=data.get("error"),
         )
