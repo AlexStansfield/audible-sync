@@ -112,13 +112,11 @@ def book_template_values(book: Book) -> dict[str, str]:
     asin = book.asin
     authors = book.authors
     narrators = book.narrators
-    series = book.series
     release_date = str(book.release_date) if book.release_date else ""
-    first_series = series[0] if series else {}
-    # A sequence without a series title would render as a bare "2 - Title" folder
-    # directly under the author, which loses the series context entirely.
-    series_title = first_series.get("title")
-    sequence = first_series.get("sequence") if series_title else ""
+    # Never `series[0]`: the API does not order a book's series meaningfully, so
+    # taking the first split one series across two folders. `primary_series` owns
+    # the rule, including dropping an entry that has a sequence but no title.
+    primary_series = book.primary_series or {}
 
     def clean(value) -> str:
         return sanitize_filename(value, fallback="") if value not in (None, "") else ""
@@ -131,8 +129,8 @@ def book_template_values(book: Book) -> dict[str, str]:
         "authors": sanitize_filename(", ".join(authors), fallback="Unknown Author") if authors else "Unknown Author",
         "narrator": clean(narrators[0]) if narrators else "",
         "narrators": clean(", ".join(narrators)),
-        "series": clean(series_title),
-        "sequence": clean(sequence),
+        "series": clean(primary_series.get("title")),
+        "sequence": clean(primary_series.get("sequence")),
         "year": clean(release_date[:4]),
     }
 

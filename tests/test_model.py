@@ -2,7 +2,8 @@ import sqlite3
 
 import pytest
 
-from src.model import Book, BookStatus
+from src.model import Book, BookStatus, sort_series
+from tests.conftest import make_book
 
 ALL_COLUMNS = (
     "asin TEXT PRIMARY KEY, title TEXT, subtitle TEXT, authors JSON, narrators JSON, series JSON, "
@@ -211,3 +212,83 @@ def test_from_row_treats_an_unset_consumable_column_as_available(values):
     row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", **values})
 
     assert Book.from_row(row).is_consumable is True
+
+
+def entry(title, sequence, series_asin=None):
+    return {"title": title, "sequence": sequence, "series_asin": series_asin}
+
+
+def test_primary_series_is_none_when_the_book_is_in_no_series():
+    assert make_book().primary_series is None
+
+
+def test_primary_series_prefers_the_lowest_sequence():
+    """
+    Real case: *Dune* is in "Dune" at 1 and "The Dune Sequence" at 12.
+
+    Taking index 0 filed it under the omnibus at sequence 12; the book is early in
+    "Dune", which is the series a reader means.
+    """
+    book = make_book(series=[entry("The Dune Sequence", "12"), entry("Dune", "1")])
+
+    assert book.primary_series["title"] == "Dune"
+
+
+def test_primary_series_does_not_depend_on_the_order_the_api_used():
+    """The same two series in either order must resolve identically."""
+    forwards = make_book(series=[entry("Ringworld", "1"), entry("Known Space", "12")])
+    backwards = make_book(series=[entry("Known Space", "12"), entry("Ringworld", "1")])
+
+    assert forwards.primary_series == backwards.primary_series == entry("Ringworld", "1")
+
+
+def test_primary_series_breaks_a_tied_sequence_on_the_title():
+    """
+    Real case: Audible lists the His Dark Materials trilogy under a typo'd
+    "His Dark Materialsik" as well, at the same sequence. The list endpoint returns
+    the typo first for *Northern Lights* and the correct title first for books 2
+    and 3, which split one trilogy across two folders.
+    """
+    typo_first = make_book(series=[entry("His Dark Materialsik", "1"), entry("His Dark Materials", "1")])
+    typo_second = make_book(series=[entry("His Dark Materials", "3"), entry("His Dark Materialsik", "3")])
+
+    assert typo_first.primary_series["title"] == "His Dark Materials"
+    assert typo_second.primary_series["title"] == "His Dark Materials"
+
+
+def test_primary_series_breaks_a_fully_tied_entry_on_the_series_asin():
+    book = make_book(series=[entry("Same", "1", "B002"), entry("Same", "1", "B001")])
+
+    assert book.primary_series["series_asin"] == "B001"
+
+
+@pytest.mark.parametrize("sequence", [None, "", "Book Two"])
+def test_primary_series_ranks_an_unusable_sequence_last(sequence):
+    """No sequence is no evidence, so such an entry only wins if nothing else is offered."""
+    book = make_book(series=[entry("Unnumbered", sequence), entry("Numbered", "7")])
+
+    assert book.primary_series["title"] == "Numbered"
+
+
+def test_primary_series_still_returns_an_unnumbered_entry_when_it_is_the_only_one():
+    book = make_book(series=[entry("Companion", None)])
+
+    assert book.primary_series == entry("Companion", None)
+
+
+def test_primary_series_ignores_an_entry_with_no_title():
+    """A sequence alone would render a bare '2 - Title' folder under the author."""
+    assert make_book(series=[entry(None, "2")]).primary_series is None
+    assert make_book(series=[entry(None, "1"), entry("Real", "9")]).primary_series["title"] == "Real"
+
+
+def test_primary_series_reads_a_row_written_before_series_asin_was_stored():
+    book = make_book(series=[{"title": "Old", "sequence": "2"}, {"title": "Older", "sequence": "1"}])
+
+    assert book.primary_series["title"] == "Older"
+
+
+def test_sort_series_puts_the_primary_first():
+    sorted_series = sort_series([entry("The Dune Sequence", "12"), entry("Dune", "1")])
+
+    assert [s["title"] for s in sorted_series] == ["Dune", "The Dune Sequence"]

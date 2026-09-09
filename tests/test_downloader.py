@@ -84,6 +84,44 @@ def test_generate_metadata_maps_fields():
     assert meta["comment"] == "ASIN: B001"
 
 
+def test_generate_metadata_tags_the_primary_series_not_the_first_one():
+    book = make_book(
+        series=[
+            {"title": "The Dune Sequence", "sequence": "12"},
+            {"title": "Dune", "sequence": "1"},
+        ]
+    )
+    meta = generate_metadata(book)
+
+    assert meta["series"] == "Dune"
+    assert meta["series-part"] == "1"
+
+
+def test_generate_metadata_leaves_a_null_sequence_empty_rather_than_none():
+    """
+    `_prepare_book` always creates the `sequence` key, so a `.get(..., "")` default
+    never fired and a null sequence reached the metadata as `None`.
+    """
+    meta = generate_metadata(make_book(series=[{"title": "Companion", "sequence": None}]))
+
+    assert meta["series"] == "Companion"
+    assert meta["series-part"] == ""
+
+
+def test_a_null_sequence_does_not_reach_the_ffmetadata_file_as_the_word_none(tmp_path):
+    """
+    Where the bug was actually visible: `_escape_ffmetadata` does `str(value)`, so a
+    `None` was written as a literal `series-part=None` line and FFmpeg copied it into
+    the output, showing "None" as the series number in a player.
+    """
+    path = tmp_path / "meta.ffmetadata"
+    write_ffmpeg_metadata_file(generate_metadata(make_book(series=[{"title": "S", "sequence": None}])), path)
+
+    contents = path.read_text()
+    assert "series-part=\n" in contents
+    assert "None" not in contents
+
+
 def test_generate_metadata_handles_missing_optional_fields():
     book = make_book(authors=(), narrators=(), genres=(), release_date=None)
     meta = generate_metadata(book)

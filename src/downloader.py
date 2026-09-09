@@ -335,7 +335,6 @@ def generate_metadata(book: Book) -> dict:
     subtitle = book.subtitle
     authors = book.authors
     narrators = book.narrators
-    series = book.series
     genres = book.genres
     release_date = book.release_date
 
@@ -358,11 +357,13 @@ def generate_metadata(book: Book) -> dict:
     if narrators:
         metadata["composer"] = "; ".join(narrators)
 
-    # Series information
-    if series:
-        series_info = series[0]
-        metadata["series"] = series_info.get("title", "")
-        metadata["series-part"] = series_info.get("sequence", "")
+    # Series information. `primary_series` picks which one, and guarantees a title.
+    # The sequence still needs `or ""`: `_prepare_book` always creates the key, so
+    # a `.get(..., "")` default never fires and a null sequence used to reach
+    # `_escape_ffmetadata`, which stringifies it into a literal `series-part=None`.
+    if primary_series := book.primary_series:
+        metadata["series"] = primary_series["title"]
+        metadata["series-part"] = primary_series.get("sequence") or ""
 
     # Genre
     if genres:

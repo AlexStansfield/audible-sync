@@ -1,4 +1,5 @@
 import json
+import math
 import sqlite3
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -57,6 +58,45 @@ class SyncOutcome(StrEnum):
 def _json_list(value: str | None) -> list:
     """Decode a JSON list column, treating NULL, '' and a stored `null` as an empty list."""
     return (json.loads(value) or []) if value else []
+
+
+def _series_sort_key(entry: dict[str, str | None]) -> tuple[float, str, str]:
+    """
+    Order a book's series candidates so the narrowest one comes first.
+
+    Audible returns the series a book belongs to in an order that is not stable and
+    carries no notion of a primary one - not between the `library` list and
+    `library/{asin}`, and not even between two books of the same series in one
+    response (measured 2026-09-09: `Ringworld` came back with "Known Space" first
+    while `The Ringworld Engineers` came back with "Ringworld" first). Taking index
+    0 therefore filed one series under two folder names.
+
+    Lowest sequence wins, which reads as "prefer the series this book is early in
+    over the omnibus it is buried in": *Dune* files under "Dune" at 1 rather than
+    "The Dune Sequence" at 12. Ties fall to the title and then the series ASIN, so
+    the result is total and never depends on the order the API happened to use -
+    that tiebreak is what keeps the three *His Dark Materials* books together
+    despite Audible listing them under a typo'd "His Dark Materialsik" as well.
+
+    An entry with no sequence, or one that is not a number, sorts last: it carries
+    no evidence either way, so it should only win if nothing else is on offer.
+    """
+    try:
+        sequence = float(entry.get("sequence"))
+    except (TypeError, ValueError):
+        sequence = math.inf
+    return (sequence, entry.get("title") or "", entry.get("series_asin") or "")
+
+
+def sort_series(series: list[dict[str, str | None]]) -> list[dict[str, str | None]]:
+    """
+    Put a book's series into the canonical order, primary first.
+
+    Applied when the API response is mapped, so what the database stores is stable:
+    the `update_books` upsert stops rewriting the column with a different order on
+    every sync, and any listing built on top of it is deterministic.
+    """
+    return sorted(series, key=_series_sort_key)
 
 
 def _book_status(value: str | None) -> BookStatus | None:
@@ -179,6 +219,24 @@ class Book:
             encoding_format=data.get("encoding_format"),
             downloaded_at=data.get("downloaded_at"),
         )
+
+    @property
+    def primary_series(self) -> dict[str, str | None] | None:
+        """
+        The one series this book should be filed and tagged under, or None.
+
+        Every consumer used to take `series[0]`, which the API does not order
+        meaningfully - see `_series_sort_key` for the rule that replaces it and why
+        it is needed. `None` when the book is in no series, so callers keep a single
+        emptiness check instead of guarding a list and then a title.
+
+        An entry with no series title is not a candidate at all: a sequence on its
+        own would render a bare "2 - Title" folder directly under the author, which
+        loses the series context entirely. Reads defensively, so a row written
+        before `series_asin` was stored still resolves.
+        """
+        named = [entry for entry in self.series if entry.get("title")]
+        return min(named, key=_series_sort_key, default=None)
 
     def __repr__(self):
         # Kept deliberately: the generated repr would put the cover URL and three

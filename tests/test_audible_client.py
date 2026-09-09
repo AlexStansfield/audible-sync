@@ -32,7 +32,7 @@ def test_prepare_book_maps_a_complete_item():
     assert book.asin == "B001"
     assert book.authors == ["Author One"]
     assert book.narrators == ["Narrator One"]
-    assert book.series == [{"title": "Series", "sequence": "1"}]
+    assert book.series == [{"title": "Series", "sequence": "1", "series_asin": None}]
     assert book.genres == ["Fiction"]
     assert book.length == 600
     assert book.date_added == "2024-01-01T00:00:00Z"
@@ -61,7 +61,31 @@ def test_prepare_book_tolerates_a_missing_optional_key(missing):
 
 def test_prepare_book_tolerates_a_series_entry_without_a_sequence():
     book = _prepare_book(make_item(series=[{"title": "Companion"}]))
-    assert book.series == [{"title": "Companion", "sequence": None}]
+    assert book.series == [{"title": "Companion", "sequence": None, "series_asin": None}]
+
+
+def test_prepare_book_keeps_the_series_asin():
+    """The series' own ASIN identifies it independently of a title Audible can typo."""
+    item = make_item(series=[{"title": "His Dark Materials", "sequence": "1", "asin": "B00HNUQTAK"}])
+
+    assert _prepare_book(item).series == [{"title": "His Dark Materials", "sequence": "1", "series_asin": "B00HNUQTAK"}]
+
+
+def test_prepare_book_stores_the_series_in_canonical_order():
+    """
+    Sorted on the way in, so the stored JSON does not depend on the response order.
+
+    The upsert refreshes `series` every sync; an unstable order would rewrite the
+    column each time and give any listing built on it a different answer per book.
+    """
+    item = make_item(
+        series=[
+            {"title": "The Dune Sequence", "sequence": "12", "asin": "B00I53X24U"},
+            {"title": "Dune", "sequence": "1", "asin": "B01H4IQOGO"},
+        ]
+    )
+
+    assert [entry["title"] for entry in _prepare_book(item).series] == ["Dune", "The Dune Sequence"]
 
 
 def test_prepare_book_tolerates_null_values():
