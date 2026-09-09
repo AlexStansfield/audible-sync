@@ -127,7 +127,7 @@ Smaller items to fold in while doing the above:
   (`known-third-party` in `pyproject.toml` is the workaround holding it together).
 - [ ] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
 - [ ] Add tests for the network-facing `Downloader` methods, which have none.
-- [ ] **`download_annotations` turns a 404 into a permanent failure.** The
+- [x] **`download_annotations` turns a 404 into a permanent failure.** The
   accessory contract says the three methods return `False` only when the thing
   is genuinely absent and raise otherwise, and `download_pdf`/`download_cover`
   both special-case 404. `download_annotations` does not: the Amazon sidecar
@@ -139,6 +139,9 @@ Smaller items to fold in while doing the above:
   roughly 49 of the 306-title library), and it is what stopped *Northern
   Lights* in a real run. Catch `NotFoundError` and return `False`, and add a
   test - this is the one accessory method with no 404 path.
+  Fixed 2026-09-09: it now catches `NotFoundError` and returns `False`, matching
+  `download_pdf` and `download_cover`, with tests covering the 404, a non-404
+  error still raising, and the empty and populated responses.
 
 - [ ] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
   the series entry with `series_info.get("sequence", "")`, but `_prepare_book`

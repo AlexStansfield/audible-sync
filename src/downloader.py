@@ -7,7 +7,7 @@ from typing import NamedTuple
 
 import httpx
 from audible.aescipher import decrypt_voucher_from_licenserequest
-from audible.exceptions import AuthFlowError, NoRefreshToken, Unauthorized
+from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Unauthorized
 from tqdm import tqdm
 
 from src.audible import Audible
@@ -235,13 +235,23 @@ class Downloader:
         Download user annotations and bookmarks.
 
         Returns False when the book has none; transport failures are raised.
+
+        The sidecar endpoint 404s for a book that has never been opened, which is
+        "no annotations", not an error. `audible.Client` turns that into a
+        `NotFoundError`, and letting it propagate left the book `waiting_download`
+        forever: the 404 is permanent, so every later run re-licensed and
+        re-downloaded the whole AAXC before failing on it again.
         """
         logger.info("Downloading annotations for %s", asin)
         url = "https://cde-ta-g7g.amazon.com/FionaCDEServiceEngine/sidecar"
         params = {"type": "AUDI", "key": asin}
 
         # Use the authenticated client (automatically parses JSON responses)
-        annotations_data = self.audible.client.get(url, params=params)
+        try:
+            annotations_data = self.audible.client.get(url, params=params)
+        except NotFoundError:
+            logger.info("No annotations found for %s", asin)
+            return False
 
         # Only save if there are actual annotations
         if not annotations_data or not (annotations_data.get("clips") or annotations_data.get("bookmarks")):

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from audible.exceptions import NotFoundError
 
 import src.downloader as downloader
 from src.downloader import (
@@ -416,6 +417,56 @@ def test_license_response_returns_a_granted_license():
 
     downloader_ = downloader.Downloader(SimpleNamespace(client=FakeClient()))
     assert downloader_.get_license_response("B001", quality="High") == granted
+
+
+def _annotations_downloader(response):
+    """A Downloader whose sidecar call returns `response`, or raises it if it is an exception."""
+
+    class FakeClient:
+        def get(self, url, params=None):
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+    return downloader.Downloader(SimpleNamespace(client=FakeClient()))
+
+
+def test_download_annotations_treats_a_404_as_no_annotations(tmp_path):
+    """
+    The sidecar 404s for a book that was never opened. Letting that propagate left
+    the book waiting_download forever, re-downloading the whole AAXC every run.
+    """
+    out = tmp_path / "a.json"
+    downloader_ = _annotations_downloader(NotFoundError(httpx.Response(404), {"message": "Not Found"}))
+
+    assert downloader_.download_annotations("B001", str(out)) is False
+    assert not out.exists()
+
+
+def test_download_annotations_still_raises_other_errors(tmp_path):
+    """Anything but a 404 must raise, so the book is retried rather than filed without them."""
+    out = tmp_path / "a.json"
+    downloader_ = _annotations_downloader(httpx.ReadTimeout("boom"))
+
+    with pytest.raises(httpx.ReadTimeout):
+        downloader_.download_annotations("B001", str(out))
+    assert not out.exists()
+
+
+def test_download_annotations_returns_false_when_there_are_none(tmp_path):
+    out = tmp_path / "a.json"
+    downloader_ = _annotations_downloader({"clips": [], "bookmarks": []})
+
+    assert downloader_.download_annotations("B001", str(out)) is False
+    assert not out.exists()
+
+
+def test_download_annotations_writes_the_file_when_clips_exist(tmp_path):
+    out = tmp_path / "a.json"
+    downloader_ = _annotations_downloader({"clips": [{"start": 1}], "bookmarks": []})
+
+    assert downloader_.download_annotations("B001", str(out)) is True
+    assert json.loads(out.read_text())["clips"] == [{"start": 1}]
 
 
 def test_resolve_output_path_keeps_a_different_book_from_being_overwritten(tmp_path, monkeypatch):
