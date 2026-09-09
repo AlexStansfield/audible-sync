@@ -143,6 +143,20 @@ Smaller items to fold in while doing the above:
   `download_pdf` and `download_cover`, with tests covering the 404, a non-404
   error still raising, and the empty and populated responses.
 
+- [ ] **`series[0]` is an arbitrary pick for a book in more than one series.**
+  `_prepare_book` keeps every series entry in whatever order the API returned,
+  and both `book_template_values` and `generate_metadata` then take `series[0]`.
+  11 of the 306 titles here are in two series, and the order is not even stable
+  between endpoints: for *Northern Lights* the `library` list endpoint returns
+  Audible's typo'd "His Dark Materialsik" first while `library/{asin}` returns
+  the real "His Dark Materials" first. The visible result is that books 1 and 2
+  of the trilogy file under `His Dark Materialsik/` and book 3 under
+  `His Dark Materials/`, splitting one series across two folders. Other picks
+  are merely debatable (*Dune* files under "The Dune Sequence" at sequence 12
+  rather than "Dune" at 1). Needs a deliberate rule - prefer the series the
+  sequence makes sense for, or let the naming template choose - rather than
+  index 0. Noticed 2026-09-09 during a real run.
+
 - [ ] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
   the series entry with `series_info.get("sequence", "")`, but `_prepare_book`
   always creates the key (`entry.get("sequence")`), so a series entry whose
