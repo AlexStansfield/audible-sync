@@ -117,11 +117,12 @@ This is a one-shot run: sync + download, then exit.
 
 ### settings.py
 
-`Settings` is a frozen (`slots=True`) dataclass holding every configured value: `debug`, `max_download`, `auth_file`, `download_folder`, `audiobook_folder`, `folder_template`, `filename_template`, `encoding_format`, `bitrate`. It is the only thing that reads configuration, so the CLI, the coming API and the scheduler all work from the same validated object rather than loose keyword arguments.
+`Settings` is a frozen (`slots=True`) dataclass holding every configured value: `debug`, `max_download`, `max_attempts`, `auth_file`, `download_folder`, `audiobook_folder`, `folder_template`, `filename_template`, `encoding_format`, `bitrate`. It is the only thing that reads configuration, so the CLI, the coming API and the scheduler all work from the same validated object rather than loose keyword arguments.
 
-- `__post_init__` runs `validate_templates`, `validate_encoding` and `validate_max_download`, so **no** route in - `from_ini`, `dataclasses.replace`, a direct call - can produce settings that would fail part way through a run. It only validates; normalisation belongs to the builders, which keeps the field types honest
+- `__post_init__` runs `validate_templates`, `validate_encoding`, `validate_max_download` and `validate_max_attempts`, so **no** route in - `from_ini`, `dataclasses.replace`, a direct call - can produce settings that would fail part way through a run. It only validates; normalisation belongs to the builders, which keeps the field types honest
 - `Settings.from_ini(path=DEFAULT_CONFIG_FILE)` reads the INI, passes every configured path through `resolve_path` and falls back to the documented default for each key. It raises `FileNotFoundError` on a missing file, because `configparser.read` ignores one and a mistyped path would otherwise run silently on defaults. `Settings.from_db` follows with the settings table
 - Both `[folders]` keys have fallbacks. They used to have none, so an incomplete config died with a bare `KeyError` after the folders had already been created
+- `max_attempts` is a plain `int`, not `int | None`: unlike `max_download` there is no "unlimited" reading, because retrying forever is the bug the cap exists to fix
 - `auth_file` uses a `default_factory`, so `$HOME` is read when the settings are built rather than when the module is imported
 - The two folder defaults are module constants (`DEFAULT_DOWNLOAD_FOLDER`, `DEFAULT_AUDIOBOOK_FOLDER`), already resolved, because ruff's RUF009 forbids a function call in a dataclass default
 - `create_folders()` is the one side-effecting method: the two `mkdir(parents=True, exist_ok=True)` calls
@@ -138,7 +139,9 @@ It is its own module rather than part of `settings.py` because `database.py` nee
 
 **API fields:** `asin`, `title`, `subtitle`, `authors`, `narrators`, `series` (list of `{"title", "sequence"}`, either of which may be `None`), `genres`, `length` (minutes), `is_finished`, `percent_complete`, `date_added`, `release_date`, `cover_url`, `has_pdf`.
 
-**Database-only fields**, `None` on a book that came straight from the API: `status`, `pdf_path`, `cover_path`, `annotations_path`, `encoding_format`, `downloaded_at`.
+**Database-only fields**, `None` on a book that came straight from the API: `status`, `attempts`, `last_error`, `last_attempt_at`, `pdf_path`, `cover_path`, `annotations_path`, `encoding_format`, `downloaded_at`. `attempts` defaults to `0`, which must stay in step with the column default - a database test compares a whole freshly inserted `Book` for equality.
+
+`BookStatus` is a `StrEnum` living here beside `Book`: `waiting_download`, `downloading`, `downloaded` and terminal `failed`. A `StrEnum` because a member *is* the text the column already stores, so no row had to be rewritten and a comparison against a plain string still holds. `_book_status` maps the column onto the enum and returns `None` for anything unrecognised rather than raising - a database written by another version has to stay readable, and nothing selects on the Python value because the queue is a SQL predicate.
 
 `date_added` is an **ISO 8601 string** exactly as Audible returns it (e.g. `2024-01-01T00:00:00Z`), stored, sorted and compared as text. It is never parsed into a `datetime`.
 
@@ -146,23 +149,26 @@ It is its own module rather than part of `settings.py` because `database.py` nee
 
 ### database.py
 
-Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`).
+Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`, `attempts`, `last_error`, `last_attempt_at`).
 
 **Functions:**
 - `init_db()`
-- `update_books(books)` - `INSERT OR IGNORE` in one statement, status `waiting_download`; returns count inserted. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not. Writes 15 of the 20 columns on purpose and hardcodes the status, so keep it an explicit column list rather than generating one from the dataclass; its `json.dumps` must stay in step with `Book.from_row`'s decode
+- `update_books(books)` - an upsert: inserts new books at `waiting_download` and, `ON CONFLICT(asin)`, refreshes only the mutable API fields (title, subtitle, the four JSON lists, length, `is_finished`, `percent_complete`, `release_date`, `cover_url`, `has_pdf`). It deliberately never writes `date_added` - that is the incremental sync cursor, and moving it would skip or re-fetch purchases - nor `status`, the three retry columns, the accessory paths, `encoding_format` or `downloaded_at`, all of which belong to the downloader. Returns the count **inserted**, taken as `SELECT COUNT(*)` either side of the write on the same cursor: `cursor.rowcount` after an `executemany` of an upsert is `-1`, not a count, and `RETURNING` cannot be used with `executemany` at all. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not. Keep the explicit column list rather than generating one from the dataclass; its `json.dumps` must stay in step with `Book.from_row`'s decode
 - `get_books(limit=None) -> list[Book]` - all books, newest `date_added` first
-- `get_books_to_download() -> list[Book]` - status `waiting_download`, oldest first
+- `get_books_to_download() -> list[Book]` - status `waiting_download`, oldest first. Does **not** claim; the caller claims each book individually before working on it
 - `get_book_by_asin(asin) -> Book | None`
 - `latest_date_added()` - `MAX(date_added)`, the incremental sync cursor. Independent of how `get_books` sorts
-- `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value
+- `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value. Clears `last_error` - a book that succeeded on its second attempt must not keep showing the first failure - but keeps `attempts`, a true record of what the book cost
+- `claim_book_for_download(asin, *, stale_after=STALE_CLAIM_SECONDS) -> bool` - takes ownership in a single UPDATE: status to `downloading`, `attempts + 1`, `last_attempt_at` now, matching `waiting_download` **or** a `downloading` row whose `last_attempt_at` is older than `stale_after` (a NULL timestamp counts as stale, or such a row would never be picked up again). Returns whether this caller won. Two processes cannot both take one book: the second matches no rows. `STALE_CLAIM_SECONDS` is 6 hours - longer than the slowest real book, short enough that a crashed run recovers on the next tick rather than by hand
+- `mark_book_failed(asin, error, *, max_attempts, terminal=False) -> BookStatus | None` - records `last_error` and decides retry-or-give-up **inside** the UPDATE (`CASE WHEN ? OR attempts >= ?`), from the `attempts` the claim already incremented, so it cannot race another process between a SELECT and an UPDATE. `terminal` short-circuits the count for a failure already known to be permanent. Returns the status the book landed in, or `None` for an unknown ASIN
+- `release_book(asin)` - status back to `waiting_download` and `attempts - 1`, guarded on `downloading`. For an abort that is not the book's fault: expired credentials fail every book equally, so charging it to whichever book was next would eventually mark a good one `failed`
 - `update_book_accessories(asin, pdf_path=, cover_path=, annotations_path=)` - accessory paths only; unused by the pipeline, kept for the API
 
 **Reads return `Book` objects, not tuples.** `_get_connection()` sets `row_factory = sqlite3.Row` and every reader maps rows through `Book.from_row()`. Access is by column name, which is why `SELECT *` stays correct even on an older database where `_migrate_schema` appended columns in a different order than the DDL - positional indexing was silently wrong there. Never index a row positionally.
 
-Note `_migrate_schema` only adds the six accessory columns, so a database predating the rest of the schema still lacks `date_added`; `get_books`, `get_books_to_download` and `latest_date_added` all reference it and raise on that schema. `get_book_by_asin` works, because `from_row` falls back to field defaults. Widening the migration belongs with the status/state-machine work.
+Note `_migrate_schema` only adds the nine later columns, so a database predating the rest of the schema still lacks `date_added`; `get_books`, `get_books_to_download` and `latest_date_added` all reference it and raise on that schema. `get_book_by_asin` works, because `from_row` falls back to field defaults. Widening the migration belongs with the status/state-machine work.
 
-All functions close their connections (`contextlib.closing`). `init_db` also indexes `date_added` and `status`, guarded by the columns actually present so an old database still migrates.
+All functions close their connections (`contextlib.closing`). `init_db` also indexes `date_added`, and the download queue with a composite `(status, date_added)` matching the shape of its query - SQLite serves a plain status lookup from the leading column, so the superseded single-column `idx_library_status` is dropped rather than kept alongside. Guarded by the columns actually present so an old database still migrates: the composite raises on a schema with no `date_added`.
 
 ### audible.py
 
@@ -192,7 +198,7 @@ The largest module. Key pieces:
 - `download_cover(url, path)` - via the **unauthenticated** shared client: the audible session signs every request, which would send the account's ADP token to the image CDN
 - `download_annotations(asin, path)` - Amazon sidecar endpoint; only writes a file if clips or bookmarks exist
 
-**Accessory contract:** the three accessory methods return `False` only when the thing is genuinely absent (404, non-PDF content type, no clips or bookmarks). Every other failure raises, so the book stays `waiting_download` and is retried instead of being filed as complete with a `NULL` path that nothing would ever fix.
+**Accessory contract:** the three accessory methods return `False` only when the thing is genuinely absent (404, non-PDF content type, no clips or bookmarks). Every other failure raises, so the book goes back to the queue and is retried (up to `max-attempts`) instead of being filed as complete with a `NULL` path that nothing would ever fix.
 
 **HTTP:** `get_http_client()` is a shared `httpx.Client` with a 30s connect / 120s read timeout and redirects followed. httpx defaults to 5s, which aborted a part-finished multi-gigabyte download on any brief CDN stall. `_stream_to_file(response, path, desc)` is the one streaming loop for all three downloads; it writes to a `.part` file and renames on completion.
 
@@ -210,7 +216,11 @@ The largest module. Key pieces:
 - `_download_accessories(downloader, book, temp_dir, safe_title)` - PDF, cover and annotations, keyed by the database column they belong to. The cover extension comes from the image bytes (`image_info`), not the URL, because plenty of cover URLs carry no extension and the name is kept permanently.
 - `_resolve_output_path(final_folder, stem, extension, asin)` - keeps two books that render to the same name apart. Every output carries its own ASIN in the comment tag, so a file belonging to this book is reused and anything else gets ` [{asin}]` appended. Without this the second book silently overwrote the first (the live library has two *Red Rising* ASINs that collide).
 - The finished book is **moved**, not copied, and the AAXC and voucher are deleted straight after decryption, which keeps peak disk at roughly one copy of the book rather than three.
-- `download_books(audible, settings)` - loops over waiting books, up to `settings.max_download`. Each book runs inside try/except/finally: failures are logged with a traceback, the temp folder is always removed, the book keeps `waiting_download` and is retried next run. An `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop instead, because every remaining book would fail the same way. Ends with a succeeded/failed summary.
+- `download_books(audible, settings)` - loops over waiting books, up to `settings.max_download`. Each book is **claimed** (`claim_book_for_download`) before it is touched, one at a time rather than as a batch, so a scheduler tick starting mid-run skips a book another process holds and only books really tried spend an attempt. A lost claim still costs a slot in the `max_download` slice: that is a cap on work attempted, not a quota. Three failure arms, and order matters - `LicenseError` subclasses `RuntimeError`, so its arm must sit above `except Exception`:
+  - `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop and calls `release_book` first: every remaining book would fail the same way, and an expiring token must not burn a good book's attempts
+  - `LicenseError` calls `mark_book_failed(..., terminal=True)` - a refused licence will not be granted on the third ask, and each retry re-downloaded the whole AAXC before failing again
+  - anything else calls `mark_book_failed(...)` with `settings.max_attempts`, which returns the book to the queue until the cap is reached and then fails it terminally
+  The temp folder is always removed, and the run ends with a succeeded/failed summary.
 
 **Final layout** comes from the `[naming]` templates in `config.ini`, rendered by `src/naming.py`:
 - `folder` (default `{author}/[{series}/][{sequence} - ]{title}`) and `filename` (default `{title}`); `[...]` groups are dropped when any placeholder inside is empty, empty segments are skipped, every value is sanitized
@@ -244,6 +254,7 @@ debug = true            ; sets the log level to DEBUG
 
 [sync]
 ; max-download = 10     ; limit books processed per run, 1 or more; unset = all waiting
+; max-attempts = 3      ; tries before a book is marked failed, 1 or more; default 3
 ; audible-auth-file = audible.json   ; default ~/.audible/audible.json
 
 [folders]
@@ -322,7 +333,7 @@ uv run pytest -k sanitize   # subset
 - For `decrypt_aaxc`, monkeypatch `downloader.subprocess.run` with a recorder (see the `fake_ffmpeg` fixture) and assert on the argv and on the FFMETADATA file, which the recorder must read before `decrypt_aaxc` deletes it. The fixture also replaces `downloader.write_m4b_extra_tags` with a recorder, since the fake ffmpeg produces no file for mutagen to open.
 - Never hit the Audible API, the network or FFmpeg in tests. Mock `Audible`/`Downloader` methods and `subprocess.run` with `unittest.mock` or `monkeypatch`.
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
-- For `download_books`, patch `get_books_to_download`, `mark_book_downloaded`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). It takes `(audible, settings)`; build the settings with `make_settings(download_folder=..., audiobook_folder=...)`. This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
+- For `download_books`, patch `get_books_to_download`, `claim_book_for_download`, `mark_book_downloaded`, `mark_book_failed`, `release_book`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). All of these are looked up as attributes of `src.downloader`, so patch them there - miss one and the test writes to the real library database. `_patch_pipeline` takes optional `claimed=` and `failures=` recorder lists. It takes `(audible, settings)`; build the settings with `make_settings(download_folder=..., audiobook_folder=...)`. This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
 - For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible.py`.
 - `tests/conftest.py` holds the shared `make_book()` and `make_settings()` factories. `make_settings(**overrides)` is `dataclasses.replace(Settings(), **overrides)`, so an override that would not survive `from_ini` still raises; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
 
@@ -336,6 +347,8 @@ The suite currently covers the sanitizer, metadata generation, the FFMETADATA wr
 - [ ] Series and non-series books land in the right folders
 - [ ] A title with `:` or `/` produces a sane path
 - [ ] A failing book is skipped, its temp folder removed, and the run continues
+- [ ] A book that fails `max-attempts` times is marked `failed`, with `last_error` set, and is not picked up on the next run
+- [ ] A second run started while the first is downloading skips the in-flight book rather than duplicating it
 - [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe -show_format`), including `series` and `series-part` for a series book
 - [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `comment=ASIN: ...` among the audio stream tags (`-show_streams`, Ogg tags are stream-level); the DB row has `encoding_format` and `downloaded_at`
 - [ ] Docker image builds and runs
@@ -384,7 +397,7 @@ Two workflows in `.github/workflows/`:
 - Test coverage is thin outside `downloader.py` and `database.py`; `audible.py` and `sync.py` have no tests yet
 - Two books whose templates render to the same name are filed side by side (` [{asin}]` suffix) rather than merged; the naming template is what actually needs disambiguating
 - `Downloader`'s network-facing methods still have no unit tests
-- The structural work still listed under **Milestone 3 Step 0** in `todo.md`: a two-value status string, and no `sync_runs` table
+- The structural work still listed under **Milestone 3 Step 0** in `todo.md`: no `sync_runs` table
 
 ## Roadmap
 
@@ -402,7 +415,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.2
+**Document Version:** 4.3
 **Last Updated:** 2026-09-09
-**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 in progress (database returns objects, settings object)
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 in progress (database returns objects, settings object, book state machine)
 **Primary Branch:** `dev`
