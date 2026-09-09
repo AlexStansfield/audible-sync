@@ -127,6 +127,19 @@ Smaller items to fold in while doing the above:
   (`known-third-party` in `pyproject.toml` is the workaround holding it together).
 - [ ] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
 - [ ] Add tests for the network-facing `Downloader` methods, which have none.
+- [ ] **`download_annotations` turns a 404 into a permanent failure.** The
+  accessory contract says the three methods return `False` only when the thing
+  is genuinely absent and raise otherwise, and `download_pdf`/`download_cover`
+  both special-case 404. `download_annotations` does not: the Amazon sidecar
+  endpoint 404s for a book that has never been opened, `audible.Client` raises
+  `NotFoundError`, `_process_book` propagates it, and the book stays
+  `waiting_download` forever. Every run re-licenses and re-downloads the whole
+  AAXC before failing again on the same 404, so it burns a full book of
+  bandwidth per retry. Measured 2026-09-09: 4 of a 25-book sample 404 (~16%,
+  roughly 49 of the 306-title library), and it is what stopped *Northern
+  Lights* in a real run. Catch `NotFoundError` and return `False`, and add a
+  test - this is the one accessory method with no 404 path.
+
 - [ ] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
   the series entry with `series_info.get("sequence", "")`, but `_prepare_book`
   always creates the key (`entry.get("sequence")`), so a series entry whose
