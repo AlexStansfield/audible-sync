@@ -86,7 +86,7 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
   while there, and fix `date_added`, which is annotated `datetime` but always
   holds an ISO string. *Blocks: get library of books by API.*
 
-- [ ] **Give the pipeline a settings object instead of loose keyword arguments.**
+- [x] **Give the pipeline a settings object instead of loose keyword arguments.**
   Config parsing, validation, folder creation and the sync-then-download sequence
   live inline under `if __name__ == "__main__"`, and the values are threaded as
   eight keyword arguments through `download_books` into `_process_book`. Nothing
