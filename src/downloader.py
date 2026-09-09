@@ -23,13 +23,8 @@ from src.encoding import (
     write_m4b_extra_tags,
 )
 from src.model import Book
-from src.naming import (
-    DEFAULT_FILENAME_TEMPLATE,
-    DEFAULT_FOLDER_TEMPLATE,
-    book_output_paths,
-    sanitize_filename,
-    temp_book_folder,
-)
+from src.naming import book_output_paths, sanitize_filename, temp_book_folder
+from src.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -646,16 +641,7 @@ def _download_accessories(downloader: Downloader, book: Book, temp_dir: Path, sa
     return accessories
 
 
-def _process_book(
-    downloader: Downloader,
-    book: Book,
-    temp_dir: Path,
-    audiobook_folder: str,
-    folder_template: str = DEFAULT_FOLDER_TEMPLATE,
-    filename_template: str = DEFAULT_FILENAME_TEMPLATE,
-    encoding_format: str = DEFAULT_FORMAT,
-    bitrate: int = DEFAULT_BITRATE,
-):
+def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: Settings):
     """
     Download, decrypt and file a single book. Raises on any failure so the
     caller can decide how to handle it.
@@ -664,11 +650,7 @@ def _process_book(
         downloader: Downloader bound to an authenticated Audible client
         book: The book to process
         temp_dir: Temporary working folder for this book
-        audiobook_folder: Root folder for the final organised library
-        folder_template: Naming template for the book folder (see src.naming)
-        filename_template: Naming template for the file name without extension
-        encoding_format: Output format (see src.encoding.FORMATS)
-        bitrate: Opus bitrate in kbps, only used for oga
+        settings: Library folder, naming templates, output format and bitrate
     """
     asin = book.asin
     title = book.title
@@ -693,8 +675,8 @@ def _process_book(
         book_data=book,
         cover_path=str(cover) if cover else None,
         chapters=download.chapters,
-        encoding_format=encoding_format,
-        bitrate=bitrate,
+        encoding_format=settings.encoding_format,
+        bitrate=settings.bitrate,
     )
 
     # The encrypted source is no longer needed; releasing it here keeps peak disk
@@ -703,9 +685,11 @@ def _process_book(
     download.voucher.unlink(missing_ok=True)
 
     # Determine final location from the naming templates (all path segments sanitized)
-    final_folder, stem = book_output_paths(book, audiobook_folder, folder_template, filename_template)
+    final_folder, stem = book_output_paths(
+        book, settings.audiobook_folder, settings.folder_template, settings.filename_template
+    )
     final_folder.mkdir(parents=True, exist_ok=True)
-    to_path, stem = _resolve_output_path(final_folder, stem, output_extension(encoding_format), asin)
+    to_path, stem = _resolve_output_path(final_folder, stem, output_extension(settings.encoding_format), asin)
 
     # Move the Book to its final location. A move is a rename when the download and
     # library folders share a filesystem, where a copy would write the whole book again.
@@ -723,22 +707,12 @@ def _process_book(
         logger.info("%s moved to %s", column.removesuffix("_path").capitalize(), final_path)
 
     # Record the accessory paths and the completed status in one statement
-    mark_book_downloaded(asin, encoding_format=encoding_format, **final_paths)
+    mark_book_downloaded(asin, encoding_format=settings.encoding_format, **final_paths)
 
 
-def download_books(
-    audible,
-    download_folder: str,
-    audiobook_folder: str,
-    max: int | None = None,
-    *,
-    folder_template: str = DEFAULT_FOLDER_TEMPLATE,
-    filename_template: str = DEFAULT_FILENAME_TEMPLATE,
-    encoding_format: str = DEFAULT_FORMAT,
-    bitrate: int = DEFAULT_BITRATE,
-):
+def download_books(audible: Audible, settings: Settings):
     """
-    Download, decrypt and file every book waiting for download (up to `max`).
+    Download, decrypt and file every book waiting for download.
 
     Each book is processed independently: a failure is logged, its temporary
     files are removed, and processing continues with the next book. The book
@@ -746,16 +720,22 @@ def download_books(
     authentication failure stops the run instead, because every remaining book
     would fail the same way.
 
-    `folder_template` and `filename_template` control where each book is filed
-    under `audiobook_folder` (see src.naming for the placeholder syntax).
-    `encoding_format` selects m4b (stream copy) or oga (Opus at `bitrate` kbps).
+    `settings` carries the download and audiobook folders, the naming templates
+    that control where each book is filed (see src.naming for the placeholder
+    syntax), the output format - m4b (stream copy) or oga (Opus at the
+    configured bitrate) - and `max_download`, the optional cap on how many books
+    a single run processes.
     """
     waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
-    number_to_download = total_to_download if max is None else min(max, total_to_download)
+    max_download = settings.max_download
+    number_to_download = total_to_download if max_download is None else min(max_download, total_to_download)
 
     logger.info(
-        "Downloading %d books of %d waiting download as %s", number_to_download, total_to_download, encoding_format
+        "Downloading %d books of %d waiting download as %s",
+        number_to_download,
+        total_to_download,
+        settings.encoding_format,
     )
 
     loop = waiting_download[:number_to_download]
@@ -766,19 +746,10 @@ def download_books(
     for book in loop:
         asin = book.asin
         title = book.title
-        temp_dir = temp_book_folder(download_folder, asin, title)
+        temp_dir = temp_book_folder(settings.download_folder, asin, title)
 
         try:
-            _process_book(
-                downloader,
-                book,
-                temp_dir,
-                audiobook_folder,
-                folder_template=folder_template,
-                filename_template=filename_template,
-                encoding_format=encoding_format,
-                bitrate=bitrate,
-            )
+            _process_book(downloader, book, temp_dir, settings)
             succeeded += 1
         except (Unauthorized, NoRefreshToken, AuthFlowError):
             logger.exception("Audible rejected our credentials, stopping before %s (%s)", title, asin)
