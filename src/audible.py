@@ -15,6 +15,13 @@ RESPONSE_GROUPS = (
 # The library endpoint caps a page at 1000 items.
 _PAGE_SIZE = 1000
 
+# `audible.Client` defaults to 10 seconds, which a full page of 1000 titles with
+# these response groups does not come back in: a 306-title library measured 16.5s,
+# so a first sync on an empty database raised NotResponding every time and aborted
+# the run. Only the incremental sync, which returns a handful of items, was fast
+# enough to fit. Pages are requested one at a time, so this bounds a single page.
+_API_TIMEOUT = 60
+
 
 def _prepare_book(item: dict) -> Book:
     """
@@ -61,7 +68,7 @@ def _prepare_book(item: dict) -> Book:
 class Audible:
     def __init__(self, auth_file: str):
         self.auth = audible.Authenticator.from_file(filename=auth_file)
-        self.client = audible.Client(self.auth)
+        self.client = audible.Client(self.auth, timeout=_API_TIMEOUT)
 
     def get_library(self, purchased_after: str | None = None) -> list[Book]:
         """

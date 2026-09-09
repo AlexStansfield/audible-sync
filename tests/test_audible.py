@@ -1,5 +1,6 @@
 import pytest
 
+import src.audible
 from src.audible import RESPONSE_GROUPS, Audible, _prepare_book, _prepare_books
 
 
@@ -139,3 +140,28 @@ def test_get_library_passes_the_incremental_cursor_on_every_page(monkeypatch):
 
     assert all(call["purchased_after"] == "2024-01-01T00:00:00Z" for call in audible.client.calls)
     assert all(call["response_groups"] == RESPONSE_GROUPS for call in audible.client.calls)
+
+
+def test_client_is_given_a_timeout_that_fits_a_full_page(monkeypatch):
+    """
+    The library default of 10s is shorter than a full 1000-item page takes, so a
+    first sync on an empty database raised NotResponding and aborted the run.
+    """
+    captured = {}
+
+    class FakeAuthenticator:
+        @staticmethod
+        def from_file(filename):
+            return "auth"
+
+    def fake_client(auth, **kwargs):
+        captured.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(src.audible.audible, "Authenticator", FakeAuthenticator)
+    monkeypatch.setattr(src.audible.audible, "Client", fake_client)
+
+    src.audible.Audible("ignored.json")
+
+    assert captured["timeout"] == src.audible._API_TIMEOUT
+    assert captured["timeout"] > 10
