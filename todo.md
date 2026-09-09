@@ -123,7 +123,7 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
   so it leaves the queue, and the upsert returns it to `waiting_download` as soon as
   a sync sees it consumable - no manual step.
 
-- [ ] **Record sync runs and stream download progress.** The incremental cursor is
+- [x] **Record sync runs and stream download progress.** The incremental cursor is
   derived from the newest `date_added` in the library table, so there is no source
   of truth for "last synced" and a run that died half way cannot be told from one
   that found nothing. Add the `sync_runs` table (`started_at`, `finished_at`,
@@ -132,6 +132,28 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
   bar, which writes carriage returns into the service log and gives the UI nothing
   to read; `_stream_to_file` already takes the response and path, so give it an
   injected progress callback. *Blocks: async downloader to monitor progress.*
+  Done 2026-09-09: `sync_runs` records one row per `run_pipeline` call, covering both
+  halves of it - `books_seen`/`books_added` from the sync and `books_downloaded`/
+  `books_failed` from the downloads, plus the `error` that stopped it. `SyncOutcome` is
+  a `StrEnum` beside `BookStatus`. The row is opened before Audible is touched and
+  closed on every exit including the exception arm, so a killed run is the one thing
+  left `running` with a NULL `finished_at` - which is exactly "died half way", and
+  distinguishable from `success` with `books_added = 0`.
+  The cursor is the previous run's `started_at` **minus an hour**, not the bare start
+  time: `purchased_after` is filtered on Audible's clock, so a local clock running even
+  slightly fast would step over a purchase and never look at it again. Re-reading an
+  hour costs nothing because `update_books` is an upsert. It also needs reformatting -
+  `_utcnow` writes `+00:00`, Audible's own `date_added` is the `Z` form. With no run
+  recorded it falls back to `MAX(date_added)`, so an existing database behaves exactly
+  as it did until its first run is on record. `partial` (sync fine, a download failed)
+  counts as a cursor; `failed` and `running` do not.
+  Progress is now an injected `Progress` protocol (`src/progress.py`) rather than a
+  callback, because a bar has a lifecycle - `start(desc, total)`, `advance`, `finish`,
+  the last in a `finally` so a failed download does not leave a bar open across the
+  next one. `NullProgress` is the default, `TqdmProgress` is injected by `main()` only,
+  and `tqdm` is imported in that one module. `download_file` stopped being static so it
+  could report and take a `desc`: the multi-gigabyte AAXC was the one transfer the bar
+  could not name.
 
 Smaller items to fold in while doing the above:
 
@@ -140,7 +162,9 @@ Smaller items to fold in while doing the above:
   out of the runtime dependencies until the service actually exists.
 - [ ] Rename `src/audible.py` so it stops shadowing the `audible` dependency
   (`known-third-party` in `pyproject.toml` is the workaround holding it together).
-- [ ] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
+- [x] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
+  Done 2026-09-09: set in `init_db` before the DDL. It is a property of the database
+  file, so one call holds for every later connection.
 - [ ] Add tests for the network-facing `Downloader` methods, which have none.
 - [x] **`download_annotations` turns a 404 into a permanent failure.** The
   accessory contract says the three methods return `False` only when the thing

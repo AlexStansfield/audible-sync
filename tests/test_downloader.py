@@ -12,7 +12,9 @@ from audible.exceptions import NotFoundError
 import src.downloader as downloader
 from src.downloader import (
     DownloadedBook,
+    DownloadStats,
     LicenseError,
+    _stream_to_file,
     decrypt_aaxc,
     flatten_chapters,
     generate_metadata,
@@ -771,3 +773,173 @@ def test_download_books_parks_an_unlicensable_book_without_burning_attempts(tmp_
     assert parked == ["GONE"]
     # The run carries on and is not counted as a failure
     assert marked == [("OK2", "m4b")]
+
+
+# --- progress reporting ----------------------------------------------------------
+
+
+class RecordingProgress:
+    """A `Progress` that records the lifecycle instead of drawing anything."""
+
+    def __init__(self):
+        self.started = None
+        self.advances = []
+        self.finished = 0
+
+    def start(self, desc, total):
+        self.started = (desc, total)
+
+    def advance(self, amount):
+        self.advances.append(amount)
+
+    def finish(self):
+        self.finished += 1
+
+
+class FakeStream:
+    """
+    Stands in for a streaming httpx response.
+
+    `num_bytes_downloaded` is the counter `_stream_to_file` takes its deltas from, so
+    it has to advance as the chunks are yielded, exactly as httpx advances it.
+    """
+
+    def __init__(self, chunks, content_length=None, fail_after=None):
+        self._chunks = chunks
+        self._fail_after = fail_after
+        self.headers = {} if content_length is None else {"Content-Length": str(content_length)}
+        self.num_bytes_downloaded = 0
+
+    def iter_bytes(self):
+        for index, chunk in enumerate(self._chunks):
+            if self._fail_after is not None and index == self._fail_after:
+                raise httpx.ReadError("connection dropped")
+            self.num_bytes_downloaded += len(chunk)
+            yield chunk
+
+
+def test_stream_to_file_reports_progress_against_the_content_length(tmp_path):
+    progress = RecordingProgress()
+    response = FakeStream([b"abcd", b"ef"], content_length=6)
+
+    _stream_to_file(response, tmp_path / "book.aaxc", desc="Book", progress=progress)
+
+    assert progress.started == ("Book", 6)
+    assert progress.advances == [4, 2]
+    assert progress.finished == 1
+    assert (tmp_path / "book.aaxc").read_bytes() == b"abcdef"
+
+
+def test_stream_to_file_reports_an_unknown_total_when_there_is_no_content_length(tmp_path):
+    """Plenty of responses carry no length; the transfer still has to be reported."""
+    progress = RecordingProgress()
+
+    _stream_to_file(FakeStream([b"abc"]), tmp_path / "book.aaxc", progress=progress)
+
+    assert progress.started == (None, None)
+    assert progress.advances == [3]
+
+
+def test_stream_to_file_finishes_the_progress_even_when_the_stream_fails(tmp_path):
+    """A bar left open would draw over the next book's."""
+    progress = RecordingProgress()
+    response = FakeStream([b"abcd", b"ef"], content_length=6, fail_after=1)
+
+    with pytest.raises(httpx.ReadError):
+        _stream_to_file(response, tmp_path / "book.aaxc", progress=progress)
+
+    assert progress.finished == 1
+    # The partial file is never renamed into place, so nothing looks complete
+    assert not (tmp_path / "book.aaxc").exists()
+    assert (tmp_path / "book.aaxc.part").exists()
+
+
+def test_stream_to_file_works_without_a_progress_object(tmp_path):
+    """The default: a headless run reports nothing and must not need a guard."""
+    _stream_to_file(FakeStream([b"abc"]), tmp_path / "book.aaxc")
+
+    assert (tmp_path / "book.aaxc").read_bytes() == b"abc"
+
+
+def test_download_file_names_the_transfer_and_uses_the_configured_progress(tmp_path, monkeypatch):
+    """
+    The AAXC is the multi-gigabyte transfer of the run and was the one download the
+    bar could not name, because `download_file` was static and took no description.
+    """
+    progress = RecordingProgress()
+    streamed = {}
+
+    def fake_stream_to_file(response, path, desc=None, progress=None):
+        streamed["desc"] = desc
+        streamed["progress"] = progress
+
+    monkeypatch.setattr(downloader, "_stream_to_file", fake_stream_to_file)
+    monkeypatch.setattr(
+        downloader,
+        "get_http_client",
+        lambda: SimpleNamespace(stream=lambda *a, **kw: _null_stream()),
+    )
+
+    downloader.Downloader(object(), progress=progress).download_file("https://cdn/x", tmp_path / "b.aaxc", desc="Book")
+
+    assert streamed == {"desc": "Book", "progress": progress}
+
+
+def _null_stream():
+    """A context manager standing in for httpx's streaming response."""
+
+    class _Ctx:
+        def __enter__(self):
+            return SimpleNamespace(raise_for_status=lambda: None)
+
+        def __exit__(self, *exc):
+            return False
+
+    return _Ctx()
+
+
+def test_download_books_returns_the_counts_the_run_record_is_written_from(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
+    )
+
+    # Three books, one of which (BAD1) raises inside the fake download
+    assert stats == DownloadStats(attempted=3, succeeded=2, failed=1, unavailable=0)
+
+
+def test_download_books_counts_a_parked_book_separately_from_a_failure(tmp_path, monkeypatch):
+    """A licence Audible refuses is not a failure, so the run is not partial for it."""
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, [make_book("NOLIC", "Unlicensed")], marked, accessories, decrypt_calls)
+
+    def refuse(self, book, temp_dir):
+        raise LicenseError("not consumable")
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", refuse)
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
+    )
+
+    assert stats == DownloadStats(attempted=1, succeeded=0, failed=0, unavailable=1)
+
+
+def test_download_books_respects_max_download_in_the_attempted_count(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_download=1),
+    )
+
+    assert stats.attempted == 1

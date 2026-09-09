@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 import src.database as database
-from src.model import Book, BookStatus
+from src.model import Book, BookStatus, SyncOutcome, SyncRun
 from tests.conftest import make_book
 
 
@@ -626,3 +626,115 @@ def test_needs_consumability_refresh_spots_a_row_that_predates_the_column(db):
 
 def test_needs_consumability_refresh_is_false_for_an_empty_library(db):
     assert database.needs_consumability_refresh() is False
+
+
+# --- sync_runs -------------------------------------------------------------------
+
+
+def test_init_db_enables_wal(db):
+    """Two processes share this database, so a reader must not block the writer."""
+    conn = sqlite3.connect(db)
+    mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+    conn.close()
+    assert mode == "wal"
+
+
+def test_init_db_creates_sync_runs_table_with_all_columns(db):
+    conn = sqlite3.connect(db)
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(sync_runs)")]
+    conn.close()
+    assert set(columns) == {
+        "id",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "books_seen",
+        "books_added",
+        "books_downloaded",
+        "books_failed",
+        "error",
+    }
+
+
+def test_start_sync_run_opens_a_running_row(db, monkeypatch):
+    """Written before Audible is touched, so a killed run leaves this row behind."""
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T03:04:05+00:00")
+
+    run_id = database.start_sync_run()
+
+    run = database.get_sync_runs()[0]
+    assert run.id == run_id
+    assert run.started_at == "2026-01-02T03:04:05+00:00"
+    assert run.outcome is SyncOutcome.RUNNING
+    assert run.finished_at is None
+
+
+def test_finish_sync_run_records_the_outcome_and_counters(db, monkeypatch):
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T03:04:05+00:00")
+    run_id = database.start_sync_run()
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T04:00:00+00:00")
+
+    database.finish_sync_run(
+        run_id,
+        outcome=SyncOutcome.PARTIAL,
+        books_seen=9,
+        books_added=4,
+        books_downloaded=3,
+        books_failed=1,
+        error="RuntimeError: disk full",
+    )
+
+    run = database.get_sync_runs()[0]
+    assert run == SyncRun(
+        id=run_id,
+        started_at="2026-01-02T03:04:05+00:00",
+        finished_at="2026-01-02T04:00:00+00:00",
+        outcome=SyncOutcome.PARTIAL,
+        books_seen=9,
+        books_added=4,
+        books_downloaded=3,
+        books_failed=1,
+        error="RuntimeError: disk full",
+    )
+
+
+def test_latest_successful_sync_start_is_none_on_an_empty_table(db):
+    assert database.latest_successful_sync_start() is None
+
+
+@pytest.mark.parametrize("outcome", [SyncOutcome.SUCCESS, SyncOutcome.PARTIAL])
+def test_latest_successful_sync_start_counts_a_run_whose_sync_completed(db, monkeypatch, outcome):
+    """`partial` counts too: its sync read the library through, only a download failed."""
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T03:04:05+00:00")
+    database.finish_sync_run(database.start_sync_run(), outcome=outcome)
+
+    assert database.latest_successful_sync_start() == "2026-01-02T03:04:05+00:00"
+
+
+@pytest.mark.parametrize("outcome", [SyncOutcome.RUNNING, SyncOutcome.FAILED])
+def test_latest_successful_sync_start_ignores_a_run_that_never_read_the_library(db, monkeypatch, outcome):
+    """A killed or failed run must not advance the cursor past books it never saw."""
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T03:04:05+00:00")
+    run_id = database.start_sync_run()
+    if outcome is not SyncOutcome.RUNNING:
+        database.finish_sync_run(run_id, outcome=outcome)
+
+    assert database.latest_successful_sync_start() is None
+
+
+def test_latest_successful_sync_start_takes_the_newest(db, monkeypatch):
+    for started in ("2026-01-01T00:00:00+00:00", "2026-03-01T00:00:00+00:00", "2026-02-01T00:00:00+00:00"):
+        monkeypatch.setattr(database, "_utcnow", lambda started=started: started)
+        database.finish_sync_run(database.start_sync_run(), outcome=SyncOutcome.SUCCESS)
+
+    assert database.latest_successful_sync_start() == "2026-03-01T00:00:00+00:00"
+
+
+def test_get_sync_runs_is_newest_first_and_honours_the_limit(db, monkeypatch):
+    for started in ("2026-01-01T00:00:00+00:00", "2026-02-01T00:00:00+00:00", "2026-03-01T00:00:00+00:00"):
+        monkeypatch.setattr(database, "_utcnow", lambda started=started: started)
+        database.start_sync_run()
+
+    runs = database.get_sync_runs(limit=2)
+
+    assert [run.started_at for run in runs] == ["2026-03-01T00:00:00+00:00", "2026-02-01T00:00:00+00:00"]

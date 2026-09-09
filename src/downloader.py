@@ -8,7 +8,6 @@ from typing import NamedTuple
 import httpx
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Unauthorized
-from tqdm import tqdm
 
 from src.audible import Audible
 from src.database import (
@@ -31,6 +30,7 @@ from src.encoding import (
 )
 from src.model import Book, BookStatus
 from src.naming import book_output_paths, sanitize_filename, temp_book_folder
+from src.progress import NullProgress, Progress
 from src.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -54,6 +54,15 @@ class DownloadedBook(NamedTuple):
     chapters: list | None
 
 
+class DownloadStats(NamedTuple):
+    """What one call to `download_books` did, for the run record and for the caller's log."""
+
+    attempted: int
+    succeeded: int
+    failed: int
+    unavailable: int
+
+
 def get_http_client() -> httpx.Client:
     """
     Shared client for downloads that must not carry Audible credentials.
@@ -68,31 +77,52 @@ def get_http_client() -> httpx.Client:
     return _http_client
 
 
-def _stream_to_file(response: httpx.Response, path: str | Path, desc: str | None = None) -> None:
+def _stream_to_file(
+    response: httpx.Response,
+    path: str | Path,
+    desc: str | None = None,
+    progress: Progress | None = None,
+) -> None:
     """
-    Write a streaming response to `path`, showing progress when the size is known.
+    Write a streaming response to `path`, reporting progress when the size is known.
 
     The bytes go to a sibling `.part` file that is renamed once the stream ends, so
     an interrupted run cannot leave a truncated file that looks complete.
+
+    Progress goes wherever the caller says (see `src.progress`) rather than to a bar
+    this function owns: a terminal wants `tqdm`, a service wants something its front
+    end can read. `finish` runs even when the stream fails, so a failed download does
+    not leave a bar open across the next one.
     """
     path = Path(path)
     partial = path.with_name(f"{path.name}.part")
     total = int(response.headers.get("Content-Length", 0)) or None
+    progress = progress or NullProgress()
 
-    with tqdm(total=total, unit_scale=True, unit_divisor=1024, unit="B", desc=desc) as progress:
+    progress.start(desc, total)
+    try:
         written = response.num_bytes_downloaded
         with open(partial, "wb") as f:
             for chunk in response.iter_bytes():
                 f.write(chunk)
-                progress.update(response.num_bytes_downloaded - written)
+                progress.advance(response.num_bytes_downloaded - written)
                 written = response.num_bytes_downloaded
+    finally:
+        progress.finish()
 
     partial.replace(path)
 
 
 class Downloader:
-    def __init__(self, audible: Audible):
+    def __init__(self, audible: Audible, progress: Progress | None = None):
+        """
+        Args:
+            audible: Authenticated Audible client
+            progress: Where byte progress for each transfer is reported. Defaults to
+                reporting nothing, which is what a test or a headless run wants
+        """
         self.audible = audible
+        self.progress = progress or NullProgress()
 
     def get_license_response(self, asin: str, quality: str) -> dict:
         """
@@ -124,12 +154,18 @@ class Downloader:
     def get_download_link(license_response: dict) -> str:
         return license_response["content_license"]["content_metadata"]["content_url"]["offline_url"]
 
-    @staticmethod
-    def download_file(url: str, filename: str | Path) -> None:
+    def download_file(self, url: str, filename: str | Path, desc: str | None = None) -> None:
+        """
+        Stream a file from a CDN to disk.
+
+        An instance method rather than a static one so it can report to the progress
+        object the caller configured. This is the multi-gigabyte transfer of the run,
+        and until it took a `desc` it was the one download the bar could not name.
+        """
         headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
         with get_http_client().stream("GET", url, headers=headers) as r:
             r.raise_for_status()
-            _stream_to_file(r, filename)
+            _stream_to_file(r, filename, desc=desc, progress=self.progress)
 
     def get_chapter_info(self, asin: str) -> dict | None:
         """
@@ -170,7 +206,7 @@ class Downloader:
         decrypted_voucher = decrypt_voucher_from_licenserequest(self.audible.auth, license_response)
         voucher_file.write_text(json.dumps(decrypted_voucher, indent=4))
 
-        Downloader.download_file(dl_link, aaxc_file)
+        self.download_file(dl_link, aaxc_file, desc=safe_title)
 
         chapters = None
         chapter_info = self.get_chapter_info(asin)
@@ -208,7 +244,7 @@ class Downloader:
                 logger.warning("Received non-PDF content for %s: %s", asin, content_type)
                 return False
 
-            _stream_to_file(r, output_path, desc="PDF")
+            _stream_to_file(r, output_path, desc="PDF", progress=self.progress)
 
         logger.info("PDF downloaded: %s", output_path)
         return True
@@ -227,7 +263,7 @@ class Downloader:
                 logger.info("No cover available at %s", cover_url)
                 return False
             r.raise_for_status()
-            _stream_to_file(r, output_path, desc="Cover")
+            _stream_to_file(r, output_path, desc="Cover", progress=self.progress)
 
         logger.info("Cover downloaded: %s", output_path)
         return True
@@ -717,7 +753,7 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
     mark_book_downloaded(asin, encoding_format=settings.encoding_format, **final_paths)
 
 
-def download_books(audible: Audible, settings: Settings):
+def download_books(audible: Audible, settings: Settings, progress: Progress | None = None) -> DownloadStats:
     """
     Download, decrypt and file every book waiting for download.
 
@@ -739,6 +775,11 @@ def download_books(audible: Audible, settings: Settings):
     configured bitrate) - `max_attempts`, and `max_download`, the optional cap on how
     many books a single run processes. A book lost to another run still costs a slot in
     that cap: it is a limit on work attempted, not a quota to be filled.
+
+    `progress` is where byte progress for each transfer is reported; see `src.progress`.
+
+    Returns the counts the run record is written from. `attempted` is how many books
+    this call took a slot for, including any lost to another run's claim.
     """
     waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
@@ -753,7 +794,7 @@ def download_books(audible: Audible, settings: Settings):
     )
 
     loop = waiting_download[:number_to_download]
-    downloader = Downloader(audible)
+    downloader = Downloader(audible, progress=progress)
     succeeded = 0
     failed = []
     unavailable = []
@@ -809,3 +850,10 @@ def download_books(audible: Audible, settings: Settings):
         logger.info("%d books are not currently available to download:", len(unavailable))
         for asin, title in unavailable:
             logger.info("Unavailable: %s (%s)", title, asin)
+
+    return DownloadStats(
+        attempted=number_to_download,
+        succeeded=succeeded,
+        failed=len(failed),
+        unavailable=len(unavailable),
+    )
