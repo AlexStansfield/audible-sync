@@ -11,7 +11,13 @@ from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Una
 from tqdm import tqdm
 
 from src.audible import Audible
-from src.database import get_books_to_download, mark_book_downloaded
+from src.database import (
+    claim_book_for_download,
+    get_books_to_download,
+    mark_book_downloaded,
+    mark_book_failed,
+    release_book,
+)
 from src.encoding import (
     DEFAULT_BITRATE,
     DEFAULT_FORMAT,
@@ -22,7 +28,7 @@ from src.encoding import (
     read_embedded_asin,
     write_m4b_extra_tags,
 )
-from src.model import Book
+from src.model import Book, BookStatus
 from src.naming import book_output_paths, sanitize_filename, temp_book_folder
 from src.settings import Settings
 
@@ -714,17 +720,22 @@ def download_books(audible: Audible, settings: Settings):
     """
     Download, decrypt and file every book waiting for download.
 
-    Each book is processed independently: a failure is logged, its temporary
-    files are removed, and processing continues with the next book. The book
-    keeps its 'waiting_download' status so it is retried on the next run. An
-    authentication failure stops the run instead, because every remaining book
-    would fail the same way.
+    Each book is claimed before it is touched, so a scheduler tick starting mid-run
+    cannot pick up a book another process is already downloading.
+
+    Books are processed independently. A retryable failure is logged, recorded against
+    the book and returned to the queue; once a book has used `settings.max_attempts` it
+    becomes terminally `failed` and is never selected again. A licence Audible refuses
+    fails on the first try, because asking again next run downloads nothing and changes
+    nothing. An authentication failure stops the run and hands the claim back untouched:
+    every remaining book would fail the same way, and it is not this book's fault.
 
     `settings` carries the download and audiobook folders, the naming templates
     that control where each book is filed (see src.naming for the placeholder
     syntax), the output format - m4b (stream copy) or oga (Opus at the
-    configured bitrate) - and `max_download`, the optional cap on how many books
-    a single run processes.
+    configured bitrate) - `max_attempts`, and `max_download`, the optional cap on how
+    many books a single run processes. A book lost to another run still costs a slot in
+    that cap: it is a limit on work attempted, not a quota to be filled.
     """
     waiting_download = get_books_to_download()
     total_to_download = len(waiting_download)
@@ -746,17 +757,38 @@ def download_books(audible: Audible, settings: Settings):
     for book in loop:
         asin = book.asin
         title = book.title
+
+        # Claimed one at a time rather than as a batch: a run that stops half way, or is
+        # killed, then leaves behind only the book it was actually working on, and only
+        # the books really tried spend an attempt.
+        if not claim_book_for_download(asin):
+            logger.info("Skipping %s (%s): another run is already downloading it", title, asin)
+            continue
+
         temp_dir = temp_book_folder(settings.download_folder, asin, title)
 
         try:
             _process_book(downloader, book, temp_dir, settings)
             succeeded += 1
         except (Unauthorized, NoRefreshToken, AuthFlowError):
+            # The credentials are the problem, not this book. Hand the claim back with
+            # its attempt count untouched, or a token that expires often would
+            # eventually mark perfectly good books failed.
             logger.exception("Audible rejected our credentials, stopping before %s (%s)", title, asin)
+            release_book(asin)
             failed.append((asin, title))
             break
-        except Exception:
+        except LicenseError as error:
+            # Audible has decided it will not license this book. Asking again next run,
+            # and every run after that, downloads nothing and changes nothing.
+            logger.exception("Audible will not license %s (%s), giving up on it", title, asin)
+            mark_book_failed(asin, str(error), max_attempts=settings.max_attempts, terminal=True)
+            failed.append((asin, title))
+        except Exception as error:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
+            status = mark_book_failed(asin, f"{type(error).__name__}: {error}", max_attempts=settings.max_attempts)
+            if status is BookStatus.FAILED:
+                logger.warning("Giving up on %s (%s) after %d attempts", title, asin, settings.max_attempts)
             failed.append((asin, title))
         finally:
             # Cleanup temporary download folder whether we succeeded or not
