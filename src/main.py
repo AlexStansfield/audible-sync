@@ -7,6 +7,7 @@ from src.database import init_db
 from src.downloader import download_books
 from src.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
 from src.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
+from src.settings import validate_max_download
 from src.sync import sync_library
 
 logger = logging.getLogger(__name__)
@@ -25,17 +26,6 @@ def configure_logging(debug: bool = False) -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-
-
-def validate_max_download(max_download: int | None) -> None:
-    """
-    Check the download limit up front, like the naming and encoding settings.
-
-    Raises:
-        ValueError: if the limit is set but not a positive number
-    """
-    if max_download is not None and max_download < 1:
-        raise ValueError(f"sync max-download must be 1 or more, got {max_download}")
 
 
 if __name__ == "__main__":
