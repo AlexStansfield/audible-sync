@@ -598,3 +598,31 @@ def test_a_parked_book_comes_back_on_the_next_sync(db):
 
     assert database.get_book_by_asin("B001").status is BookStatus.WAITING_DOWNLOAD
     assert [b.asin for b in database.get_books_to_download()] == ["B001"]
+
+
+def test_needs_consumability_refresh_is_false_for_a_fully_read_library(db):
+    database.update_books([make_book("B001"), make_book("B002")])
+
+    assert database.needs_consumability_refresh() is False
+
+
+def test_needs_consumability_refresh_spots_a_parked_book(db):
+    """A parked title is the case the incremental sync can never re-read on its own."""
+    database.update_books([make_book("B001"), make_book("GONE", is_consumable=False)])
+
+    assert database.needs_consumability_refresh() is True
+
+
+def test_needs_consumability_refresh_spots_a_row_that_predates_the_column(db):
+    """After upgrading, availability has never been read for the existing library."""
+    database.update_books([make_book("B001")])
+    conn = sqlite3.connect(database.DB_FILE)
+    conn.execute("UPDATE library SET is_consumable = NULL")
+    conn.commit()
+    conn.close()
+
+    assert database.needs_consumability_refresh() is True
+
+
+def test_needs_consumability_refresh_is_false_for_an_empty_library(db):
+    assert database.needs_consumability_refresh() is False

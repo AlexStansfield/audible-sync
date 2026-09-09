@@ -68,6 +68,7 @@ audible-sync/
 │   ├── test_settings.py      # Config parsing, defaults, path anchoring, validation
 │   ├── test_paths.py         # Repo-root anchoring, absolute paths, ~ expansion
 │   ├── test_main.py          # Log level, run_pipeline wiring, main ordering
+│   ├── test_sync.py          # Incremental cursor and the availability refresh pass
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
 ├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
@@ -160,6 +161,7 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
 - `get_books_to_download() -> list[Book]` - status `waiting_download`, oldest first. Does **not** claim; the caller claims each book individually before working on it
 - `get_book_by_asin(asin) -> Book | None`
 - `latest_date_added()` - `MAX(date_added)`, the incremental sync cursor. Independent of how `get_books` sorts
+- `needs_consumability_refresh() -> bool` - whether anything is parked `unavailable`, or any row predates the `is_consumable` column (nullable precisely so NULL can mean "never read from the API"). `sync_library` uses it to decide whether to re-read the whole library
 - `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value. Clears `last_error` - a book that succeeded on its second attempt must not keep showing the first failure - but keeps `attempts`, a true record of what the book cost
 - `claim_book_for_download(asin, *, stale_after=STALE_CLAIM_SECONDS) -> bool` - takes ownership in a single UPDATE: status to `downloading`, `attempts + 1`, `last_attempt_at` now, matching `waiting_download` **or** a `downloading` row whose `last_attempt_at` is older than `stale_after` (a NULL timestamp counts as stale, or such a row would never be picked up again). Returns whether this caller won. Two processes cannot both take one book: the second matches no rows. `STALE_CLAIM_SECONDS` is 6 hours - longer than the slowest real book, short enough that a crashed run recovers on the next tick rather than by hand
 - `mark_book_failed(asin, error, *, max_attempts, terminal=False) -> BookStatus | None` - records `last_error` and decides retry-or-give-up **inside** the UPDATE (`CASE WHEN ? OR attempts >= ?`), from the `attempts` the claim already incremented, so it cannot race another process between a SELECT and an UPDATE. `terminal` short-circuits the count for a failure already known to be permanent. Returns the status the book landed in, or `None` for an unknown ASIN
@@ -186,6 +188,8 @@ All functions close their connections (`contextlib.closing`). `init_db` also ind
 ### sync.py
 
 `sync_library(audible) -> int`. If the DB is empty, fetch everything; otherwise fetch books purchased after the newest `date_added` in the DB. Returns the number of new books inserted.
+
+It then re-reads the **whole** library when `needs_consumability_refresh()` says so - while any book is parked `unavailable`, or any row predates the `is_consumable` column. An incremental fetch never re-reads a book already in the library, so on its own it could never notice that Audible had offered a withdrawn Plus title again and the book would stay parked forever. The extra pass is one request per 1000 titles, only happens while something is parked, and its inserts are not added to the returned count.
 
 ### downloader.py
 
@@ -398,7 +402,7 @@ Two workflows in `.github/workflows/`:
 - `src/api.py` is broken (see above)
 - Root `main.py` is a uv scaffold leftover
 - `requirements.txt` is generated from the lockfile and will drift if `uv lock` runs without re-exporting
-- Test coverage is thin outside `downloader.py` and `database.py`; `audible.py` and `sync.py` have no tests yet
+- Test coverage is thin outside `downloader.py` and `database.py`
 - Two books whose templates render to the same name are filed side by side (` [{asin}]` suffix) rather than merged; the naming template is what actually needs disambiguating
 - `Downloader`'s network-facing methods still have no unit tests
 - The structural work still listed under **Milestone 3 Step 0** in `todo.md`: no `sync_runs` table

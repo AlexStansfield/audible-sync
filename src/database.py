@@ -54,7 +54,9 @@ def init_db():
             has_pdf BOOLEAN DEFAULT 0,
             encoding_format TEXT,
             downloaded_at TEXT,
-            is_consumable BOOLEAN NOT NULL DEFAULT 1,
+            -- Nullable on purpose: NULL means a row written before this column
+            -- existed, i.e. consumability has never been read from the API for it.
+            is_consumable BOOLEAN,
             attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
             last_attempt_at TEXT
@@ -115,7 +117,7 @@ def _migrate_schema(conn):
         "has_pdf": "BOOLEAN DEFAULT 0",
         "encoding_format": "TEXT",
         "downloaded_at": "TEXT",
-        "is_consumable": "BOOLEAN NOT NULL DEFAULT 1",
+        "is_consumable": "BOOLEAN",
         "attempts": "INTEGER NOT NULL DEFAULT 0",
         "last_error": "TEXT",
         "last_attempt_at": "TEXT",
@@ -262,6 +264,27 @@ def latest_date_added() -> str | None:
     """
     with closing(_get_connection()) as conn:
         return conn.execute("SELECT MAX(date_added) FROM library").fetchone()[0]
+
+
+def needs_consumability_refresh() -> bool:
+    """
+    Whether the library holds books whose availability the incremental sync cannot see.
+
+    The incremental sync only fetches what was purchased after the newest `date_added`,
+    so a book already in the library is never re-read and its `is_consumable` never
+    changes. That matters in both directions: a parked title Audible has offered again
+    would stay parked forever, and a row written before the column existed has never had
+    its availability read at all.
+
+    True when either is present, which is the signal for `sync_library` to re-read the
+    whole library once. It goes back to False as soon as nothing is parked.
+    """
+    with closing(_get_connection()) as conn:
+        row = conn.execute(
+            "SELECT EXISTS(SELECT 1 FROM library WHERE is_consumable IS NULL OR status = ?)",
+            (BookStatus.UNAVAILABLE,),
+        ).fetchone()
+    return bool(row[0])
 
 
 def _utcnow() -> str:

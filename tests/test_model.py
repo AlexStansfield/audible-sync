@@ -9,7 +9,7 @@ ALL_COLUMNS = (
     "genres JSON, length INTEGER, is_finished BOOLEAN, percent_complete REAL, date_added TEXT, "
     "release_date TEXT, cover_url TEXT, status TEXT, pdf_path TEXT, cover_path TEXT, "
     "annotations_path TEXT, has_pdf BOOLEAN, encoding_format TEXT, downloaded_at TEXT, "
-    "attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_attempt_at TEXT"
+    "is_consumable BOOLEAN, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT, last_attempt_at TEXT"
 )
 
 
@@ -197,3 +197,17 @@ def test_from_row_defaults_the_retry_columns_when_the_row_lacks_them():
     assert book.attempts == 0
     assert book.last_error is None
     assert book.last_attempt_at is None
+
+
+def test_from_row_reads_the_consumable_flag():
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", "is_consumable": 0})
+
+    assert Book.from_row(row).is_consumable is False
+
+
+@pytest.mark.parametrize("values", [{"is_consumable": None}, {}])
+def test_from_row_treats_an_unset_consumable_column_as_available(values):
+    """NULL means the row predates the column, not that the book was withdrawn."""
+    row = fetch(ALL_COLUMNS, {"asin": "B001", "title": "T", **values})
+
+    assert Book.from_row(row).is_consumable is True
