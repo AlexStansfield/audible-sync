@@ -9,7 +9,8 @@ logger = logging.getLogger(__name__)
 # Only the groups `_prepare_book` actually reads. Asking for more (price, rating,
 # relationships, ...) adds megabytes to a full sync that are parsed and discarded.
 RESPONSE_GROUPS = (
-    "contributors, media, product_attrs, product_desc, series, category_ladders, is_finished, percent_complete, pdf_url"
+    "contributors, media, product_attrs, product_desc, series, category_ladders, is_finished, percent_complete, "
+    "pdf_url, customer_rights"
 )
 
 # The library endpoint caps a page at 1000 items.
@@ -45,6 +46,12 @@ def _prepare_book(item: dict) -> Book:
     # Check if PDF is available
     has_pdf = bool(item.get("pdf_url"))
 
+    # A Plus ("AYCL") title the customer added while it was included stays in the library
+    # after Audible withdraws it, but stops being licensable until it is offered again.
+    # Default True so a missing response group cannot park the whole library as
+    # unavailable: the licence request is still the thing that decides.
+    is_consumable = (item.get("customer_rights") or {}).get("is_consumable", True)
+
     data_row = {
         "asin": item["asin"],
         "title": item.get("title", ""),
@@ -60,6 +67,7 @@ def _prepare_book(item: dict) -> Book:
         "release_date": item.get("release_date"),
         "cover_url": cover_url,
         "has_pdf": has_pdf,
+        "is_consumable": is_consumable,
     }
 
     return Book(**data_row)

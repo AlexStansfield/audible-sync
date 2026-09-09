@@ -45,6 +45,7 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "has_pdf",
         "encoding_format",
         "downloaded_at",
+        "is_consumable",
         "attempts",
         "last_error",
         "last_attempt_at",
@@ -71,6 +72,7 @@ def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
         "has_pdf",
         "encoding_format",
         "downloaded_at",
+        "is_consumable",
         "attempts",
         "last_error",
         "last_attempt_at",
@@ -521,3 +523,78 @@ def test_init_db_drops_the_superseded_status_index(db):
     conn.close()
     assert "idx_library_status" not in indexes
     assert "idx_library_status_date_added" in indexes
+
+
+def test_update_books_parks_a_withdrawn_book_instead_of_queueing_it(db):
+    """A Plus title Audible has withdrawn must never enter the queue and cost a licence call."""
+    database.update_books([make_book("GONE", is_consumable=False)])
+
+    book = database.get_book_by_asin("GONE")
+    assert book.status is BookStatus.UNAVAILABLE
+    assert book.is_consumable is False
+    assert database.get_books_to_download() == []
+
+
+def test_update_books_returns_a_restored_book_to_the_queue(db):
+    """Audible offers withdrawn Plus titles again; the next sync must pick that up on its own."""
+    database.update_books([make_book("BACK", is_consumable=False)])
+    assert database.get_books_to_download() == []
+
+    database.update_books([make_book("BACK", is_consumable=True)])
+
+    book = database.get_book_by_asin("BACK")
+    assert book.status is BookStatus.WAITING_DOWNLOAD
+    assert book.is_consumable is True
+    assert [b.asin for b in database.get_books_to_download()] == ["BACK"]
+
+
+def test_update_books_parks_a_waiting_book_that_has_been_withdrawn(db):
+    database.update_books([make_book("B001")])
+
+    database.update_books([make_book("B001", is_consumable=False)])
+
+    assert database.get_book_by_asin("B001").status is BookStatus.UNAVAILABLE
+
+
+@pytest.mark.parametrize("status", [BookStatus.DOWNLOADED, BookStatus.DOWNLOADING, BookStatus.FAILED])
+def test_update_books_leaves_every_other_status_alone_when_rights_change(db, status):
+    """Withdrawal only moves a book between the queue and `unavailable`, never out of these."""
+    database.update_books([make_book("B001")])
+    conn = sqlite3.connect(database.DB_FILE)
+    conn.execute("UPDATE library SET status = ? WHERE asin = 'B001'", (status,))
+    conn.commit()
+    conn.close()
+
+    database.update_books([make_book("B001", is_consumable=False)])
+
+    book = database.get_book_by_asin("B001")
+    assert book.status is status
+    # ...but the flag itself still refreshes, so a UI can say why
+    assert book.is_consumable is False
+
+
+def test_mark_book_unavailable_parks_a_book_without_failing_it(db):
+    database.update_books([make_book("B001")])
+    database.claim_book_for_download("B001")
+
+    database.mark_book_unavailable("B001", "Audible did not grant a license (status Denied)")
+
+    book = database.get_book_by_asin("B001")
+    assert book.status is BookStatus.UNAVAILABLE
+    assert book.is_consumable is False
+    assert "Denied" in book.last_error
+    # The attempt really happened, but nothing terminal is decided from it here
+    assert book.attempts == 1
+    assert database.get_books_to_download() == []
+
+
+def test_a_parked_book_comes_back_on_the_next_sync(db):
+    """The full round trip: denied at download time, then restored by a later sync."""
+    database.update_books([make_book("B001")])
+    database.claim_book_for_download("B001")
+    database.mark_book_unavailable("B001", "Denied")
+
+    database.update_books([make_book("B001", is_consumable=True)])
+
+    assert database.get_book_by_asin("B001").status is BookStatus.WAITING_DOWNLOAD
+    assert [b.asin for b in database.get_books_to_download()] == ["B001"]

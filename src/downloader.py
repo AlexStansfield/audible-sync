@@ -16,6 +16,7 @@ from src.database import (
     get_books_to_download,
     mark_book_downloaded,
     mark_book_failed,
+    mark_book_unavailable,
     release_book,
 )
 from src.encoding import (
@@ -725,9 +726,11 @@ def download_books(audible: Audible, settings: Settings):
 
     Books are processed independently. A retryable failure is logged, recorded against
     the book and returned to the queue; once a book has used `settings.max_attempts` it
-    becomes terminally `failed` and is never selected again. A licence Audible refuses
-    fails on the first try, because asking again next run downloads nothing and changes
-    nothing. An authentication failure stops the run and hands the claim back untouched:
+    becomes terminally `failed` and is never selected again. A licence Audible refuses is
+    **not** a failure: the book is parked as `unavailable` and leaves the queue until a
+    sync sees it consumable again, because Audible withdraws Plus titles the customer
+    still holds and later offers them back. An authentication failure stops the run and
+    hands the claim back untouched:
     every remaining book would fail the same way, and it is not this book's fault.
 
     `settings` carries the download and audiobook folders, the naming templates
@@ -753,6 +756,7 @@ def download_books(audible: Audible, settings: Settings):
     downloader = Downloader(audible)
     succeeded = 0
     failed = []
+    unavailable = []
 
     for book in loop:
         asin = book.asin
@@ -779,11 +783,14 @@ def download_books(audible: Audible, settings: Settings):
             failed.append((asin, title))
             break
         except LicenseError as error:
-            # Audible has decided it will not license this book. Asking again next run,
-            # and every run after that, downloads nothing and changes nothing.
-            logger.exception("Audible will not license %s (%s), giving up on it", title, asin)
-            mark_book_failed(asin, str(error), max_attempts=settings.max_attempts, terminal=True)
-            failed.append((asin, title))
+            # Audible will not license this book today. That is usually a Plus title
+            # withdrawn after it was added to the library, which Audible does offer
+            # again, so the book is parked rather than failed: it leaves the queue, and
+            # the next sync that sees it consumable puts it back. The denial costs one
+            # cheap POST and happens before any of the book is downloaded.
+            logger.warning("Audible will not license %s (%s) right now, parking it: %s", title, asin, error)
+            mark_book_unavailable(asin, str(error))
+            unavailable.append((asin, title))
         except Exception as error:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
             status = mark_book_failed(asin, f"{type(error).__name__}: {error}", max_attempts=settings.max_attempts)
@@ -798,3 +805,7 @@ def download_books(audible: Audible, settings: Settings):
     logger.info("Completed downloads: %d succeeded, %d failed", succeeded, len(failed))
     for asin, title in failed:
         logger.warning("Not downloaded: %s (%s)", title, asin)
+    if unavailable:
+        logger.info("%d books are not currently available to download:", len(unavailable))
+        for asin, title in unavailable:
+            logger.info("Unavailable: %s (%s)", title, asin)

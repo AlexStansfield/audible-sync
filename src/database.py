@@ -54,6 +54,7 @@ def init_db():
             has_pdf BOOLEAN DEFAULT 0,
             encoding_format TEXT,
             downloaded_at TEXT,
+            is_consumable BOOLEAN NOT NULL DEFAULT 1,
             attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
             last_attempt_at TEXT
@@ -114,6 +115,7 @@ def _migrate_schema(conn):
         "has_pdf": "BOOLEAN DEFAULT 0",
         "encoding_format": "TEXT",
         "downloaded_at": "TEXT",
+        "is_consumable": "BOOLEAN NOT NULL DEFAULT 1",
         "attempts": "INTEGER NOT NULL DEFAULT 0",
         "last_error": "TEXT",
         "last_attempt_at": "TEXT",
@@ -142,6 +144,11 @@ def update_books(books: list[Book]) -> int:
     three accessory paths, `encoding_format` or `downloaded_at`, all of which belong to
     the downloader. Before this it was an INSERT OR IGNORE, so `is_finished` and
     `percent_complete` stayed frozen at whatever they were the day a book was first seen.
+
+    The one exception is `status`, and only between `waiting_download` and `unavailable`.
+    Audible withdraws Plus titles the customer still holds and later offers them again,
+    so consumability is the sync's business: a withdrawn book leaves the queue, and a
+    restored one rejoins it without anybody having to do anything.
     """
     # Decoded again by `Book.from_row`; keep the two sides in step.
     rows = [
@@ -159,9 +166,17 @@ def update_books(books: list[Book]) -> int:
             book.date_added,
             book.release_date,
             book.cover_url,
-            # Insert only: the conflict clause below leaves an existing status alone
-            BookStatus.WAITING_DOWNLOAD,
+            # Insert only; the conflict clause below decides an existing book's status.
+            # A title Audible has withdrawn goes straight to `unavailable` so it never
+            # enters the queue and never costs a licence request.
+            BookStatus.WAITING_DOWNLOAD if book.is_consumable else BookStatus.UNAVAILABLE,
             book.has_pdf,
+            book.is_consumable,
+            # Bound for the CASE in the conflict clause below
+            BookStatus.WAITING_DOWNLOAD,
+            BookStatus.UNAVAILABLE,
+            BookStatus.UNAVAILABLE,
+            BookStatus.WAITING_DOWNLOAD,
         )
         for book in books
     ]
@@ -177,8 +192,8 @@ def update_books(books: list[Book]) -> int:
             """
             INSERT INTO library (asin, title, subtitle, authors, narrators, series, genres, length,
                                  is_finished, percent_complete, date_added, release_date, cover_url,
-                                 status, has_pdf)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 status, has_pdf, is_consumable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(asin) DO UPDATE SET
                 title = excluded.title,
                 subtitle = excluded.subtitle,
@@ -191,7 +206,17 @@ def update_books(books: list[Book]) -> int:
                 percent_complete = excluded.percent_complete,
                 release_date = excluded.release_date,
                 cover_url = excluded.cover_url,
-                has_pdf = excluded.has_pdf
+                has_pdf = excluded.has_pdf,
+                is_consumable = excluded.is_consumable,
+                -- The only status the sync may change, in either direction. A book
+                -- Audible has withdrawn leaves the queue; one it has offered again
+                -- rejoins it, which is how a restored Plus title comes back on its own.
+                -- Every other state - downloading, downloaded, failed - is left alone.
+                status = CASE
+                    WHEN excluded.is_consumable = 0 AND library.status = ? THEN ?
+                    WHEN excluded.is_consumable = 1 AND library.status = ? THEN ?
+                    ELSE library.status
+                END
             """,
             rows,
         )
@@ -337,6 +362,35 @@ def mark_book_failed(asin: str, error: str, *, max_attempts: int, terminal: bool
         conn.commit()
 
     return None if row is None else BookStatus(row["status"])
+
+
+def mark_book_unavailable(asin: str, error: str) -> None:
+    """
+    Park a book Audible will not currently license, without failing it.
+
+    Deliberately not terminal, and it does not count towards `max_attempts`. A Plus
+    title withdrawn after the customer added it cannot be downloaded today but can be
+    offered again, so the book leaves the queue - it stops costing a licence request
+    every run - and the next sync that sees it consumable puts it straight back.
+
+    This covers the race where the rights change between a sync and the download; the
+    common case is caught at sync time from `customer_rights.is_consumable`.
+
+    `attempts` is left where the claim put it: the attempt really did happen, and
+    nothing terminal is decided from it while the book sits here.
+    """
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            """
+            UPDATE library
+               SET status = ?,
+                   is_consumable = 0,
+                   last_error = ?
+             WHERE asin = ?
+            """,
+            (BookStatus.UNAVAILABLE, error, asin),
+        )
+        conn.commit()
 
 
 def release_book(asin: str) -> None:

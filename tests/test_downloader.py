@@ -283,6 +283,7 @@ def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, c
     monkeypatch.setattr(downloader, "claim_book_for_download", fake_claim)
     monkeypatch.setattr(downloader, "mark_book_failed", fake_fail)
     monkeypatch.setattr(downloader, "release_book", lambda asin: None)
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: None)
 
     def fake_mark(asin, **kw):
         marked.append((asin, kw["encoding_format"]))
@@ -355,15 +356,14 @@ def test_download_books_oga_files_with_oga_extension(tmp_path, monkeypatch):
 def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
     books = [make_book("NOLIC", "Unlicensed")]
-    failures = []
+    parked = []
     monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
     monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
     monkeypatch.setattr(
-        downloader,
-        "mark_book_failed",
-        lambda asin, error, *, max_attempts, terminal=False: failures.append((asin, error, terminal)),
+        downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
     )
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: parked.append((asin, error)))
 
     def refuse(self, book, temp_dir):
         raise LicenseError("Audible did not grant a license for NOLIC (status Denied): not in catalogue")
@@ -374,12 +374,13 @@ def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkey
         object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib")
     )
 
-    assert "did not grant a license" in caplog.text
+    assert "will not license" in caplog.text
     assert "not in catalogue" in caplog.text
-    assert "1 failed" in caplog.text
-    # A refused licence cannot succeed later, so it is failed terminally on the first try
-    asin, error, terminal = failures[0]
-    assert (asin, terminal) == ("NOLIC", True)
+    # Parked, not failed: Audible offers withdrawn Plus titles again, and the run is clean
+    assert "0 succeeded, 0 failed" in caplog.text
+    assert "1 books are not currently available" in caplog.text
+    asin, error = parked[0]
+    assert asin == "NOLIC"
     assert "not in catalogue" in error
 
 
@@ -737,3 +738,36 @@ def test_download_books_does_not_log_giving_up_while_a_book_still_has_attempts_l
     )
 
     assert "Giving up on" not in caplog.text
+
+
+def test_download_books_parks_an_unlicensable_book_without_burning_attempts(tmp_path, monkeypatch):
+    """A withdrawn Plus title is not a failure: it must not count towards max_attempts."""
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls, parked = [], [], [], []
+    books = [make_book("GONE", "Withdrawn"), make_book("OK2", "Fine")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: parked.append(asin))
+    monkeypatch.setattr(
+        downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
+    )
+
+    def refuse(self, book, temp_dir):
+        if book.asin == "GONE":
+            raise LicenseError("Audible did not grant a license for GONE (status Denied)")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        aaxc = temp_dir / "book.aaxc"
+        aaxc.write_bytes(b"aaxc")
+        voucher = aaxc.with_suffix(".json")
+        voucher.write_text("{}")
+        return DownloadedBook(aaxc=aaxc, voucher=voucher, chapters=None)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", refuse)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
+    )
+
+    assert parked == ["GONE"]
+    # The run carries on and is not counted as a failure
+    assert marked == [("OK2", "m4b")]

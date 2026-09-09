@@ -116,6 +116,12 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
   `release_book` hands the claim back for an auth abort, which is not the book's fault.
   `update_books` is now an upsert that refreshes the mutable API fields only - never
   `date_added`, the sync cursor, nor anything the downloader owns.
+  A refused licence is **not** terminal: Audible withdraws Plus titles a customer
+  added while they were included (16 of 306 here on 2026-09-09, including *The Time
+  Traveler's Wife* and *Red Rising*) and later offers them again. `customer_rights.
+  is_consumable` is read at sync time, a withdrawn book is parked as `unavailable`
+  so it leaves the queue, and the upsert returns it to `waiting_download` as soon as
+  a sync sees it consumable - no manual step.
 
 - [ ] **Record sync runs and stream download progress.** The incremental cursor is
   derived from the newest `date_added` in the library table, so there is no source

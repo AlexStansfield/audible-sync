@@ -137,11 +137,13 @@ It is its own module rather than part of `settings.py` because `database.py` nee
 
 `Book` is a dataclass and models both an Audible API item and a row of `library`.
 
-**API fields:** `asin`, `title`, `subtitle`, `authors`, `narrators`, `series` (list of `{"title", "sequence"}`, either of which may be `None`), `genres`, `length` (minutes), `is_finished`, `percent_complete`, `date_added`, `release_date`, `cover_url`, `has_pdf`.
+**API fields:** `asin`, `title`, `subtitle`, `authors`, `narrators`, `series` (list of `{"title", "sequence"}`, either of which may be `None`), `genres`, `length` (minutes), `is_finished`, `percent_complete`, `date_added`, `release_date`, `cover_url`, `has_pdf`, `is_consumable`.
+
+`is_consumable` comes from `customer_rights.is_consumable` and is `False` while Audible has withdrawn a Plus title. It **fails open** everywhere - a missing response group, a missing key, or a NULL column all read `True` - because defaulting to `False` would park an entire library in one sync.
 
 **Database-only fields**, `None` on a book that came straight from the API: `status`, `attempts`, `last_error`, `last_attempt_at`, `pdf_path`, `cover_path`, `annotations_path`, `encoding_format`, `downloaded_at`. `attempts` defaults to `0`, which must stay in step with the column default - a database test compares a whole freshly inserted `Book` for equality.
 
-`BookStatus` is a `StrEnum` living here beside `Book`: `waiting_download`, `downloading`, `downloaded` and terminal `failed`. A `StrEnum` because a member *is* the text the column already stores, so no row had to be rewritten and a comparison against a plain string still holds. `_book_status` maps the column onto the enum and returns `None` for anything unrecognised rather than raising - a database written by another version has to stay readable, and nothing selects on the Python value because the queue is a SQL predicate.
+`BookStatus` is a `StrEnum` living here beside `Book`: `waiting_download`, `downloading`, `downloaded`, `unavailable` and terminal `failed`. **`unavailable` is not terminal.** Audible withdraws Plus (`AYCL`) titles a customer added while they were included - the book stays in the library but stops being licensable - and later offers them again; 16 of the 306-title library were withdrawn when measured (2026-09-09). Such a book leaves the download queue so it stops costing a licence request every run, and the next sync that sees it consumable returns it to `waiting_download` on its own. A `StrEnum` because a member *is* the text the column already stores, so no row had to be rewritten and a comparison against a plain string still holds. `_book_status` maps the column onto the enum and returns `None` for anything unrecognised rather than raising - a database written by another version has to stay readable, and nothing selects on the Python value because the queue is a SQL predicate.
 
 `date_added` is an **ISO 8601 string** exactly as Audible returns it (e.g. `2024-01-01T00:00:00Z`), stored, sorted and compared as text. It is never parsed into a `datetime`.
 
@@ -149,11 +151,11 @@ It is its own module rather than part of `settings.py` because `database.py` nee
 
 ### database.py
 
-Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`, `attempts`, `last_error`, `last_attempt_at`).
+Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`, `is_consumable`, `attempts`, `last_error`, `last_attempt_at`).
 
 **Functions:**
 - `init_db()`
-- `update_books(books)` - an upsert: inserts new books at `waiting_download` and, `ON CONFLICT(asin)`, refreshes only the mutable API fields (title, subtitle, the four JSON lists, length, `is_finished`, `percent_complete`, `release_date`, `cover_url`, `has_pdf`). It deliberately never writes `date_added` - that is the incremental sync cursor, and moving it would skip or re-fetch purchases - nor `status`, the three retry columns, the accessory paths, `encoding_format` or `downloaded_at`, all of which belong to the downloader. Returns the count **inserted**, taken as `SELECT COUNT(*)` either side of the write on the same cursor: `cursor.rowcount` after an `executemany` of an upsert is `-1`, not a count, and `RETURNING` cannot be used with `executemany` at all. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not. Keep the explicit column list rather than generating one from the dataclass; its `json.dumps` must stay in step with `Book.from_row`'s decode
+- `update_books(books)` - an upsert: inserts new books at `waiting_download` and, `ON CONFLICT(asin)`, refreshes only the mutable API fields (title, subtitle, the four JSON lists, length, `is_finished`, `percent_complete`, `release_date`, `cover_url`, `has_pdf`). It deliberately never writes `date_added` - that is the incremental sync cursor, and moving it would skip or re-fetch purchases - nor the three retry columns, the accessory paths, `encoding_format` or `downloaded_at`, all of which belong to the downloader. It **does** own `is_consumable`, and `status` **only** between `waiting_download` and `unavailable` in either direction (a `CASE` in the conflict clause): that is how a withdrawn Plus title leaves the queue and a restored one rejoins it with no manual step. `downloading`, `downloaded` and `failed` are never touched. Returns the count **inserted**, taken as `SELECT COUNT(*)` either side of the write on the same cursor: `cursor.rowcount` after an `executemany` of an upsert is `-1`, not a count, and `RETURNING` cannot be used with `executemany` at all. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not. Keep the explicit column list rather than generating one from the dataclass; its `json.dumps` must stay in step with `Book.from_row`'s decode
 - `get_books(limit=None) -> list[Book]` - all books, newest `date_added` first
 - `get_books_to_download() -> list[Book]` - status `waiting_download`, oldest first. Does **not** claim; the caller claims each book individually before working on it
 - `get_book_by_asin(asin) -> Book | None`
@@ -161,12 +163,13 @@ Single `library` table. `init_db()` creates it and then runs `_migrate_schema()`
 - `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value. Clears `last_error` - a book that succeeded on its second attempt must not keep showing the first failure - but keeps `attempts`, a true record of what the book cost
 - `claim_book_for_download(asin, *, stale_after=STALE_CLAIM_SECONDS) -> bool` - takes ownership in a single UPDATE: status to `downloading`, `attempts + 1`, `last_attempt_at` now, matching `waiting_download` **or** a `downloading` row whose `last_attempt_at` is older than `stale_after` (a NULL timestamp counts as stale, or such a row would never be picked up again). Returns whether this caller won. Two processes cannot both take one book: the second matches no rows. `STALE_CLAIM_SECONDS` is 6 hours - longer than the slowest real book, short enough that a crashed run recovers on the next tick rather than by hand
 - `mark_book_failed(asin, error, *, max_attempts, terminal=False) -> BookStatus | None` - records `last_error` and decides retry-or-give-up **inside** the UPDATE (`CASE WHEN ? OR attempts >= ?`), from the `attempts` the claim already incremented, so it cannot race another process between a SELECT and an UPDATE. `terminal` short-circuits the count for a failure already known to be permanent. Returns the status the book landed in, or `None` for an unknown ASIN
+- `mark_book_unavailable(asin, error)` - parks a book Audible will not currently license: status `unavailable`, `is_consumable = 0`, `last_error` recorded. **Not** terminal and does **not** count towards `max_attempts`, because the title can be offered again. Covers the race where rights change between a sync and the download; the common case is caught at sync time
 - `release_book(asin)` - status back to `waiting_download` and `attempts - 1`, guarded on `downloading`. For an abort that is not the book's fault: expired credentials fail every book equally, so charging it to whichever book was next would eventually mark a good one `failed`
 - `update_book_accessories(asin, pdf_path=, cover_path=, annotations_path=)` - accessory paths only; unused by the pipeline, kept for the API
 
 **Reads return `Book` objects, not tuples.** `_get_connection()` sets `row_factory = sqlite3.Row` and every reader maps rows through `Book.from_row()`. Access is by column name, which is why `SELECT *` stays correct even on an older database where `_migrate_schema` appended columns in a different order than the DDL - positional indexing was silently wrong there. Never index a row positionally.
 
-Note `_migrate_schema` only adds the nine later columns, so a database predating the rest of the schema still lacks `date_added`; `get_books`, `get_books_to_download` and `latest_date_added` all reference it and raise on that schema. `get_book_by_asin` works, because `from_row` falls back to field defaults. Widening the migration belongs with the status/state-machine work.
+Note `_migrate_schema` only adds the ten later columns, so a database predating the rest of the schema still lacks `date_added`; `get_books`, `get_books_to_download` and `latest_date_added` all reference it and raise on that schema. `get_book_by_asin` works, because `from_row` falls back to field defaults. Widening the migration belongs with the status/state-machine work.
 
 All functions close their connections (`contextlib.closing`). `init_db` also indexes `date_added`, and the download queue with a composite `(status, date_added)` matching the shape of its query - SQLite serves a plain status lookup from the leading column, so the superseded single-column `idx_library_status` is dropped rather than kept alongside. Guarded by the columns actually present so an old database still migrates: the composite raises on a schema with no `date_added`.
 
@@ -176,8 +179,8 @@ All functions close their connections (`contextlib.closing`). `init_db` also ind
 
 - `get_library(purchased_after=None)` - follows pagination until a short page comes back, so a library over 1000 titles syncs fully
 - `get_book(asin)` - single book, same response groups. No caller yet
-- `RESPONSE_GROUPS` - the nine groups `_prepare_book` actually reads, shared by both calls
-- `_prepare_book(item)` - maps an API item to `Book`, reading every optional field defensively. Prefers the 1215px cover, falls back to 500px. Sets `has_pdf` from `pdf_url`
+- `RESPONSE_GROUPS` - the ten groups `_prepare_book` actually reads, shared by both calls. `customer_rights` comes back on the bulk library endpoint, so spotting withdrawn titles costs no extra call
+- `_prepare_book(item)` - maps an API item to `Book`, reading every optional field defensively. Prefers the 1215px cover, falls back to 500px. Sets `has_pdf` from `pdf_url` and `is_consumable` from `customer_rights.is_consumable`, defaulting to `True`
 - `_prepare_books(items)` - maps a page and skips (with a logged traceback) any single item that cannot be read, so one odd podcast or unnumbered series entry does not abort the run
 
 ### sync.py
@@ -218,7 +221,7 @@ The largest module. Key pieces:
 - The finished book is **moved**, not copied, and the AAXC and voucher are deleted straight after decryption, which keeps peak disk at roughly one copy of the book rather than three.
 - `download_books(audible, settings)` - loops over waiting books, up to `settings.max_download`. Each book is **claimed** (`claim_book_for_download`) before it is touched, one at a time rather than as a batch, so a scheduler tick starting mid-run skips a book another process holds and only books really tried spend an attempt. A lost claim still costs a slot in the `max_download` slice: that is a cap on work attempted, not a quota. Three failure arms, and order matters - `LicenseError` subclasses `RuntimeError`, so its arm must sit above `except Exception`:
   - `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop and calls `release_book` first: every remaining book would fail the same way, and an expiring token must not burn a good book's attempts
-  - `LicenseError` calls `mark_book_failed(..., terminal=True)` - a refused licence will not be granted on the third ask, and each retry re-downloaded the whole AAXC before failing again
+  - `LicenseError` calls `mark_book_unavailable(...)` - **not** a failure. The denial raises before any of the book is downloaded, so it costs one cheap POST, and the title may be offered again; the book is parked and reported separately from the failures
   - anything else calls `mark_book_failed(...)` with `settings.max_attempts`, which returns the book to the queue until the cap is reached and then fails it terminally
   The temp folder is always removed, and the run ends with a succeeded/failed summary.
 
@@ -348,6 +351,7 @@ The suite currently covers the sanitizer, metadata generation, the FFMETADATA wr
 - [ ] A title with `:` or `/` produces a sane path
 - [ ] A failing book is skipped, its temp folder removed, and the run continues
 - [ ] A book that fails `max-attempts` times is marked `failed`, with `last_error` set, and is not picked up on the next run
+- [ ] A withdrawn Plus title syncs as `unavailable`, never enters the queue, and returns to `waiting_download` on a sync once Audible offers it again
 - [ ] A second run started while the first is downloading skips the in-flight book rather than duplicating it
 - [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe -show_format`), including `series` and `series-part` for a series book
 - [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `comment=ASIN: ...` among the audio stream tags (`-show_streams`, Ogg tags are stream-level); the DB row has `encoding_format` and `downloaded_at`
