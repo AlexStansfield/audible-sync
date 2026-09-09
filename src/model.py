@@ -95,7 +95,7 @@ def _sync_outcome(value: str | None) -> SyncOutcome | None:
 @dataclass
 class Book:
     """
-    One row of the `library` table, and the object `audible.py` builds from the API.
+    One row of the `library` table, and the object `audible_client.py` builds from the API.
 
     The first block of fields comes from the Audible API; the second only ever
     exists in the database, so a freshly synced book leaves it unset.

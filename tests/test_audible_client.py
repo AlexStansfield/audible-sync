@@ -1,7 +1,7 @@
 import pytest
 
-import src.audible
-from src.audible import RESPONSE_GROUPS, Audible, _prepare_book, _prepare_books
+import src.audible_client
+from src.audible_client import RESPONSE_GROUPS, Audible, _prepare_book, _prepare_books
 
 
 def make_item(asin="B001", **overrides):
@@ -112,7 +112,7 @@ def test_get_library_returns_a_single_short_page():
 
 
 def test_get_library_follows_pagination_until_a_short_page(monkeypatch):
-    monkeypatch.setattr("src.audible._PAGE_SIZE", 2)
+    monkeypatch.setattr("src.audible_client._PAGE_SIZE", 2)
     audible = make_audible([[make_item("B1"), make_item("B2")], [make_item("B3")]])
 
     books = audible.get_library()
@@ -123,7 +123,7 @@ def test_get_library_follows_pagination_until_a_short_page(monkeypatch):
 
 
 def test_get_library_stops_when_a_full_page_is_followed_by_an_empty_one(monkeypatch):
-    monkeypatch.setattr("src.audible._PAGE_SIZE", 2)
+    monkeypatch.setattr("src.audible_client._PAGE_SIZE", 2)
     audible = make_audible([[make_item("B1"), make_item("B2")], []])
 
     books = audible.get_library()
@@ -133,7 +133,7 @@ def test_get_library_stops_when_a_full_page_is_followed_by_an_empty_one(monkeypa
 
 
 def test_get_library_passes_the_incremental_cursor_on_every_page(monkeypatch):
-    monkeypatch.setattr("src.audible._PAGE_SIZE", 1)
+    monkeypatch.setattr("src.audible_client._PAGE_SIZE", 1)
     audible = make_audible([[make_item("B1")], [make_item("B2")], []])
 
     audible.get_library("2024-01-01T00:00:00Z")
@@ -158,12 +158,12 @@ def test_client_is_given_a_timeout_that_fits_a_full_page(monkeypatch):
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr(src.audible.audible, "Authenticator", FakeAuthenticator)
-    monkeypatch.setattr(src.audible.audible, "Client", fake_client)
+    monkeypatch.setattr(src.audible_client.audible, "Authenticator", FakeAuthenticator)
+    monkeypatch.setattr(src.audible_client.audible, "Client", fake_client)
 
-    src.audible.Audible("ignored.json")
+    src.audible_client.Audible("ignored.json")
 
-    assert captured["timeout"] == src.audible._API_TIMEOUT
+    assert captured["timeout"] == src.audible_client._API_TIMEOUT
     assert captured["timeout"] > 10
 
 

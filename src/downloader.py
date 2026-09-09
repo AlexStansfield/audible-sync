@@ -9,7 +9,7 @@ import httpx
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Unauthorized
 
-from src.audible import Audible
+from src.audible_client import Audible
 from src.database import (
     claim_book_for_download,
     get_books_to_download,

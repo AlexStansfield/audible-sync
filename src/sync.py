@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from src.audible import Audible
+from src.audible_client import Audible
 from src.database import (
     latest_date_added,
     latest_successful_sync_start,
