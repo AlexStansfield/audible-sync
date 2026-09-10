@@ -263,6 +263,22 @@ Smaller items to fold in while doing the above:
   `write_m4b_extra_tags` already dropped the `None` on the M4B path, so only the
   text path (the one OGA uses natively) ever showed it.
 
+- [x] **A killed run stranded its book in `downloading` forever.**
+  `get_books_to_download` selected `status = 'waiting_download'` alone, so a row a dead
+  process had claimed was never offered to `claim_book_for_download` and its
+  stale-reclaim branch could not fire. `STALE_CLAIM_SECONDS` was therefore dead code
+  from the pipeline's point of view, and CLAUDE.md's "a crashed run recovers on the next
+  tick rather than by hand" was not true: the book stayed `downloading` forever and its
+  part-file with it. Found 2026-09-10 by end-to-end test - a real run killed mid-download
+  left the book stuck, and it was still stuck two runs later with the claim aged past six
+  hours. The claim itself was never at fault (a direct check showed it refuses a live
+  claim and grants a stale one); only the query feeding it was.
+  Fixed 2026-09-10: the queue now also returns `downloading` rows older than
+  `stale_after`, using the same rule and the same NULL-counts-as-stale handling as the
+  claim. Verified end to end: a book claimed seven hours earlier is picked up, attempted
+  and returned to the queue, while one held by a live run is still skipped with its
+  attempts untouched.
+
 ### Tasks
 
 - [ ] Add settings table to database

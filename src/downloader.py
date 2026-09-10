@@ -788,7 +788,7 @@ def download_books(audible: Audible, settings: Settings, progress: Progress | No
     number_to_download = total_to_download if max_download is None else min(max_download, total_to_download)
 
     logger.info(
-        "Downloading %d books of %d waiting download as %s",
+        "Downloading %d books of %d in the download queue as %s",
         number_to_download,
         total_to_download,
         settings.encoding_format,

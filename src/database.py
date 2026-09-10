@@ -275,11 +275,40 @@ def get_books(limit: int | None = None) -> list[Book]:
         return [Book.from_row(row) for row in conn.execute(sql, params)]
 
 
-def get_books_to_download() -> list[Book]:
-    """Books still waiting to be downloaded, oldest first."""
+def get_books_to_download(*, stale_after: int = STALE_CLAIM_SECONDS) -> list[Book]:
+    """
+    Books the downloader should try, oldest first.
+
+    Both the rows still `waiting_download` and any left in `downloading` by a process
+    that died. Selecting only `waiting_download` made `STALE_CLAIM_SECONDS` unreachable:
+    `claim_book_for_download` has always been able to reclaim an abandoned row, but
+    nothing ever offered it one, so a book a killed run had claimed stayed `downloading`
+    forever, its part-file with it. It uses the same `stale_after` and the same
+    NULL-counts-as-stale rule as the claim, so the query and that UPDATE cannot disagree
+    about what "abandoned" means.
+
+    This still does **not** claim anything - the caller claims each book individually, so
+    a row a live run holds is offered here and then simply fails to claim. That is the
+    same race the claim already settles, and the reason this can afford to be generous.
+
+    `last_attempt_at` is not in the `(status, date_added)` index, but the `downloading`
+    rows are a handful at most, so the extra test costs nothing.
+
+    Args:
+        stale_after: Seconds after which a `downloading` row is treated as abandoned
+
+    Returns:
+        Books to attempt, oldest `date_added` first
+    """
     with closing(_get_connection()) as conn:
         rows = conn.execute(
-            "SELECT * FROM library WHERE status = ? ORDER BY date_added ASC", (BookStatus.WAITING_DOWNLOAD,)
+            """
+            SELECT * FROM library
+             WHERE status = ?
+                OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?))
+             ORDER BY date_added ASC
+            """,
+            (BookStatus.WAITING_DOWNLOAD, BookStatus.DOWNLOADING, _stale_cutoff(stale_after)),
         )
         return [Book.from_row(row) for row in rows]
 

@@ -315,6 +315,76 @@ def test_claim_book_for_download_takes_a_book_out_of_the_queue(db):
     assert [book.asin for book in database.get_books_to_download()] == ["B002"]
 
 
+def _set(asin: str, **columns) -> None:
+    """Force one row's state, for conditions the public API cannot reach."""
+    assignments = ", ".join(f"{name} = ?" for name in columns)
+    conn = sqlite3.connect(database.DB_FILE)
+    conn.execute(f"UPDATE library SET {assignments} WHERE asin = ?", (*columns.values(), asin))
+    conn.commit()
+    conn.close()
+
+
+def test_download_queue_offers_a_download_abandoned_by_a_dead_process(db):
+    """
+    The queue is what makes `STALE_CLAIM_SECONDS` reachable.
+
+    `claim_book_for_download` could always reclaim an abandoned row, but while the queue
+    selected `waiting_download` alone nothing ever offered it one, so a book a killed run
+    had claimed stayed `downloading` forever.
+    """
+    _claimable()
+    database.claim_book_for_download("B001")
+    assert database.get_books_to_download() == []
+
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    assert [book.asin for book in database.get_books_to_download()] == ["B001"]
+
+
+def test_download_queue_offers_a_downloading_row_with_no_timestamp(db):
+    """A NULL timestamp counts as stale here for the same reason it does in the claim."""
+    _claimable()
+    _set("B001", status="downloading", last_attempt_at=None)
+
+    assert [book.asin for book in database.get_books_to_download()] == ["B001"]
+
+
+def test_download_queue_agrees_with_the_claim_about_what_is_stale(db):
+    """The two must use one definition, or the queue offers a book the claim refuses."""
+    _claimable()
+    database.claim_book_for_download("B001")
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    offered = database.get_books_to_download()
+
+    assert [book.asin for book in offered] == ["B001"]
+    assert database.claim_book_for_download("B001") is True
+    assert database.get_book_by_asin("B001").attempts == 2
+
+
+@pytest.mark.parametrize("status", ["downloaded", "failed", "unavailable"])
+def test_download_queue_never_offers_a_book_that_is_not_pending(db, status):
+    """A stale timestamp must not drag a finished or given-up book back in."""
+    _claimable()
+    _set("B001", status=status, last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    assert database.get_books_to_download() == []
+
+
+def test_download_queue_orders_a_reclaim_with_everything_else(db):
+    """One ordering across both statuses, or a reclaim would jump the queue."""
+    database.update_books(
+        [
+            make_book("B001", date_added="2024-01-03T00:00:00Z"),
+            make_book("B002", date_added="2024-01-01T00:00:00Z"),
+            make_book("B003", date_added="2024-01-02T00:00:00Z"),
+        ]
+    )
+    _set("B003", status="downloading", last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    assert [book.asin for book in database.get_books_to_download()] == ["B002", "B003", "B001"]
+
+
 def test_claim_book_for_download_reclaims_a_download_abandoned_long_enough_ago(db):
     """A process killed mid-download must not strand its book forever."""
     _claimable()
