@@ -1,6 +1,6 @@
 import logging
 
-from src.audible import Audible
+from src.audible_client import Audible
 from src.database import finish_sync_run, init_db, start_sync_run
 from src.downloader import download_books
 from src.model import SyncOutcome

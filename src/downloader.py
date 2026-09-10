@@ -9,7 +9,7 @@ import httpx
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Unauthorized
 
-from src.audible import Audible
+from src.audible_client import Audible
 from src.database import (
     claim_book_for_download,
     get_books_to_download,
@@ -335,7 +335,6 @@ def generate_metadata(book: Book) -> dict:
     subtitle = book.subtitle
     authors = book.authors
     narrators = book.narrators
-    series = book.series
     genres = book.genres
     release_date = book.release_date
 
@@ -358,11 +357,13 @@ def generate_metadata(book: Book) -> dict:
     if narrators:
         metadata["composer"] = "; ".join(narrators)
 
-    # Series information
-    if series:
-        series_info = series[0]
-        metadata["series"] = series_info.get("title", "")
-        metadata["series-part"] = series_info.get("sequence", "")
+    # Series information. `primary_series` picks which one, and guarantees a title.
+    # The sequence still needs `or ""`: `_prepare_book` always creates the key, so
+    # a `.get(..., "")` default never fires and a null sequence used to reach
+    # `_escape_ffmetadata`, which stringifies it into a literal `series-part=None`.
+    if primary_series := book.primary_series:
+        metadata["series"] = primary_series["title"]
+        metadata["series-part"] = primary_series.get("sequence") or ""
 
     # Genre
     if genres:
@@ -787,7 +788,7 @@ def download_books(audible: Audible, settings: Settings, progress: Progress | No
     number_to_download = total_to_download if max_download is None else min(max_download, total_to_download)
 
     logger.info(
-        "Downloading %d books of %d waiting download as %s",
+        "Downloading %d books of %d in the download queue as %s",
         number_to_download,
         total_to_download,
         settings.encoding_format,

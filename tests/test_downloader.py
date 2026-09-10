@@ -84,6 +84,44 @@ def test_generate_metadata_maps_fields():
     assert meta["comment"] == "ASIN: B001"
 
 
+def test_generate_metadata_tags_the_primary_series_not_the_first_one():
+    book = make_book(
+        series=[
+            {"title": "The Dune Sequence", "sequence": "12"},
+            {"title": "Dune", "sequence": "1"},
+        ]
+    )
+    meta = generate_metadata(book)
+
+    assert meta["series"] == "Dune"
+    assert meta["series-part"] == "1"
+
+
+def test_generate_metadata_leaves_a_null_sequence_empty_rather_than_none():
+    """
+    `_prepare_book` always creates the `sequence` key, so a `.get(..., "")` default
+    never fired and a null sequence reached the metadata as `None`.
+    """
+    meta = generate_metadata(make_book(series=[{"title": "Companion", "sequence": None}]))
+
+    assert meta["series"] == "Companion"
+    assert meta["series-part"] == ""
+
+
+def test_a_null_sequence_does_not_reach_the_ffmetadata_file_as_the_word_none(tmp_path):
+    """
+    Where the bug was actually visible: `_escape_ffmetadata` does `str(value)`, so a
+    `None` was written as a literal `series-part=None` line and FFmpeg copied it into
+    the output, showing "None" as the series number in a player.
+    """
+    path = tmp_path / "meta.ffmetadata"
+    write_ffmpeg_metadata_file(generate_metadata(make_book(series=[{"title": "S", "sequence": None}])), path)
+
+    contents = path.read_text()
+    assert "series-part=\n" in contents
+    assert "None" not in contents
+
+
 def test_generate_metadata_handles_missing_optional_fields():
     book = make_book(authors=(), narrators=(), genres=(), release_date=None)
     meta = generate_metadata(book)
@@ -804,11 +842,28 @@ class FakeStream:
     it has to advance as the chunks are yielded, exactly as httpx advances it.
     """
 
-    def __init__(self, chunks, content_length=None, fail_after=None):
+    def __init__(self, chunks, content_length=None, fail_after=None, status_code=200, content_type=None):
         self._chunks = chunks
         self._fail_after = fail_after
         self.headers = {} if content_length is None else {"Content-Length": str(content_length)}
+        if content_type is not None:
+            self.headers["content-type"] = content_type
+        self.status_code = status_code
         self.num_bytes_downloaded = 0
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"HTTP {self.status_code}",
+                request=httpx.Request("GET", "https://example.invalid"),
+                response=httpx.Response(self.status_code),
+            )
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
 
     def iter_bytes(self):
         for index, chunk in enumerate(self._chunks):
@@ -943,3 +998,309 @@ def test_download_books_respects_max_download_in_the_attempted_count(tmp_path, m
     )
 
     assert stats.attempted == 1
+
+
+class FakeStreamingClient:
+    """
+    Stands in for a client with a `.stream()` context manager.
+
+    Used for all three transfers: `httpx.Client` for the AAXC and the cover, and the
+    authenticated `audible.client.session` for the PDF. Records what it was called
+    with, which is the only way to assert on headers the real code never returns.
+    """
+
+    def __init__(self, response):
+        self._response = response
+        self.calls = []
+
+    def stream(self, method, url, **kwargs):
+        self.calls.append({"method": method, "url": url, **kwargs})
+        return self._response
+
+
+@pytest.fixture
+def fresh_http_client(monkeypatch):
+    """`get_http_client` memoises into a module global; give each test a clean one."""
+    monkeypatch.setattr(downloader, "_http_client", None)
+    yield
+    downloader._http_client = None
+
+
+def _downloader_with(client=None, auth=None, progress=None):
+    """A Downloader over a fake `Audible`, with only the pieces a given method touches."""
+    return downloader.Downloader(SimpleNamespace(client=client, auth=auth), progress=progress)
+
+
+# --- get_http_client ---------------------------------------------------------
+
+
+def test_get_http_client_reuses_one_client(fresh_http_client):
+    assert downloader.get_http_client() is downloader.get_http_client()
+
+
+def test_get_http_client_is_configured_for_a_multi_gigabyte_download(fresh_http_client):
+    """
+    httpx defaults to 5s, which aborted a part-finished AAXC on any brief CDN stall,
+    and the download link redirects.
+    """
+    client = downloader.get_http_client()
+
+    assert client.follow_redirects is True
+    assert client.timeout.connect == 30.0
+    assert client.timeout.read == 120.0
+
+
+# --- get_download_link -------------------------------------------------------
+
+
+def test_get_download_link_pulls_the_offline_url_out_of_the_license():
+    license_response = {
+        "content_license": {"content_metadata": {"content_url": {"offline_url": "https://cdn/book.aaxc"}}}
+    }
+
+    assert downloader.Downloader.get_download_link(license_response) == "https://cdn/book.aaxc"
+
+
+# --- get_license_response ----------------------------------------------------
+
+
+def test_license_response_asks_for_a_downloadable_drm_copy():
+    """`quality="High"` and `Adrm`/`Download` are what make the response an AAXC."""
+    calls = []
+
+    class FakeClient:
+        def post(self, path, body):
+            calls.append({"path": path, "body": body})
+            return {"content_license": {"status_code": "Granted"}}
+
+    _downloader_with(client=FakeClient()).get_license_response("B001", quality="High")
+
+    assert calls == [
+        {
+            "path": "content/B001/licenserequest",
+            "body": {"drm_type": "Adrm", "consumption_type": "Download", "quality": "High"},
+        }
+    ]
+
+
+def test_license_response_reports_a_denial_that_carries_no_message():
+    class FakeClient:
+        def post(self, path, body):
+            return {"content_license": {"status_code": "Denied"}}
+
+    with pytest.raises(LicenseError, match="no reason given"):
+        _downloader_with(client=FakeClient()).get_license_response("B001", quality="High")
+
+
+# --- get_chapter_info --------------------------------------------------------
+
+
+def test_get_chapter_info_returns_the_chapter_info_block():
+    chapter_info = {"chapters": [{"title": "One", "start_offset_ms": 0, "length_ms": 10}]}
+
+    class FakeClient:
+        def get(self, url, params=None):
+            assert url == "content/B001/metadata"
+            assert params == {"response_groups": "chapter_info"}
+            return {"content_metadata": {"chapter_info": chapter_info}}
+
+    assert _downloader_with(client=FakeClient()).get_chapter_info("B001") == chapter_info
+
+
+@pytest.mark.parametrize("response", [{}, {"content_metadata": {}}])
+def test_get_chapter_info_returns_none_when_the_response_carries_none(response):
+    class FakeClient:
+        def get(self, url, params=None):
+            return response
+
+    assert _downloader_with(client=FakeClient()).get_chapter_info("B001") is None
+
+
+def test_get_chapter_info_swallows_a_transport_error():
+    """Chapters are a nice-to-have; losing them must not cost the whole book."""
+
+    class FakeClient:
+        def get(self, url, params=None):
+            raise httpx.ReadTimeout("boom")
+
+    assert _downloader_with(client=FakeClient()).get_chapter_info("B001") is None
+
+
+# --- download_file -----------------------------------------------------------
+
+
+def test_download_file_sends_the_user_agent_the_cdn_expects(tmp_path, monkeypatch):
+    client = FakeStreamingClient(FakeStream([b"abc"], content_length=3))
+    monkeypatch.setattr(downloader, "get_http_client", lambda: client)
+    out = tmp_path / "book.aaxc"
+
+    _downloader_with().download_file("https://cdn/book.aaxc", out)
+
+    assert out.read_bytes() == b"abc"
+    assert client.calls[0]["headers"]["User-Agent"].startswith("Audible/")
+
+
+def test_download_file_raises_on_an_http_error(tmp_path, monkeypatch):
+    """The book must go back to the queue rather than be filed from a half file."""
+    monkeypatch.setattr(downloader, "get_http_client", lambda: FakeStreamingClient(FakeStream([], status_code=500)))
+    out = tmp_path / "book.aaxc"
+
+    with pytest.raises(httpx.HTTPStatusError):
+        _downloader_with().download_file("https://cdn/book.aaxc", out)
+    assert not out.exists()
+
+
+# --- download_pdf ------------------------------------------------------------
+
+
+def _pdf_downloader(response):
+    auth = SimpleNamespace(locale=SimpleNamespace(domain="co.uk"))
+    session = FakeStreamingClient(response)
+    audible = SimpleNamespace(client=SimpleNamespace(session=session), auth=auth)
+    return downloader.Downloader(audible), session
+
+
+def test_download_pdf_writes_the_companion_file(tmp_path):
+    out = tmp_path / "book.pdf"
+    downloader_, session = _pdf_downloader(FakeStream([b"%PDF-1.4"], content_length=8, content_type="application/pdf"))
+
+    assert downloader_.download_pdf("B001", str(out)) is True
+    assert out.read_bytes() == b"%PDF-1.4"
+    assert session.calls[0]["url"] == "https://www.audible.co.uk/companion-file/B001"
+
+
+def test_download_pdf_treats_a_404_as_no_pdf(tmp_path):
+    """Genuinely absent, so it returns False rather than sending the book back to the queue."""
+    out = tmp_path / "book.pdf"
+    downloader_, _ = _pdf_downloader(FakeStream([], status_code=404))
+
+    assert downloader_.download_pdf("B001", str(out)) is False
+    assert not out.exists()
+
+
+def test_download_pdf_rejects_an_html_login_page(tmp_path):
+    """A redirect to a sign-in page is a 200; only the content type gives it away."""
+    out = tmp_path / "book.pdf"
+    downloader_, _ = _pdf_downloader(FakeStream([b"<html>"], content_type="text/html; charset=utf-8"))
+
+    assert downloader_.download_pdf("B001", str(out)) is False
+    assert not out.exists()
+
+
+def test_download_pdf_accepts_an_octet_stream(tmp_path):
+    out = tmp_path / "book.pdf"
+    downloader_, _ = _pdf_downloader(FakeStream([b"%PDF"], content_type="application/octet-stream"))
+
+    assert downloader_.download_pdf("B001", str(out)) is True
+
+
+def test_download_pdf_raises_on_a_server_error(tmp_path):
+    out = tmp_path / "book.pdf"
+    downloader_, _ = _pdf_downloader(FakeStream([], status_code=503))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        downloader_.download_pdf("B001", str(out))
+
+
+# --- download_cover ----------------------------------------------------------
+
+
+def test_download_cover_uses_the_unauthenticated_client(tmp_path, monkeypatch):
+    """
+    The audible session signs every request, which would hand the account's ADP
+    token to the image CDN.
+    """
+    client = FakeStreamingClient(FakeStream([JPEG_BYTES], content_length=len(JPEG_BYTES)))
+    monkeypatch.setattr(downloader, "get_http_client", lambda: client)
+    out = tmp_path / "cover.jpg"
+
+    assert _downloader_with().download_cover("https://img/c.jpg", str(out)) is True
+    assert out.read_bytes() == JPEG_BYTES
+    assert "headers" not in client.calls[0]
+
+
+def test_download_cover_treats_a_404_as_no_cover(tmp_path, monkeypatch):
+    monkeypatch.setattr(downloader, "get_http_client", lambda: FakeStreamingClient(FakeStream([], status_code=404)))
+    out = tmp_path / "cover.jpg"
+
+    assert _downloader_with().download_cover("https://img/c.jpg", str(out)) is False
+    assert not out.exists()
+
+
+def test_download_cover_raises_on_a_server_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(downloader, "get_http_client", lambda: FakeStreamingClient(FakeStream([], status_code=500)))
+
+    with pytest.raises(httpx.HTTPStatusError):
+        _downloader_with().download_cover("https://img/c.jpg", str(tmp_path / "cover.jpg"))
+
+
+# --- download_book -----------------------------------------------------------
+
+
+def _book_downloader(monkeypatch, chapter_info=None, events=None):
+    """A Downloader whose license, voucher and transfer are all recorded, not performed."""
+    license_response = {
+        "content_license": {
+            "status_code": "Granted",
+            "content_metadata": {"content_url": {"offline_url": "https://cdn/book.aaxc"}},
+        }
+    }
+
+    class FakeClient:
+        def post(self, path, body):
+            return license_response
+
+        def get(self, url, params=None):
+            return {"content_metadata": {"chapter_info": chapter_info}}
+
+    monkeypatch.setattr(downloader, "decrypt_voucher_from_licenserequest", lambda auth, response: {"key": "K"})
+    downloader_ = _downloader_with(client=FakeClient(), auth=object())
+
+    def fake_download_file(self, url, filename, desc=None):
+        if events is not None:
+            events.append(("download_file", desc, Path(filename).with_suffix(".json").exists()))
+        Path(filename).write_bytes(b"aaxc")
+
+    monkeypatch.setattr(downloader.Downloader, "download_file", fake_download_file)
+    return downloader_
+
+
+def test_download_book_writes_the_voucher_before_fetching_the_audio(tmp_path, monkeypatch):
+    """
+    Documented ordering: a key problem should surface in a second, not after several
+    hundred megabytes have been pulled down.
+    """
+    events = []
+    downloader_ = _book_downloader(monkeypatch, events=events)
+
+    downloaded = downloader_.download_book(make_book(asin="B001", title="A Title"), tmp_path / "work")
+
+    assert events == [("download_file", "A Title", True)]
+    assert downloaded.voucher.read_text().strip().startswith("{")
+    assert downloaded.aaxc.name == "A Title.aaxc"
+
+
+def test_download_book_flattens_the_chapters_of_a_multi_part_book(tmp_path, monkeypatch):
+    """Audible nests the real chapters under a "Part One" marker for a split book."""
+    chapter_info = {
+        "chapters": [
+            {
+                "title": "Part One",
+                "start_offset_ms": 0,
+                "length_ms": 20,
+                "chapters": [{"title": "Chapter 1", "start_offset_ms": 0, "length_ms": 10}],
+            }
+        ]
+    }
+    downloader_ = _book_downloader(monkeypatch, chapter_info=chapter_info)
+
+    downloaded = downloader_.download_book(make_book(asin="B001"), tmp_path / "work")
+
+    # The "Part One" wrapper is replaced by its children, not kept alongside them.
+    assert [c["title"] for c in downloaded.chapters] == ["Chapter 1"]
+
+
+def test_download_book_returns_no_chapters_when_there_are_none(tmp_path, monkeypatch):
+    downloader_ = _book_downloader(monkeypatch, chapter_info=None)
+
+    assert downloader_.download_book(make_book(asin="B001"), tmp_path / "work").chapters is None

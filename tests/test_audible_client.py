@@ -1,7 +1,7 @@
 import pytest
 
-import src.audible
-from src.audible import RESPONSE_GROUPS, Audible, _prepare_book, _prepare_books
+import src.audible_client
+from src.audible_client import RESPONSE_GROUPS, Audible, _prepare_book, _prepare_books
 
 
 def make_item(asin="B001", **overrides):
@@ -32,7 +32,7 @@ def test_prepare_book_maps_a_complete_item():
     assert book.asin == "B001"
     assert book.authors == ["Author One"]
     assert book.narrators == ["Narrator One"]
-    assert book.series == [{"title": "Series", "sequence": "1"}]
+    assert book.series == [{"title": "Series", "sequence": "1", "series_asin": None}]
     assert book.genres == ["Fiction"]
     assert book.length == 600
     assert book.date_added == "2024-01-01T00:00:00Z"
@@ -61,7 +61,31 @@ def test_prepare_book_tolerates_a_missing_optional_key(missing):
 
 def test_prepare_book_tolerates_a_series_entry_without_a_sequence():
     book = _prepare_book(make_item(series=[{"title": "Companion"}]))
-    assert book.series == [{"title": "Companion", "sequence": None}]
+    assert book.series == [{"title": "Companion", "sequence": None, "series_asin": None}]
+
+
+def test_prepare_book_keeps_the_series_asin():
+    """The series' own ASIN identifies it independently of a title Audible can typo."""
+    item = make_item(series=[{"title": "His Dark Materials", "sequence": "1", "asin": "B00HNUQTAK"}])
+
+    assert _prepare_book(item).series == [{"title": "His Dark Materials", "sequence": "1", "series_asin": "B00HNUQTAK"}]
+
+
+def test_prepare_book_stores_the_series_in_canonical_order():
+    """
+    Sorted on the way in, so the stored JSON does not depend on the response order.
+
+    The upsert refreshes `series` every sync; an unstable order would rewrite the
+    column each time and give any listing built on it a different answer per book.
+    """
+    item = make_item(
+        series=[
+            {"title": "The Dune Sequence", "sequence": "12", "asin": "B00I53X24U"},
+            {"title": "Dune", "sequence": "1", "asin": "B01H4IQOGO"},
+        ]
+    )
+
+    assert [entry["title"] for entry in _prepare_book(item).series] == ["Dune", "The Dune Sequence"]
 
 
 def test_prepare_book_tolerates_null_values():
@@ -112,7 +136,7 @@ def test_get_library_returns_a_single_short_page():
 
 
 def test_get_library_follows_pagination_until_a_short_page(monkeypatch):
-    monkeypatch.setattr("src.audible._PAGE_SIZE", 2)
+    monkeypatch.setattr("src.audible_client._PAGE_SIZE", 2)
     audible = make_audible([[make_item("B1"), make_item("B2")], [make_item("B3")]])
 
     books = audible.get_library()
@@ -123,7 +147,7 @@ def test_get_library_follows_pagination_until_a_short_page(monkeypatch):
 
 
 def test_get_library_stops_when_a_full_page_is_followed_by_an_empty_one(monkeypatch):
-    monkeypatch.setattr("src.audible._PAGE_SIZE", 2)
+    monkeypatch.setattr("src.audible_client._PAGE_SIZE", 2)
     audible = make_audible([[make_item("B1"), make_item("B2")], []])
 
     books = audible.get_library()
@@ -133,7 +157,7 @@ def test_get_library_stops_when_a_full_page_is_followed_by_an_empty_one(monkeypa
 
 
 def test_get_library_passes_the_incremental_cursor_on_every_page(monkeypatch):
-    monkeypatch.setattr("src.audible._PAGE_SIZE", 1)
+    monkeypatch.setattr("src.audible_client._PAGE_SIZE", 1)
     audible = make_audible([[make_item("B1")], [make_item("B2")], []])
 
     audible.get_library("2024-01-01T00:00:00Z")
@@ -158,12 +182,12 @@ def test_client_is_given_a_timeout_that_fits_a_full_page(monkeypatch):
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr(src.audible.audible, "Authenticator", FakeAuthenticator)
-    monkeypatch.setattr(src.audible.audible, "Client", fake_client)
+    monkeypatch.setattr(src.audible_client.audible, "Authenticator", FakeAuthenticator)
+    monkeypatch.setattr(src.audible_client.audible, "Client", fake_client)
 
-    src.audible.Audible("ignored.json")
+    src.audible_client.Audible("ignored.json")
 
-    assert captured["timeout"] == src.audible._API_TIMEOUT
+    assert captured["timeout"] == src.audible_client._API_TIMEOUT
     assert captured["timeout"] > 10
 
 

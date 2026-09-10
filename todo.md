@@ -157,15 +157,39 @@ Each one blocks a Milestone 3 requirement, so they come before the endpoints.
 
 Smaller items to fold in while doing the above:
 
-- [ ] Delete `src/api.py` and the root `main.py` scaffold and start the service
+- [x] Delete `src/api.py` and the root `main.py` scaffold and start the service
   fresh; `POST /sync` currently raises `TypeError`. Move `fastapi` and `uvicorn`
   out of the runtime dependencies until the service actually exists.
-- [ ] Rename `src/audible.py` so it stops shadowing the `audible` dependency
+  Done 2026-09-09: nothing imported either file - not the Dockerfile (`CMD` is
+  `python -m src.main`), not compose.yml, not CI, and there is no `[project.scripts]`
+  entry - so both were deleted rather than edited into something else.
+  `annotated-types`, `click`, `pydantic`, `pydantic-core`, `starlette` and
+  `typing-inspection` fell out of `requirements.txt` with them; `colorama`, `h11`
+  and `typing-extensions` stay, reached through tqdm, httpcore and anyio.
+- [x] Rename `src/audible.py` so it stops shadowing the `audible` dependency
   (`known-third-party` in `pyproject.toml` is the workaround holding it together).
+  Done 2026-09-09: it is `src/audible_client.py`, and `tests/test_audible.py` moved
+  with it to keep one test file per module. With no first-party module named
+  `audible` left, ruff classifies `import audible` correctly on its own, so the
+  override and its comment are gone - `ruff check .` being clean without them is what
+  proves the rename did its job. The fragile part was the test file's string patch
+  targets (`src.audible._PAGE_SIZE`) and the reach-through patches on
+  `src.audible.audible`, the doubled name being the shadowing symptom itself; neither
+  is something ruff or a type checker would have caught.
 - [x] Enable `PRAGMA journal_mode=WAL` before two processes share the database.
   Done 2026-09-09: set in `init_db` before the DDL. It is a property of the database
   file, so one call holds for every later connection.
-- [ ] Add tests for the network-facing `Downloader` methods, which have none.
+- [x] Add tests for the network-facing `Downloader` methods, which have none.
+  Done 2026-09-09: `get_http_client`, `get_download_link`, `get_chapter_info`,
+  `download_book`, `download_pdf` and `download_cover` had no coverage at all, and
+  `get_license_response`/`download_file` only partial; every test either stubbed them
+  out or replaced the transport underneath them. (`download_annotations` and
+  `_stream_to_file` were already covered by the two items either side of this one, so
+  "which have none" was already slightly stale.) The accessory contract is now pinned
+  on both sides - 404 and a non-PDF content type return False, a 5xx raises - as is
+  `download_book`'s documented ordering, that the voucher is decrypted before the
+  audio is fetched. Every new assertion was checked against a deliberately broken copy
+  of the code, so none of them pass vacuously.
 - [x] **`download_annotations` turns a 404 into a permanent failure.** The
   accessory contract says the three methods return `False` only when the thing
   is genuinely absent and raise otherwise, and `download_pdf`/`download_cover`
@@ -182,7 +206,7 @@ Smaller items to fold in while doing the above:
   `download_pdf` and `download_cover`, with tests covering the 404, a non-404
   error still raising, and the empty and populated responses.
 
-- [ ] **`series[0]` is an arbitrary pick for a book in more than one series.**
+- [x] **`series[0]` is an arbitrary pick for a book in more than one series.**
   `_prepare_book` keeps every series entry in whatever order the API returned,
   and both `book_template_values` and `generate_metadata` then take `series[0]`.
   11 of the 306 titles here are in two series, and the order is not even stable
@@ -195,8 +219,32 @@ Smaller items to fold in while doing the above:
   rather than "Dune" at 1). Needs a deliberate rule - prefer the series the
   sequence makes sense for, or let the naming template choose - rather than
   index 0. Noticed 2026-09-09 during a real run.
+  Done 2026-09-09. `library/{asin}` was checked as a better-ordered source and
+  **rejected**: it carries the same typo and returns it *first* for *Northern Lights*
+  while returning the correct title first for books 2 and 3, so it splits the trilogy
+  the same way for an extra request per book. Nor is the order stable within a single
+  response set - `Ringworld` came back with "Known Space" first while `The Ringworld
+  Engineers` came back with "Ringworld" first - so no choice of endpoint could have
+  fixed this and a deliberate rule was the only option. (The count above is 10, not
+  11, measured against the library on the same day.)
+  The rule is `_series_sort_key` in `model.py`, reached through `Book.primary_series`:
+  **lowest sequence wins, ties fall to the title and then the series ASIN.** It reads
+  as "prefer the series this book is early in over the omnibus it is buried in", so
+  *Dune* files under "Dune" at 1 rather than "The Dune Sequence" at 12; and being a
+  total ordering, the answer never depends on the order the API used - which is what
+  keeps the three *His Dark Materials* books together despite the typo'd duplicate
+  sitting at the same sequence. An entry with no usable sequence sorts last; one with
+  no title is not a candidate at all, which absorbs the guard `naming.py` carried
+  inline. Verified against all 10 multi-series titles in the library.
+  `_prepare_book` also keeps each series' own ASIN (`series_asin`), which identifies a
+  series independently of a title Audible has demonstrated it can typo, and sorts on
+  the way in so the stored JSON is canonical rather than being rewritten by the upsert
+  every sync. No migration: `series` is a JSON column and `primary_series` reads
+  defensively, so rows written before this change still resolve correctly.
+  **Books already filed under `His Dark Materialsik/` do not move themselves** - they
+  are `downloaded`, so nothing re-files them. One folder to merge by hand.
 
-- [ ] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
+- [x] Fix `series-part=None` in the embedded metadata. `generate_metadata` reads
   the series entry with `series_info.get("sequence", "")`, but `_prepare_book`
   always creates the key (`entry.get("sequence")`), so a series entry whose
   sequence is null yields `None`, not the intended `""`. That `None` is written
@@ -207,6 +255,29 @@ Smaller items to fold in while doing the above:
   case in `test_generate_metadata`. Reproduced 2026-09-09; currently latent,
   as no book in the 306-title library has a null title or sequence, but
   `naming.py` already guards the same shape and `test_naming` exercises it.
+  Done 2026-09-09 alongside the series rule above, which is the same edit.
+  `primary_series` guarantees a title, so only the sequence still needs `or ""`.
+  Confirmed the old code wrote a literal `series-part=None` line and the new one
+  writes `series-part=`; the regression test asserts on the FFMETADATA file rather
+  than the dict, because the file is where the leak was actually visible -
+  `write_m4b_extra_tags` already dropped the `None` on the M4B path, so only the
+  text path (the one OGA uses natively) ever showed it.
+
+- [x] **A killed run stranded its book in `downloading` forever.**
+  `get_books_to_download` selected `status = 'waiting_download'` alone, so a row a dead
+  process had claimed was never offered to `claim_book_for_download` and its
+  stale-reclaim branch could not fire. `STALE_CLAIM_SECONDS` was therefore dead code
+  from the pipeline's point of view, and CLAUDE.md's "a crashed run recovers on the next
+  tick rather than by hand" was not true: the book stayed `downloading` forever and its
+  part-file with it. Found 2026-09-10 by end-to-end test - a real run killed mid-download
+  left the book stuck, and it was still stuck two runs later with the claim aged past six
+  hours. The claim itself was never at fault (a direct check showed it refuses a live
+  claim and grants a stale one); only the query feeding it was.
+  Fixed 2026-09-10: the queue now also returns `downloading` rows older than
+  `stale_after`, using the same rule and the same NULL-counts-as-stale handling as the
+  claim. Verified end to end: a book claimed seven hours earlier is picked up, attempted
+  and returned to the queue, while one held by a live run is still skipped with its
+  attempts untouched.
 
 ### Tasks
 

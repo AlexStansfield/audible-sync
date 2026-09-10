@@ -41,6 +41,49 @@ def test_default_layout_with_series_but_no_sequence():
     assert stem == "Dune"
 
 
+def test_default_layout_files_a_two_series_book_under_its_primary_series():
+    """
+    *Dune* is in "Dune" at 1 and "The Dune Sequence" at 12; it belongs under "Dune".
+
+    The sequence in the folder name has to come from the same entry as the title,
+    or the book files as "Dune/12 - Dune".
+    """
+    book = make_book(
+        title="Dune",
+        authors=("Frank Herbert",),
+        series=[
+            {"title": "The Dune Sequence", "sequence": "12", "series_asin": "B00I53X24U"},
+            {"title": "Dune", "sequence": "1", "series_asin": "B01H4IQOGO"},
+        ],
+    )
+    folder, _ = book_output_paths(book, LIBRARY)
+    assert folder == Path(LIBRARY) / "Frank Herbert" / "Dune" / "1 - Dune"
+
+
+def test_a_series_is_not_split_by_the_order_the_api_returned():
+    """
+    The bug this rule exists for: the His Dark Materials trilogy landed in two
+    folders because Audible returns its typo'd duplicate first for some books.
+    """
+    common = {"authors": ("Philip Pullman",)}
+    first = make_book(
+        title="Northern Lights",
+        series=[{"title": "His Dark Materialsik", "sequence": "1"}, {"title": "His Dark Materials", "sequence": "1"}],
+        **common,
+    )
+    third = make_book(
+        title="The Amber Spyglass",
+        series=[{"title": "His Dark Materials", "sequence": "3"}, {"title": "His Dark Materialsik", "sequence": "3"}],
+        **common,
+    )
+
+    assert book_output_paths(first, LIBRARY)[0].parent == book_output_paths(third, LIBRARY)[0].parent
+    assert (
+        book_output_paths(first, LIBRARY)[0]
+        == Path(LIBRARY) / "Philip Pullman" / "His Dark Materials" / "1 - Northern Lights"
+    )
+
+
 def test_explicit_defaults_match_implicit_defaults():
     book = make_book(series=[{"title": "S", "sequence": "2"}])
     explicit = book_output_paths(book, LIBRARY, DEFAULT_FOLDER_TEMPLATE, DEFAULT_FILENAME_TEMPLATE)

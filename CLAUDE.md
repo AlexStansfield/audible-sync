@@ -11,7 +11,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Entry Point** | `python -m src.main` (or `uv run python -m src.main`) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | INI format (`config/config.ini`) |
-| **Lines of Code** | ~2050 lines across 12 Python modules, plus ~1900 lines of tests |
+| **Lines of Code** | ~2850 lines across 11 Python modules, plus ~3700 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
@@ -53,26 +53,25 @@ audible-sync/
 │   ├── paths.py              # REPO_ROOT and resolve_path: every path is anchored here
 │   ├── model.py              # Book and SyncRun data models
 │   ├── database.py           # SQLite schema, migrations, queries (library + sync_runs)
-│   ├── audible.py            # Audible API client and response mapping
+│   ├── audible_client.py     # Audible API client and response mapping
 │   ├── sync.py               # Incremental library sync and the run cursor
 │   ├── progress.py           # Where download byte progress is reported (tqdm lives here)
 │   ├── naming.py             # Sanitizer and folder/filename templates ([naming] in config.ini)
 │   ├── encoding.py           # Output formats, Opus picture block and chapter tags ([encoding] in config.ini)
-│   ├── downloader.py         # Download, accessories, metadata, decryption, filing
-│   └── api.py                # FastAPI stub (broken, Milestone 3)
+│   └── downloader.py         # Download, accessories, metadata, decryption, filing
 ├── tests/
 │   ├── test_database.py      # Schema, migration, queries against a temp DB
 │   ├── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
 │   ├── test_naming.py        # Sanitizer, templates, optional groups, default layout, validation
 │   ├── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags, M4B freeform tags, ASIN readback
-│   ├── test_audible.py       # Field mapping, missing keys, per-item skip, pagination
+│   ├── test_audible_client.py # Field mapping, series order, missing keys, per-item skip, pagination
+│   ├── test_model.py         # Book.from_row, legacy columns, the primary-series rule
 │   ├── test_settings.py      # Config parsing, defaults, path anchoring, validation
 │   ├── test_paths.py         # Repo-root anchoring, absolute paths, ~ expansion
 │   ├── test_main.py          # Log level, run_pipeline wiring, run recording, main ordering
 │   ├── test_sync.py          # Incremental cursor, its fallbacks, the availability refresh pass
 │   ├── test_progress.py      # NullProgress and the tqdm adapter's lifecycle
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
-├── main.py                   # Leftover uv scaffold ("Hello from audible-sync!"), unused
 ├── compose.yml
 ├── Dockerfile
 ├── pyproject.toml / uv.lock  # Direct dependencies, dev group, ruff and pytest config
@@ -87,7 +86,7 @@ audible-sync/
 main.py (orchestrator)
   ├─→ settings.py   (config, validation)  ─→ paths.py
   ├─→ database.py   (persistence)         ─→ paths.py
-  ├─→ audible.py    (API integration)
+  ├─→ audible_client.py (API integration)
   ├─→ sync.py       (library sync, cursor)
   └─→ downloader.py (download, metadata, decrypt, file)
         ├─→ naming.py   (paths)
@@ -97,7 +96,7 @@ main.py (orchestrator)
 
 **Data flow:**
 ```
-Audible API → audible.py → sync.py → database.py → SQLite
+Audible API → audible_client.py → sync.py → database.py → SQLite
                                           ↓
                                     downloader.py → FFmpeg → M4B or OGA + PDF/cover/annotations
 ```
@@ -151,6 +150,10 @@ It is its own module rather than part of `settings.py` because `database.py` nee
 
 `date_added` is an **ISO 8601 string** exactly as Audible returns it (e.g. `2024-01-01T00:00:00Z`), stored, sorted and compared as text. It is never parsed into a `datetime`.
 
+**`Book.primary_series` is how you read a book's series; never `series[0]`.** Audible returns the series a book belongs to in an order that is not stable and carries no notion of a primary one - not between the `library` list and `library/{asin}`, and not even between two books of the same series in one response (measured 2026-09-09: `Ringworld` came back with "Known Space" first, `The Ringworld Engineers` with "Ringworld" first). Taking index 0 filed one series under two folder names. `_series_sort_key` owns the rule: **lowest sequence wins, ties fall to the title and then the series ASIN.** It reads as "prefer the series this book is early in over the omnibus it is buried in", so *Dune* files under "Dune" at 1 rather than "The Dune Sequence" at 12; being a total ordering, the answer never depends on the order the API used, which is what keeps the three *His Dark Materials* books together despite Audible listing a typo'd "His Dark Materialsik" at the same sequence. An entry with no usable sequence sorts last (no sequence is no evidence); one with **no title is not a candidate at all**, because a sequence alone would render a bare `{author}/2 - {title}/` folder. `sort_series` applies the same key in `_prepare_book`, so the stored JSON is canonical and the upsert stops rewriting the column every sync.
+
+A series entry is `{"title", "sequence", "series_asin"}`. `series_asin` is the series' own ASIN, which identifies it independently of a title Audible can typo; it is read defensively everywhere, so a row written before it was stored still resolves and **no migration is needed** - `series` is a JSON column.
+
 `Book.from_row(row)` is the single owner of the JSON decode and the SQLite 0/1 to bool coercion. It reads by column name through `dict(row).get(...)`, so a column the row does not carry falls back to the field default and a legacy database still reads; only `asin` is required. The hand-written `__repr__` is kept on purpose - the generated one would put the cover URL and three file paths into every log line that formats a book. Dataclass field order deliberately does not mirror the table (`has_pdf` sits with the API fields); nothing is positional against a row any more.
 
 `SyncRun` models a row of `sync_runs`: `id`, `started_at`, `finished_at`, `outcome`, `books_seen`, `books_added`, `books_downloaded`, `books_failed`, `error`. Same `from_row` idiom as `Book`. `SyncOutcome` is the matching `StrEnum` - `running`, `success`, `partial`, `failed` - for the same reason `BookStatus` is one, with `_sync_outcome` tolerating an unrecognised value. **`partial` means the sync completed but the downloads did not all succeed**, and it counts as a cursor: the library really was read, and which books failed belongs to the `library` state machine. A row still `running` with a NULL `finished_at` is a run that was killed - the thing the library table could never tell apart from a run that found nothing.
@@ -163,12 +166,12 @@ Two tables, `library` and `sync_runs`. `init_db()` sets `PRAGMA journal_mode=WAL
 - `init_db()`
 - `update_books(books)` - an upsert: inserts new books at `waiting_download` and, `ON CONFLICT(asin)`, refreshes only the mutable API fields (title, subtitle, the four JSON lists, length, `is_finished`, `percent_complete`, `release_date`, `cover_url`, `has_pdf`). It deliberately never writes `date_added` - that is the incremental sync cursor, and moving it would skip or re-fetch purchases - nor the three retry columns, the accessory paths, `encoding_format` or `downloaded_at`, all of which belong to the downloader. It **does** own `is_consumable`, and `status` **only** between `waiting_download` and `unavailable` in either direction (a `CASE` in the conflict clause): that is how a withdrawn Plus title leaves the queue and a restored one rejoins it with no manual step. `downloading`, `downloaded` and `failed` are never touched. Returns the count **inserted**, taken as `SELECT COUNT(*)` either side of the write on the same cursor: `cursor.rowcount` after an `executemany` of an upsert is `-1`, not a count, and `RETURNING` cannot be used with `executemany` at all. Handles a duplicate ASIN inside a single batch, which a check-then-insert could not. Keep the explicit column list rather than generating one from the dataclass; its `json.dumps` must stay in step with `Book.from_row`'s decode
 - `get_books(limit=None) -> list[Book]` - all books, newest `date_added` first
-- `get_books_to_download() -> list[Book]` - status `waiting_download`, oldest first. Does **not** claim; the caller claims each book individually before working on it
+- `get_books_to_download(*, stale_after=STALE_CLAIM_SECONDS) -> list[Book]` - the download queue, oldest `date_added` first: rows still `waiting_download`, **plus** any left in `downloading` whose `last_attempt_at` is older than `stale_after` (a NULL timestamp counts as stale). It must use the same rule as `claim_book_for_download` or the two disagree about what "abandoned" means. Selecting `waiting_download` alone is what made `STALE_CLAIM_SECONDS` unreachable: the claim could always reclaim an abandoned row, but nothing ever offered it one, so a book a killed run held stayed `downloading` forever with its part-file. Does **not** claim; the caller claims each book individually before working on it, so a row a *live* run holds is offered here and then simply fails to claim - which is why this can afford to be generous
 - `get_book_by_asin(asin) -> Book | None`
 - `latest_date_added()` - `MAX(date_added)`, the incremental sync cursor. Independent of how `get_books` sorts
 - `needs_consumability_refresh() -> bool` - whether anything is parked `unavailable`, or any row predates the `is_consumable` column (nullable precisely so NULL can mean "never read from the API"). `sync_library` uses it to decide whether to re-read the whole library
 - `mark_book_downloaded(asin, encoding_format=None, *, pdf_path=, cover_path=, annotations_path=)` - sets status `downloaded`, `encoding_format` and `downloaded_at` (ISO 8601 UTC from `_utcnow()`, monkeypatch it in tests) and records the accessory paths in the same statement. Paths not given keep their current value. Clears `last_error` - a book that succeeded on its second attempt must not keep showing the first failure - but keeps `attempts`, a true record of what the book cost
-- `claim_book_for_download(asin, *, stale_after=STALE_CLAIM_SECONDS) -> bool` - takes ownership in a single UPDATE: status to `downloading`, `attempts + 1`, `last_attempt_at` now, matching `waiting_download` **or** a `downloading` row whose `last_attempt_at` is older than `stale_after` (a NULL timestamp counts as stale, or such a row would never be picked up again). Returns whether this caller won. Two processes cannot both take one book: the second matches no rows. `STALE_CLAIM_SECONDS` is 6 hours - longer than the slowest real book, short enough that a crashed run recovers on the next tick rather than by hand
+- `claim_book_for_download(asin, *, stale_after=STALE_CLAIM_SECONDS) -> bool` - takes ownership in a single UPDATE: status to `downloading`, `attempts + 1`, `last_attempt_at` now, matching `waiting_download` **or** a `downloading` row whose `last_attempt_at` is older than `stale_after` (a NULL timestamp counts as stale, or such a row would never be picked up again). Returns whether this caller won. Two processes cannot both take one book: the second matches no rows. `STALE_CLAIM_SECONDS` is 6 hours - longer than the slowest real book, short enough that a crashed run recovers on the next tick rather than by hand. That recovery only happens because `get_books_to_download` offers such a row; keep the two queries in step
 - `mark_book_failed(asin, error, *, max_attempts, terminal=False) -> BookStatus | None` - records `last_error` and decides retry-or-give-up **inside** the UPDATE (`CASE WHEN ? OR attempts >= ?`), from the `attempts` the claim already incremented, so it cannot race another process between a SELECT and an UPDATE. `terminal` short-circuits the count for a failure already known to be permanent. Returns the status the book landed in, or `None` for an unknown ASIN
 - `mark_book_unavailable(asin, error)` - parks a book Audible will not currently license: status `unavailable`, `is_consumable = 0`, `last_error` recorded. **Not** terminal and does **not** count towards `max_attempts`, because the title can be offered again. Covers the race where rights change between a sync and the download; the common case is caught at sync time
 - `release_book(asin)` - status back to `waiting_download` and `attempts - 1`, guarded on `downloading`. For an abort that is not the book's fault: expired credentials fail every book equally, so charging it to whichever book was next would eventually mark a good one `failed`
@@ -187,14 +190,14 @@ Note `_migrate_schema` only adds the ten later columns, so a database predating 
 
 All functions close their connections (`contextlib.closing`). `init_db` also indexes `date_added`, and the download queue with a composite `(status, date_added)` matching the shape of its query - SQLite serves a plain status lookup from the leading column, so the superseded single-column `idx_library_status` is dropped rather than kept alongside. `sync_runs` gets `(outcome, started_at)`, the shape of the cursor query. Guarded by the columns (and, for `sync_runs`, the table) actually present so an old database still migrates: the composite raises on a schema with no `date_added`.
 
-### audible.py
+### audible_client.py
 
-`Audible(auth_file)` wraps `audible.Authenticator` and `audible.Client`.
+`Audible(auth_file)` wraps `audible.Authenticator` and `audible.Client`. **The module is named `audible_client.py`, not `audible.py`:** the old name shadowed the dependency it wraps, so isort could not tell the two apart and `known-third-party = ["audible"]` had to be pinned in `pyproject.toml` to hold the import grouping together. That override is gone; do not reintroduce a first-party module named `audible`.
 
 - `get_library(purchased_after=None)` - follows pagination until a short page comes back, so a library over 1000 titles syncs fully
 - `get_book(asin)` - single book, same response groups. No caller yet
 - `RESPONSE_GROUPS` - the ten groups `_prepare_book` actually reads, shared by both calls. `customer_rights` comes back on the bulk library endpoint, so spotting withdrawn titles costs no extra call
-- `_prepare_book(item)` - maps an API item to `Book`, reading every optional field defensively. Prefers the 1215px cover, falls back to 500px. Sets `has_pdf` from `pdf_url` and `is_consumable` from `customer_rights.is_consumable`, defaulting to `True`
+- `_prepare_book(item)` - maps an API item to `Book`, reading every optional field defensively. Prefers the 1215px cover, falls back to 500px. Sets `has_pdf` from `pdf_url` and `is_consumable` from `customer_rights.is_consumable`, defaulting to `True`. Each series entry keeps its own `series_asin`, and the list goes through `sort_series` so what is stored is canonical rather than whatever order the response used - see `model.py`
 - `_prepare_books(items)` - maps a page and skips (with a logged traceback) any single item that cannot be read, so one odd podcast or unnumbered series entry does not abort the run
 
 ### sync.py
@@ -234,7 +237,7 @@ The largest module. Key pieces:
 **Chapters:** `flatten_chapters(chapters)` descends into the nested `chapters` list Audible returns for books split into parts. Taking only the top level left a multi-part book with a few hours-long "Part One" markers instead of its real chapters.
 
 **Metadata and decryption**
-- `generate_metadata(book)` - takes a `Book`; title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment
+- `generate_metadata(book)` - takes a `Book`; title/album, artist/album_artist/author, composer (narrators), series, genre, year, ASIN comment. Series comes from `Book.primary_series`, which guarantees a title; the sequence still needs `or ""` because `_prepare_book` always creates the key, so a `.get(..., "")` default never fires and a null sequence used to reach `_escape_ffmetadata` and be written as a literal `series-part=None`
 - `write_ffmpeg_metadata_file(metadata, path, chapters=None)` - writes an FFMETADATA1 file including `[CHAPTER]` blocks, escaping through `_escape_ffmetadata`. A newline is escaped as a backslash followed by the real newline; writing the two characters `\` and `n` would be read back as a literal `n`
 - `decrypt_aaxc(book, voucher, book_data=None, cover_path=None, chapters=None, *, encoding_format="m4b", bitrate=64)` - runs `ffmpeg` via `subprocess` with `-audible_key`/`-audible_iv` and raises on non-zero exit. The argv comes from one of two helpers:
   - `_m4b_ffmpeg_args` - `-c:a copy`, cover mapped as `attached_pic`, metadata + `[CHAPTER]` blocks from the FFMETADATA file via `-map_metadata`/`-map_chapters`. `-map_chapters` is only passed when there **are** chapters: pointing it at a chapterless metadata file discards the chapter track the AAXC itself carries, which FFmpeg would otherwise have copied. The MP4 muxer only writes the keys it knows and drops `series`, `series-part`, `author` and `media_type`; after FFmpeg succeeds `decrypt_aaxc` calls `write_m4b_extra_tags` (in `src/encoding.py`) to add those as iTunes freeform atoms. Do not use `-movflags use_metadata_tags` for this: it keeps every key but removes the embedded cover (verified 2026-09-08)
@@ -263,7 +266,7 @@ Everything that turns book data into a path; see also the `[naming]` templates u
 
 - `sanitize_filename(name, fallback="Unknown")` - makes a single path segment safe on Linux, macOS, Windows and SMB. `:` becomes ` -`, `/` and `\` become `-`, other invalid characters are dropped, whitespace collapsed, Windows device names (`CON`, `NUL`, `COM1`, ...) get a trailing underscore, and the result is capped at 150 characters **and** 200 UTF-8 bytes. File systems limit a component in bytes, so a CJK title overflows long before the character cap. Use it for every title, author, series or sequence that becomes part of a path.
 - `temp_book_folder(download_folder, asin, title)` - the per-book working folder `downloads/{asin}_{safe_title}/`
-- `book_template_values(book)`, `render_template`, `validate_templates`, `book_output_paths` - the template engine. A sequence with no series title is treated as empty, so a book never lands in a bare `{author}/2 - {title}/` folder.
+- `book_template_values(book)`, `render_template`, `validate_templates`, `book_output_paths` - the template engine. `{series}` and `{sequence}` come from `Book.primary_series` (see `model.py`), which is also what treats a sequence with no series title as empty, so a book never lands in a bare `{author}/2 - {title}/` folder. Both values must come from the *same* entry, or a two-series book files as `Dune/12 - Dune`.
 
 ### encoding.py
 
@@ -278,10 +281,6 @@ Where download byte progress is reported. `_stream_to_file` used to open a `tqdm
 - `TqdmProgress` - the CLI adapter, built with the same arguments as the bar it replaced so a terminal run looks exactly as it did. One instance drives one transfer at a time, and `start` closes any bar left open rather than leaking it
 
 **`tqdm` is imported here and nowhere else**, so no library module depends on a terminal. Keep it that way.
-
-### api.py
-
-FastAPI stub with `GET /` and `POST /sync`. The sync endpoint calls `sync_library()` without a client and crashes. Milestone 3 work; do not build on it yet.
 
 ## Configuration
 
@@ -319,7 +318,7 @@ pip install audible-cli && audible quickstart   # creates ~/.audible/audible.jso
 uv run python -m src.main
 ```
 
-**Dependencies:** `pyproject.toml` lists only direct dependencies (`audible`, `httpx`, `tqdm`, `mutagen`, `fastapi`, `uvicorn`) plus a `dev` group. After changing it run `uv lock` and regenerate `requirements.txt` with the export command shown in the tree above. The Dockerfile installs with `--no-dev`.
+**Dependencies:** `pyproject.toml` lists only direct dependencies (`audible`, `httpx`, `tqdm`, `mutagen`) plus a `dev` group. After changing it run `uv lock` and regenerate `requirements.txt` with the export command shown in the tree above. The Dockerfile installs with `--no-dev`.
 
 FFmpeg must be on PATH (`brew install ffmpeg` / `apt install ffmpeg`).
 
@@ -375,7 +374,7 @@ uv run pytest -k sanitize   # subset
 - For `download_books`, patch `get_books_to_download`, `claim_book_for_download`, `mark_book_downloaded`, `mark_book_failed`, `release_book`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). All of these are looked up as attributes of `src.downloader`, so patch them there - miss one and the test writes to the real library database. `_patch_pipeline` takes optional `claimed=` and `failures=` recorder lists. It takes `(audible, settings)`; build the settings with `make_settings(download_folder=..., audiobook_folder=...)`. This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
 - For progress, pass a recorder implementing `start`/`advance`/`finish` (see `RecordingProgress` in `tests/test_downloader.py`) and a fake streaming response whose `num_bytes_downloaded` advances as chunks are yielded, because that counter - not `len(chunk)` - is what `_stream_to_file` takes its deltas from. For `TqdmProgress`, monkeypatch `src.progress.tqdm`.
 - For `run_pipeline`, patch `start_sync_run` and `finish_sync_run` as attributes of `src.main` alongside the rest; `tests/test_main.py`'s `_patch_pipeline` takes `synced=` and `stats=` which may be exceptions, so one helper drives both failure arms.
-- For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible.py`.
+- For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible_client.py`.
 - `tests/conftest.py` holds the shared `make_book()` and `make_settings()` factories. `make_settings(**overrides)` is `dataclasses.replace(Settings(), **overrides)`, so an override that would not survive `from_ini` still raises; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
 
 The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, the progress seam, the run record, the sync cursor and its fallbacks, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
@@ -386,6 +385,7 @@ The suite currently covers the sanitizer, metadata generation, the FFMETADATA wr
 - [ ] Incremental sync on an existing database: the `Fetching books purchased since ...Z` line shows the previous run's start minus an hour, in Audible's `Z` format
 - [ ] A database written by the previous version gains `sync_runs` on first run, and its first sync still uses the `MAX(date_added)` fallback
 - [ ] A run killed mid-download leaves a row still `running` with a NULL `finished_at`, and does not move the cursor
+- [ ] The book that killed run had claimed is picked up again once `STALE_CLAIM_SECONDS` has passed, and is *not* picked up before then
 - [ ] A run where a book failed records `partial`, and the next run's cursor still advances
 - [ ] `PRAGMA journal_mode` reads `wal`
 - [ ] The progress bar still renders for the AAXC, PDF and cover, and the AAXC bar carries the book title
@@ -438,12 +438,9 @@ Two workflows in `.github/workflows/`:
 
 ## Known Issues and Cleanup Candidates
 
-- `src/api.py` is broken (see above)
-- Root `main.py` is a uv scaffold leftover
 - `requirements.txt` is generated from the lockfile and will drift if `uv lock` runs without re-exporting
-- Test coverage is thin outside `downloader.py` and `database.py`
+- Every module now has a test file, but the suite is still thickest around `downloader.py` and `database.py`
 - Two books whose templates render to the same name are filed side by side (` [{asin}]` suffix) rather than merged; the naming template is what actually needs disambiguating
-- `Downloader`'s network-facing methods still have no unit tests
 
 ## Roadmap
 
@@ -453,7 +450,7 @@ See `todo.md` for the authoritative list.
 
 **Milestone 2 - complete:** logging, PDF/cover/annotations, metadata and chapter embedding, configurable file naming, and Ogg Opus encoding with a bitrate setting. Async download progress is still listed under it in `todo.md` but only pays off with a web UI; recommended to move to Milestone 3.
 
-**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema addition: a `settings` table (`sync_runs`, `encoding_format` and `downloaded_at` already exist). `todo.md` opens the milestone with a **Step 0** section of structural changes that each block one of the requirements; start there.
+**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema addition: a `settings` table (`sync_runs`, `encoding_format` and `downloaded_at` already exist). **Step 0 is complete** (2026-09-09), including the smaller items folded in with it, so the endpoints are the next thing to build. There is no service module to build on: the broken `api.py` stub was deleted and `fastapi`/`uvicorn` dropped from the runtime dependencies, so the service starts fresh and adds them back when it exists.
 
 ## Understanding "Sync"
 
@@ -461,7 +458,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.4
+**Document Version:** 4.6
 **Last Updated:** 2026-09-09
-**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 complete (database returns objects, settings object, book state machine, sync run records and injected progress)
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 complete, including the smaller fold-in items (database returns objects, settings object, book state machine, sync run records, injected progress, deliberate primary-series rule, and the API stub removed)
 **Primary Branch:** `dev`

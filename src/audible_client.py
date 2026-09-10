@@ -2,7 +2,7 @@ import logging
 
 import audible
 
-from src.model import Book
+from src.model import Book, sort_series
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,20 @@ def _prepare_book(item: dict) -> Book:
         for ladder in genre.get("ladder") or []:
             genres.add(ladder["name"])
 
-    series = [{"title": entry.get("title"), "sequence": entry.get("sequence")} for entry in item.get("series") or []]
+    # `series_asin` is the series' own ASIN, which identifies it independently of a
+    # title Audible has demonstrated it can typo ("His Dark Materialsik"). Sorted on
+    # the way in so the stored order is canonical rather than whatever the response
+    # happened to use; see `sort_series`.
+    series = sort_series(
+        [
+            {
+                "title": entry.get("title"),
+                "sequence": entry.get("sequence"),
+                "series_asin": entry.get("asin"),
+            }
+            for entry in item.get("series") or []
+        ]
+    )
 
     # Get highest resolution cover (prefer 1215px, fallback to 500px)
     product_images = item.get("product_images") or {}
