@@ -159,18 +159,21 @@ def test_run_pipeline_reports_no_progress_by_default(tmp_path, monkeypatch):
 
 
 def test_main_reads_settings_before_configuring_logging(monkeypatch):
-    """Settings are validated first, so a bad config fails before any folder is made."""
+    """The database holds the settings, so it comes first; the config file is seeded into
+    it once; the settings are validated before logging or any folder exists."""
     order = []
     settings = make_settings(debug=True)
 
-    monkeypatch.setattr(main_module.Settings, "from_ini", classmethod(lambda cls: order.append("settings") or settings))
+    monkeypatch.setattr(main_module, "init_db", lambda: order.append("init_db"))
+    monkeypatch.setattr(main_module, "seed_settings_from_ini", lambda: order.append("seed"))
+    monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: order.append("settings") or settings))
     monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append(("logging", debug)))
     monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
 
     main()
 
-    assert order[:2] == ["settings", ("logging", True)]
-    step, passed_settings, progress = order[2]
+    assert order[:4] == ["init_db", "seed", "settings", ("logging", True)]
+    step, passed_settings, progress = order[4]
     assert (step, passed_settings) == ("pipeline", settings)
     # The bar is a terminal concern the CLI injects, like the logging config above
     assert isinstance(progress, main_module.TqdmProgress)

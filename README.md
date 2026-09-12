@@ -28,6 +28,12 @@ If you decide not to store the file at the default location you can update the `
 
 The `config/config.ini` file has the following sections and options.
 
+The file is read **once**, on the first run, and copied into a `settings` table in the database. From then on the table is what the app runs on: it is where the coming API changes settings at runtime, and edits to the file are not picked up again. To start over from the file, empty the table and run the app:
+
+```bash
+uv run python -c "import sqlite3; c=sqlite3.connect('data/audible_sync.db'); c.execute('delete from settings'); c.commit()"
+```
+
 Every path setting may be absolute or relative. A relative path is resolved against the application folder — the repository root, or `/app` inside the Docker image — not the folder you happen to run the app from, so the app behaves the same started from anywhere. `~` is expanded, and an absolute path lets you file books outside the repository.
 
 ### `sync`
@@ -35,6 +41,8 @@ Every path setting may be absolute or relative. A relative path is resolved agai
  - `max-download`: total number of books to download and decrypt on each app run, leave unset to get everything waiting to be downloaded
  - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`. A book Audible will not license is failed on the first try, since it cannot succeed later
  - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
+ - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The one-shot CLI ignores both
+ - `auto-monitor-new`: whether a purchase seen for the first time is queued for download, default `true`
 
 ### `folders`
 
@@ -77,6 +85,10 @@ Optional, and off by default: unless you set it, the audio is kept exactly as Au
  - `bitrate`: Opus bitrate in kbps, only used with `oga`, 1 to 256. `64` matches Audible's own quality; `32` to `48` is still very good for spoken word. Default: `64`
 
 Both formats get the same metadata, cover art and chapters. In M4B files the series name, series position and author are stored as iTunes freeform tags (`----:com.apple.iTunes:series` and so on), which Audiobookshelf and most taggers read. In Ogg files the cover is stored as a `METADATA_BLOCK_PICTURE` tag and the chapters as `CHAPTERxxx` tags, which is what players such as Audiobookshelf, VLC and Foobar2000 expect. `oga` needs an FFmpeg 5 or newer built with libopus (`ffmpeg -encoders | grep libopus`); the Docker image has it. Changing the format only affects books downloaded afterwards.
+
+### `notifications`
+
+ - `webhook-url`: optional `http(s)` URL the background service posts a JSON summary to after each sync run. Unset by default
 
 ## Running
 

@@ -70,8 +70,8 @@ List of tasks to complete by phases
 
 ### Tasks
 
-- [ ] Add settings table to database
-- [ ] Initialise settings on initial run
+- [x] Add settings table to database
+- [x] Initialise settings on initial run
 - [ ] Add support for multiple audible subscriptions
 - [ ] Convert to an API service
 - [ ] Aysnc downloader to monitor progress of download

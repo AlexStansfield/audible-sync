@@ -10,7 +10,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Type** | CLI application (service + API planned for Milestone 3) |
 | **Entry Point** | `python -m src.main` (or `uv run python -m src.main`) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
-| **Config** | INI format (`config/config.ini`) |
+| **Config** | `config/config.ini`, seeded once into the `settings` table which the app then runs on |
 | **Lines of Code** | ~2850 lines across 11 Python modules, plus ~3700 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
@@ -114,16 +114,22 @@ Three functions, no module-level work:
 
 - `configure_logging(debug)` sets the root logger from `settings.debug`. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
 - `run_pipeline(settings, progress=None)` creates the folders, initialises the DB, opens a `sync_runs` row, builds the `Audible` client from `settings.auth_file`, then runs `sync_library()` and `download_books(audible, settings, progress=progress)`. Importable and free of logging side effects, so the service and scheduler can run the same pipeline. It **owns the run record**: the row is opened before Audible is touched and closed on every exit, including the exception arm, which re-raises after recording. `SUCCESS` when nothing failed, `PARTIAL` when a book failed *or* an exception arrived after the sync had completed, `FAILED` only when the sync itself raised - the `synced` flag is what separates the last two, and only `SUCCESS`/`PARTIAL` become the next run's cursor
-- `main()` is the CLI entry point: `Settings.from_ini()`, then `configure_logging`, then `run_pipeline` with a `TqdmProgress()`. Settings are read (and therefore validated) first, so a bad template or bitrate fails before any folder is created - the old inline code created the folders before it validated anything. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
+- `main()` is the CLI entry point: `init_db()`, `seed_settings_from_ini()`, `Settings.from_db()`, then `configure_logging`, then `run_pipeline` with a `TqdmProgress()`. The database comes first because the settings live in it; the config file is copied in once. Settings are read (and therefore validated) before logging or any folder exists, so a bad template or bitrate fails before anything is created. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
 
 This is a one-shot run: sync + download, then exit.
 
 ### settings.py
 
-`Settings` is a frozen (`slots=True`) dataclass holding every configured value: `debug`, `max_download`, `max_attempts`, `auth_file`, `download_folder`, `audiobook_folder`, `folder_template`, `filename_template`, `encoding_format`, `bitrate`. It is the only thing that reads configuration, so the CLI, the coming API and the scheduler all work from the same validated object rather than loose keyword arguments.
+`Settings` is a frozen (`slots=True`) dataclass holding every configured value: `debug`, `sync_enabled`, `sync_interval_minutes`, `max_download`, `max_attempts`, `auto_monitor_new`, `auth_file`, `download_folder`, `audiobook_folder`, `folder_template`, `filename_template`, `encoding_format`, `bitrate`, `webhook_url`. It is the only thing that reads configuration, so the CLI, the API and the scheduler all work from the same validated object rather than loose keyword arguments.
 
-- `__post_init__` runs `validate_templates`, `validate_encoding`, `validate_max_download` and `validate_max_attempts`, so **no** route in - `from_ini`, `dataclasses.replace`, a direct call - can produce settings that would fail part way through a run. It only validates; normalisation belongs to the builders, which keeps the field types honest
-- `Settings.from_ini(path=DEFAULT_CONFIG_FILE)` reads the INI, passes every configured path through `resolve_path` and falls back to the documented default for each key. It raises `FileNotFoundError` on a missing file, because `configparser.read` ignores one and a mistyped path would otherwise run silently on defaults. `Settings.from_db` follows with the settings table
+**Two sources, one order.** `config.ini` is read by `from_ini` and is where a fresh installation's values come from; the `settings` table is read by `from_db` and is what actually runs. `seed_settings_from_ini()` copies the file into the table **once** (only when `has_settings()` is false; a missing file is not an error there, the defaults apply), so after the first run the file is documentation and the table is the truth, changed at runtime through the API. Edits to the file after that are deliberately not picked up.
+
+- `__post_init__` runs `validate_templates`, `validate_encoding`, `validate_max_download`, `validate_max_attempts`, `validate_sync_interval` (≥ `MIN_SYNC_INTERVAL_MINUTES`, 5) and `validate_webhook_url` (http/https), so **no** route in - `from_ini`, `from_db`, `with_changes`, `dataclasses.replace`, a direct call - can produce settings that would fail part way through a run. It only validates; normalisation belongs to the builders, which keeps the field types honest
+- `Settings.from_ini(path=DEFAULT_CONFIG_FILE)` reads the INI, passes every configured path through `resolve_path` and falls back to the documented default for each key. It raises `FileNotFoundError` on a missing file, because `configparser.read` ignores one and a mistyped path would otherwise run silently on defaults
+- `Settings.from_db()` overlays the table on the defaults. The table stores **text**; `_PARSERS` maps each key to its parser (bools accept the configparser spellings, `""` reads as `None` for the two optional fields, folders go through `resolve_path`), and a parse failure raises `ValueError` naming the key. A key the table holds that this build does not know is ignored, so a database written by a newer version still reads. `init_db` must have run
+- `to_db_values()` is the inverse: every `DB_SETTING_KEYS` field as text, `None` as `""`, bools as `true`/`false`. `DB_SETTING_KEYS` is every field except `auth_file`, which is where an existing login is imported from rather than something a run reads; a test pins `_PARSERS` to the same set so a new field cannot be added without saying how it reads
+- `with_changes(**changes)` is what a settings update goes through: refuses a key outside `DB_SETTING_KEYS` (a typo, or `auth_file`), anchors a folder given as text, reads `webhook_url=""` as unset, then `dataclasses.replace` so validation runs. The API path is therefore JSON → `with_changes` → `to_db_values` → `save_settings`
+- `settings.py` imports `database.py` (for the three settings functions); the reverse edge does not exist, so there is no cycle
 - Both `[folders]` keys have fallbacks. They used to have none, so an incomplete config died with a bare `KeyError` after the folders had already been created
 - `max_attempts` is a plain `int`, not `int | None`: unlike `max_download` there is no "unlimited" reading, because retrying forever is the bug the cap exists to fix
 - `auth_file` uses a `default_factory`, so `$HOME` is read when the settings are built rather than when the module is imported
@@ -160,7 +166,7 @@ A series entry is `{"title", "sequence", "series_asin"}`. `series_asin` is the s
 
 ### database.py
 
-Two tables, `library` and `sync_runs`. `init_db()` sets `PRAGMA journal_mode=WAL` (a property of the database *file*, so setting it once holds for every later connection, including one opened by a process that never calls `init_db`), creates both tables, then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`, `is_consumable`, `attempts`, `last_error`, `last_attempt_at`). `_migrate_schema` is library-only and stays that way: `sync_runs` is new, so `CREATE TABLE IF NOT EXISTS` covers a fresh and an existing database alike and there is nothing to migrate.
+Three tables, `library`, `sync_runs` and `settings`. `init_db()` sets `PRAGMA journal_mode=WAL` (a property of the database *file*, so setting it once holds for every later connection, including one opened by a process that never calls `init_db`), creates both tables, then runs `_migrate_schema()`, which adds any missing columns to existing databases (currently `pdf_path`, `cover_path`, `annotations_path`, `has_pdf`, `encoding_format`, `downloaded_at`, `is_consumable`, `attempts`, `last_error`, `last_attempt_at`). `_migrate_schema` is library-only and stays that way: `sync_runs` is new, so `CREATE TABLE IF NOT EXISTS` covers a fresh and an existing database alike and there is nothing to migrate.
 
 **Functions:**
 - `init_db()`
@@ -183,6 +189,12 @@ The `sync_runs` functions are grouped together at the foot of the module, by tab
 - `finish_sync_run(run_id, *, outcome, books_seen=, books_added=, books_downloaded=, books_failed=, error=)` - closes the row with `finished_at = _utcnow()`
 - `latest_successful_sync_start() -> str | None` - `MAX(started_at)` over `_CURSOR_OUTCOMES` (`success` and `partial`). **The incremental sync cursor.** The run's *start*, not its finish, because anything Audible added while the run was reading has to be picked up next time
 - `get_sync_runs(limit=20) -> list[SyncRun]` - newest first; unused by the pipeline, this is the read the API and UI are for
+
+The `settings` functions sit at the foot of the module for the same reason. The layer is deliberately **typeless** - text in, text out - so a value the running build cannot parse is still stored and read back rather than lost; `src/settings.py` owns parsing, defaults and validation:
+
+- `get_settings() -> dict[str, str]` - every stored key
+- `save_settings(values)` - an upsert per key with `updated_at = _utcnow()`, so a partial update leaves every other setting alone. An empty dict writes nothing
+- `has_settings() -> bool` - whether anything was ever stored; what `seed_settings_from_ini` checks
 
 **Reads return `Book` objects, not tuples.** `_get_connection()` sets `row_factory = sqlite3.Row` and every reader maps rows through `Book.from_row()`. Access is by column name, which is why `SELECT *` stays correct even on an older database where `_migrate_schema` appended columns in a different order than the DDL - positional indexing was silently wrong there. Never index a row positionally.
 
@@ -294,6 +306,9 @@ debug = true            ; sets the log level to DEBUG
 ; max-download = 10     ; limit books processed per run, 1 or more; unset = all waiting
 ; max-attempts = 3      ; tries before a book is marked failed, 1 or more; default 3
 ; audible-auth-file = audible.json   ; default ~/.audible/audible.json
+; enabled = true        ; service only: run syncs on a schedule
+; interval-minutes = 360 ; service only: how often, 5 or more
+; auto-monitor-new = true ; queue a purchase the first time it is seen
 
 [folders]
 downloads = data/downloads
@@ -302,9 +317,12 @@ audiobooks = audiobooks
 [encoding]
 ; format = oga          ; opt-in Ogg Opus re-encode; unset = m4b stream copy, no re-encoding
 ; bitrate = 64          ; kbps, oga only, 1-256
+
+[notifications]
+; webhook-url =         ; service only: http(s) URL posted to after each run
 ```
 
-Read in `src/settings.py` with `configparser`, into a frozen `Settings`. Relative paths are anchored to the repo root, so the app can be started from any working directory. The config file is copied into the Docker image, so committed values become the image defaults. Users override by mounting `./config` (see `compose.yml`).
+Read in `src/settings.py` with `configparser`, into a frozen `Settings`, and copied into the `settings` table on the first run only - after that the table is the live configuration (see `settings.py` above). Relative paths are anchored to the repo root, so the app can be started from any working directory. The config file is copied into the Docker image, so committed values become the image defaults for a fresh database. Users override by mounting `./config` (see `compose.yml`).
 
 ## Development
 
@@ -375,6 +393,7 @@ uv run pytest -k sanitize   # subset
 - For progress, pass a recorder implementing `start`/`advance`/`finish` (see `RecordingProgress` in `tests/test_downloader.py`) and a fake streaming response whose `num_bytes_downloaded` advances as chunks are yielded, because that counter - not `len(chunk)` - is what `_stream_to_file` takes its deltas from. For `TqdmProgress`, monkeypatch `src.progress.tqdm`.
 - For `run_pipeline`, patch `start_sync_run` and `finish_sync_run` as attributes of `src.main` alongside the rest; `tests/test_main.py`'s `_patch_pipeline` takes `synced=` and `stats=` which may be exceptions, so one helper drives both failure arms.
 - For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible_client.py`.
+- For `Settings.from_db` and the seed, `tests/test_settings.py` has its own `db` fixture pointing `src.database.DB_FILE` at a temp file; write text with `database.save_settings` and read back with `Settings.from_db()`.
 - `tests/conftest.py` holds the shared `make_book()` and `make_settings()` factories. `make_settings(**overrides)` is `dataclasses.replace(Settings(), **overrides)`, so an override that would not survive `from_ini` still raises; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
 
 The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, the progress seam, the run record, the sync cursor and its fallbacks, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
@@ -450,7 +469,7 @@ See `todo.md` for the authoritative list.
 
 **Milestone 2 - complete:** logging, PDF/cover/annotations, metadata and chapter embedding, configurable file naming, and Ogg Opus encoding with a bitrate setting. Async download progress is still listed under it in `todo.md` but only pays off with a web UI; recommended to move to Milestone 3.
 
-**Milestone 3 - planned:** settings table, background scheduler, FastAPI service, Audible login flow, web UI. Planned schema addition: a `settings` table (`sync_runs`, `encoding_format` and `downloaded_at` already exist). **Step 0 is complete** (2026-09-09), including the smaller items folded in with it, so the endpoints are the next thing to build. There is no service module to build on: the broken `api.py` stub was deleted and `fastapi`/`uvicorn` dropped from the runtime dependencies, so the service starts fresh and adds them back when it exists.
+**Milestone 3 - in progress:** settings table (done, 2026-09-12), then the FastAPI service with a scheduler, accounts for several marketplaces, the Audible login flow, book management and the extras. **Step 0 is complete** (2026-09-09), including the smaller items folded in with it. There is no service module to build on yet: the broken `api.py` stub was deleted and `fastapi`/`uvicorn` dropped from the runtime dependencies, so the service starts fresh and adds them back when it exists.
 
 ## Understanding "Sync"
 
@@ -458,7 +477,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.6
-**Last Updated:** 2026-09-09
-**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 complete, including the smaller fold-in items (database returns objects, settings object, book state machine, sync run records, injected progress, deliberate primary-series rule, and the API stub removed)
+**Document Version:** 4.7
+**Last Updated:** 2026-09-12
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 and the settings table complete (settings live in the database, seeded once from `config.ini`)
 **Primary Branch:** `dev`

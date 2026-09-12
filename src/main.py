@@ -5,7 +5,7 @@ from src.database import finish_sync_run, init_db, start_sync_run
 from src.downloader import download_books
 from src.model import SyncOutcome
 from src.progress import Progress, TqdmProgress
-from src.settings import Settings
+from src.settings import Settings, seed_settings_from_ini
 from src.sync import sync_library
 
 logger = logging.getLogger(__name__)
@@ -82,10 +82,14 @@ def run_pipeline(settings: Settings, progress: Progress | None = None) -> None:
 
 
 def main() -> None:
-    """CLI entry point: read the config, set up logging, run one sync and download pass."""
+    """CLI entry point: read the settings, set up logging, run one sync and download pass."""
+    # The settings live in the database, so it is initialised before anything else.
+    # `config.ini` is copied in the first time only; after that the table is the truth.
+    init_db()
+    seed_settings_from_ini()
     # Settings are read, and so validated, before anything else: a bad template or
     # bitrate now fails before the folders are created rather than after.
-    settings = Settings.from_ini()
+    settings = Settings.from_db()
     configure_logging(settings.debug)
     # The progress bar is a terminal concern, injected here for the same reason logging
     # is configured here: a host process running the pipeline gets neither by surprise.
