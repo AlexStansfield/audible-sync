@@ -96,7 +96,7 @@ Both formats get the same metadata, cover art and chapters. In M4B files the ser
 
 ### `notifications`
 
- - `webhook-url`: optional `http(s)` URL the background service posts a JSON summary to after each sync run. Unset by default
+ - `webhook-url`: optional `http(s)` URL that receives a JSON `POST` after every run of every account - `{"event": "sync.finished", "run": {...the run row...}, "account": {"id", "name", "country_code"}}` - for example to make Audiobookshelf rescan. A receiver that is down is logged and ignored; the run is never held up. `POST /api/settings/webhook/test` sends a sample event. Unset by default
 
 ## Running
 
@@ -233,6 +233,9 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
 | `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
 | `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
+| `POST /api/settings/webhook/test` | `{"url"?}`: send a sample event to `url`, or to the configured webhook; `502` with the reason if it fails |
+| `GET /api/logs?limit=&level=` | The newest log lines (up to 1000 are kept), oldest first, at or above `level` |
+| `GET /api/stats` | For a dashboard: per account and in total, books by status, monitored/unmonitored, bytes on disk, the last run, and when the next one is due |
 | `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |
 | `POST /api/accounts/login` | `{"country_code"}`: step one of signing in. Returns `login_id`, the `url` to open in a browser, and `expires_at` (15 minutes) |
 | `POST /api/accounts/login/{login_id}` | `{"response_url", "name"?, "monitor_existing"?}`: step two. `response_url` is the address of the "page not found" page the browser lands on after signing in. `201` with the new account; `404` if the login expired (start again), `400` if the address carries no code, `502` if Amazon rejected it |
