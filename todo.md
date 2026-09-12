@@ -72,12 +72,13 @@ List of tasks to complete by phases
 
 - [x] Add settings table to database
 - [x] Initialise settings on initial run
+- [x] Convert to an API service: background scheduler, status, manual sync trigger and cancel, run history and settings endpoints, bearer token, Docker image runs the service
+- [x] Monitor download progress (the run in flight is polled through `GET /api/status`)
 - [ ] Add support for multiple audible subscriptions
-- [ ] Convert to an API service
-- [ ] Aysnc downloader to monitor progress of download
 - [ ] Login and save credentials
 - [ ] Delete a book
 - [ ] Set book as monitored/unmonitored to remove from sync
+- [ ] Extras: recent-log endpoint, webhook on run finished, dashboard stats endpoint
 
 ## Milestone 4: Web App Frontend
 
