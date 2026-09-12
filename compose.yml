@@ -1,10 +1,17 @@
-version: "3.8"
-
 services:
   audible-sync:
     image: ghcr.io/alexstansfield/audible-sync:latest
     container_name: audible-sync
     restart: unless-stopped
+    # A stop cancels the run in flight and waits for the book being worked on to be
+    # handed back; a re-encode can take a while, so give it longer than the default 10s
+    stop_grace_period: 2m
+    ports:
+      - "8080:8080"
+    environment:
+      # Bearer token the API requires. Leave unset to have one generated on the first
+      # start and printed in the log; set it to choose your own.
+      - AUDIBLE_SYNC_API_TOKEN=${AUDIBLE_SYNC_API_TOKEN:-}
     volumes:
       - ~/.audible:/root/.audible
       - ./data:/app/data

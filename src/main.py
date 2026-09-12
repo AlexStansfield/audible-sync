@@ -1,10 +1,12 @@
 import logging
+import threading
 
 from src.audible_client import Audible
 from src.database import finish_sync_run, init_db, start_sync_run
-from src.downloader import download_books
+from src.downloader import DownloadStats, download_books
 from src.model import SyncOutcome
 from src.progress import Progress, TqdmProgress
+from src.runstate import RunStage, RunState
 from src.settings import Settings, seed_settings_from_ini
 from src.sync import sync_library
 
@@ -26,12 +28,25 @@ def configure_logging(debug: bool = False) -> None:
     )
 
 
-def run_pipeline(settings: Settings, progress: Progress | None = None) -> None:
+def _outcome(stats: DownloadStats) -> SyncOutcome:
+    """How a run that got through both halves is recorded."""
+    if stats.cancelled:
+        return SyncOutcome.CANCELLED
+    return SyncOutcome.SUCCESS if stats.failed == 0 else SyncOutcome.PARTIAL
+
+
+def run_pipeline(
+    settings: Settings,
+    progress: Progress | None = None,
+    *,
+    state: RunState | None = None,
+    cancel: threading.Event | None = None,
+) -> None:
     """
     Sync the library and download everything waiting, in one pass.
 
-    Importable and free of logging side effects, so the Milestone 3 service or
-    scheduler can run the same pipeline without reconfiguring its own logger.
+    Importable and free of logging side effects, so the service or scheduler can run
+    the same pipeline without reconfiguring its own logger.
 
     The whole pass is recorded as one `sync_runs` row, which is both the run history a
     UI reads and the cursor the next sync starts from. The row is opened before Audible
@@ -39,14 +54,21 @@ def run_pipeline(settings: Settings, progress: Progress | None = None) -> None:
     leaving a row that looks in flight forever.
 
     Args:
-        settings: Validated settings (see `Settings.from_ini`)
+        settings: Validated settings (see `Settings.from_db`)
         progress: Where download byte progress is reported (see `src.progress`).
             Defaults to reporting nothing, which is what a headless host wants
+        state: Where the stage, current book and queue position are reported (see
+            `src.runstate`). Defaults to one nobody reads
+        cancel: Event that stops the run once set. Only honoured during the download
+            half: the sync is seconds and the downloads are hours, and a run that has
+            read the library through still counts as a cursor (see `SyncOutcome`)
     """
     settings.create_folders()
     init_db()
 
+    state = state or RunState()
     run_id = start_sync_run()
+    state.begin(run_id)
     # Held outside the try so a run that raises still records what it managed. `synced`
     # is whether the library was read through: a failure after that point must not hold
     # the cursor back, or every later run would re-read from an ever older cursor.
@@ -54,31 +76,38 @@ def run_pipeline(settings: Settings, progress: Progress | None = None) -> None:
     books_seen = books_added = 0
 
     try:
-        audible = Audible(str(settings.auth_file))
+        try:
+            audible = Audible(str(settings.auth_file))
 
-        books_seen, books_added = sync_library(audible)
-        synced = True
-        logger.info("%d books synced to database", books_added)
+            state.set_stage(RunStage.SYNCING)
+            books_seen, books_added = sync_library(audible)
+            synced = True
+            logger.info("%d books synced to database", books_added)
 
-        stats = download_books(audible, settings, progress=progress)
-    except Exception as error:
+            state.set_stage(RunStage.DOWNLOADING)
+            stats = download_books(audible, settings, progress=progress, state=state, cancel=cancel)
+        except Exception as error:
+            finish_sync_run(
+                run_id,
+                outcome=SyncOutcome.PARTIAL if synced else SyncOutcome.FAILED,
+                books_seen=books_seen,
+                books_added=books_added,
+                error=f"{type(error).__name__}: {error}",
+            )
+            raise
+
         finish_sync_run(
             run_id,
-            outcome=SyncOutcome.PARTIAL if synced else SyncOutcome.FAILED,
+            outcome=_outcome(stats),
             books_seen=books_seen,
             books_added=books_added,
-            error=f"{type(error).__name__}: {error}",
+            books_downloaded=stats.succeeded,
+            books_failed=stats.failed,
         )
-        raise
-
-    finish_sync_run(
-        run_id,
-        outcome=SyncOutcome.SUCCESS if stats.failed == 0 else SyncOutcome.PARTIAL,
-        books_seen=books_seen,
-        books_added=books_added,
-        books_downloaded=stats.succeeded,
-        books_failed=stats.failed,
-    )
+    finally:
+        # After the row is closed, so a poll never sees "nothing running" beside a run
+        # the history still shows in flight
+        state.end()
 
 
 def main() -> None:

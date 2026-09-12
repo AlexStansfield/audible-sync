@@ -586,9 +586,10 @@ def update_book_accessories(
 # functions below are only meaningful together, and only `latest_successful_sync_start`
 # is read by the pipeline itself.
 
-# A run whose sync finished is a valid cursor even if its downloads did not, so both
-# count. A run still `running`, or one that failed before reading the library, does not.
-_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL)
+# A run whose sync finished is a valid cursor even if its downloads did not, so all three
+# count: a cancel is only honoured after the sync (see `SyncOutcome`). A run still
+# `running`, or one that failed before reading the library, does not.
+_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED)
 
 
 def start_sync_run() -> int:
@@ -660,22 +661,49 @@ def latest_successful_sync_start() -> str | None:
     `partial` counts alongside `success`: its sync completed, and a book that failed to
     download is tracked by the library state machine, not by the cursor.
     """
+    placeholders = ", ".join("?" for _ in _CURSOR_OUTCOMES)
     with closing(_get_connection()) as conn:
         return conn.execute(
-            "SELECT MAX(started_at) FROM sync_runs WHERE outcome IN (?, ?)",
+            f"SELECT MAX(started_at) FROM sync_runs WHERE outcome IN ({placeholders})",
             _CURSOR_OUTCOMES,
         ).fetchone()[0]
 
 
-def get_sync_runs(limit: int = 20) -> list[SyncRun]:
+def latest_sync_run_start() -> str | None:
+    """
+    When the newest run started, whatever became of it, or None if there has never been one.
+
+    This is what the scheduler paces itself from: a run that failed or was cancelled
+    still counts as "we tried", so the next attempt waits the full interval rather than
+    hammering Audible every tick while something is broken.
+    """
+    with closing(_get_connection()) as conn:
+        return conn.execute("SELECT MAX(started_at) FROM sync_runs").fetchone()[0]
+
+
+def get_sync_runs(limit: int = 20, offset: int = 0) -> list[SyncRun]:
     """
     Run history, newest first.
 
-    Unused by the pipeline: this is the read the API and the UI are for.
+    Unused by the pipeline: this is the read the API and the UI are for, and `offset`
+    is how a history view pages.
     """
     with closing(_get_connection()) as conn:
-        rows = conn.execute("SELECT * FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?", (limit, offset)
+        ).fetchall()
     return [SyncRun.from_row(row) for row in rows]
+
+
+def get_sync_run(run_id: int) -> SyncRun | None:
+    with closing(_get_connection()) as conn:
+        row = conn.execute("SELECT * FROM sync_runs WHERE id = ?", (run_id,)).fetchone()
+    return SyncRun.from_row(row) if row is not None else None
+
+
+def count_sync_runs() -> int:
+    with closing(_get_connection()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0]
 
 
 # --- settings ------------------------------------------------------------------

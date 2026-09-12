@@ -2,7 +2,7 @@
 
 A python app that will fetch your library from audible, download the books and convert them to DRM free M4B or Ogg Opus files.
 
-On each run it will sync the latest purchases from your audible library to the app database.
+It runs as a background service: on a schedule (every six hours by default) it syncs the latest purchases from your audible library to the app database and downloads whatever is waiting. An HTTP API reports what it is doing, starts or cancels a run, shows the run history and changes the settings; the web UI that sits on top of it is the next milestone. A one-shot command line run is still there for scripting.
 
 It records the download status of each book so will only fetch the missing books. A book that keeps failing is retried up to `max-attempts` times and then left alone, with the reason recorded, rather than re-downloaded on every run forever.
 
@@ -28,7 +28,7 @@ If you decide not to store the file at the default location you can update the `
 
 The `config/config.ini` file has the following sections and options.
 
-The file is read **once**, on the first run, and copied into a `settings` table in the database. From then on the table is what the app runs on: it is where the coming API changes settings at runtime, and edits to the file are not picked up again. To start over from the file, empty the table and run the app:
+The file is read **once**, on the first run, and copied into a `settings` table in the database. From then on the table is what the app runs on: `GET`/`PUT /api/settings` read and change it at runtime with no restart, and edits to the file are not picked up again. To start over from the file, empty the table and run the app:
 
 ```bash
 uv run python -c "import sqlite3; c=sqlite3.connect('data/audible_sync.db'); c.execute('delete from settings'); c.commit()"
@@ -41,7 +41,7 @@ Every path setting may be absolute or relative. A relative path is resolved agai
  - `max-download`: total number of books to download and decrypt on each app run, leave unset to get everything waiting to be downloaded
  - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`. A book Audible will not license is failed on the first try, since it cannot succeed later
  - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
- - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The one-shot CLI ignores both
+ - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The next run is the previous run's start plus the interval, whatever became of that run; a service that was down past its slot runs as soon as it starts. The one-shot CLI ignores both
  - `auto-monitor-new`: whether a purchase seen for the first time is queued for download, default `true`
 
 ### `folders`
@@ -96,14 +96,28 @@ Both formats get the same metadata, cover art and chapters. In M4B files the ser
 
 The simplest of all, copy the `compose.yml` file from the repository to the location of your choice.
 
-Update the volumne mounts to match where you want files to be stored.
+Update the volume mounts to match where you want files to be stored.
 
 If you want your own config then uncomment the volume mount line and place an updated copy of the `config.ini` file in the host side folder.
 
-Then just run
+Then start the service:
 
 ```
-docker compose run audible-sync
+docker compose up -d
+```
+
+It listens on port 8080. Every API call except the health check needs a bearer token: set `AUDIBLE_SYNC_API_TOKEN` in the environment (or a `.env` file next to `compose.yml`) to choose one, or leave it unset and the service generates one on its first start, keeps it, and prints it in the log:
+
+```
+docker compose logs audible-sync | grep "API token"
+```
+
+The first run starts as soon as the service does, then every `interval-minutes` (six hours by default). `docker stop` cancels a run in progress cleanly: the book being downloaded goes back to the queue.
+
+For a single sync-and-exit instead of the service:
+
+```
+docker compose run --rm audible-sync uv run python -m src.main
 ```
 
 ### Running the App with Python (No Docker)
@@ -153,6 +167,47 @@ sudo apt install ffmpeg
 1. Download the FFmpeg executable from [here](https://ffmpeg.org/download.html).
 2. Extract the downloaded files.
 3. Add the bin/ folder inside the extracted directory to your system's PATH.
+
+#### ✅ 5. Run
+
+The service:
+
+```
+python -m src.service
+```
+
+or a single sync-and-exit:
+
+```
+python -m src.main
+```
+
+The service reads these environment variables:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AUDIBLE_SYNC_HOST` | `0.0.0.0` | Interface to listen on |
+| `AUDIBLE_SYNC_PORT` | `8080` | Port |
+| `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged on the first start if unset |
+| `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server |
+| `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |
+
+## API
+
+Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Every request except the health check carries `Authorization: Bearer <token>`; errors are always `{"detail": "..."}`.
+
+| Method and path | What it does |
+|-----------------|--------------|
+| `GET /api/health` | `{"status": "ok", "version": ...}`, no token needed |
+| `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer) and the last run |
+| `POST /api/sync` | Start a run now; `409` if one is already running |
+| `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |
+| `GET /api/sync/runs?limit=&offset=` | Run history, newest first, with a `total` |
+| `GET /api/sync/runs/{id}` | One run |
+| `GET /api/settings` | Every runtime setting |
+| `PUT /api/settings` | Change some settings: send only the fields to change, `null` clears an optional one. A bad value is a `422` carrying the reason; the change applies to the next run |
+
+Timestamps are ISO 8601 in UTC.
 
 ## Todo
 

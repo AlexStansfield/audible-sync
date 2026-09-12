@@ -2,6 +2,7 @@ import json
 import logging
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import NamedTuple
 
@@ -31,6 +32,7 @@ from src.encoding import (
 from src.model import Book, BookStatus
 from src.naming import book_output_paths, sanitize_filename, temp_book_folder
 from src.progress import NullProgress, Progress
+from src.runstate import RunState
 from src.settings import Settings
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,17 @@ _http_client: httpx.Client | None = None
 
 class LicenseError(RuntimeError):
     """Audible would not grant a download license for a book."""
+
+
+class SyncCancelled(Exception):
+    """
+    Somebody asked the run to stop.
+
+    Raised from inside a transfer when the cancel event is set, so a multi-gigabyte
+    download stops within one chunk rather than at the end of the book. Not a
+    `RuntimeError`: nothing about the book went wrong, and the handler in
+    `download_books` hands the claim back rather than recording a failure.
+    """
 
 
 class DownloadedBook(NamedTuple):
@@ -61,6 +74,9 @@ class DownloadStats(NamedTuple):
     succeeded: int
     failed: int
     unavailable: int
+    # Whether the loop was stopped early by a cancel. Defaulted so the counts alone
+    # still read as before; `run_pipeline` records the run as cancelled from it.
+    cancelled: bool = False
 
 
 def get_http_client() -> httpx.Client:
@@ -82,6 +98,7 @@ def _stream_to_file(
     path: str | Path,
     desc: str | None = None,
     progress: Progress | None = None,
+    cancel: threading.Event | None = None,
 ) -> None:
     """
     Write a streaming response to `path`, reporting progress when the size is known.
@@ -93,6 +110,13 @@ def _stream_to_file(
     this function owns: a terminal wants `tqdm`, a service wants something its front
     end can read. `finish` runs even when the stream fails, so a failed download does
     not leave a bar open across the next one.
+
+    `cancel` is checked between chunks, which is what makes a stop request take effect
+    within seconds of a multi-gigabyte download rather than at the end of it. The
+    `.part` file is left for the temp folder cleanup.
+
+    Raises:
+        SyncCancelled: if `cancel` is set while the stream is being read
     """
     path = Path(path)
     partial = path.with_name(f"{path.name}.part")
@@ -104,6 +128,8 @@ def _stream_to_file(
         written = response.num_bytes_downloaded
         with open(partial, "wb") as f:
             for chunk in response.iter_bytes():
+                if cancel is not None and cancel.is_set():
+                    raise SyncCancelled(f"cancelled while downloading {desc or path.name}")
                 f.write(chunk)
                 progress.advance(response.num_bytes_downloaded - written)
                 written = response.num_bytes_downloaded
@@ -114,15 +140,18 @@ def _stream_to_file(
 
 
 class Downloader:
-    def __init__(self, audible: Audible, progress: Progress | None = None):
+    def __init__(self, audible: Audible, progress: Progress | None = None, cancel: threading.Event | None = None):
         """
         Args:
             audible: Authenticated Audible client
             progress: Where byte progress for each transfer is reported. Defaults to
                 reporting nothing, which is what a test or a headless run wants
+            cancel: Event that stops any transfer in progress when set; None for a run
+                that cannot be cancelled, such as the one-shot CLI
         """
         self.audible = audible
         self.progress = progress or NullProgress()
+        self.cancel = cancel
 
     def get_license_response(self, asin: str, quality: str) -> dict:
         """
@@ -165,7 +194,7 @@ class Downloader:
         headers = {"User-Agent": "Audible/671 CFNetwork/1240.0.4 Darwin/20.6.0"}
         with get_http_client().stream("GET", url, headers=headers) as r:
             r.raise_for_status()
-            _stream_to_file(r, filename, desc=desc, progress=self.progress)
+            _stream_to_file(r, filename, desc=desc, progress=self.progress, cancel=self.cancel)
 
     def get_chapter_info(self, asin: str) -> dict | None:
         """
@@ -244,7 +273,7 @@ class Downloader:
                 logger.warning("Received non-PDF content for %s: %s", asin, content_type)
                 return False
 
-            _stream_to_file(r, output_path, desc="PDF", progress=self.progress)
+            _stream_to_file(r, output_path, desc="PDF", progress=self.progress, cancel=self.cancel)
 
         logger.info("PDF downloaded: %s", output_path)
         return True
@@ -263,7 +292,7 @@ class Downloader:
                 logger.info("No cover available at %s", cover_url)
                 return False
             r.raise_for_status()
-            _stream_to_file(r, output_path, desc="Cover", progress=self.progress)
+            _stream_to_file(r, output_path, desc="Cover", progress=self.progress, cancel=self.cancel)
 
         logger.info("Cover downloaded: %s", output_path)
         return True
@@ -754,12 +783,27 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
     mark_book_downloaded(asin, encoding_format=settings.encoding_format, **final_paths)
 
 
-def download_books(audible: Audible, settings: Settings, progress: Progress | None = None) -> DownloadStats:
+def download_books(
+    audible: Audible,
+    settings: Settings,
+    progress: Progress | None = None,
+    *,
+    state: RunState | None = None,
+    cancel: threading.Event | None = None,
+) -> DownloadStats:
     """
     Download, decrypt and file every book waiting for download.
 
     Each book is claimed before it is touched, so a scheduler tick starting mid-run
     cannot pick up a book another process is already downloading.
+
+    `cancel` stops the loop: it is checked before each book, so a book the run never
+    reached is never claimed, and inside each transfer, so the book in flight is
+    abandoned within a chunk and handed back to the queue with its attempt count
+    untouched - stopping a run is not the book's fault any more than an expired token
+    is. The decrypt step is not interruptible, so a cancel that lands during ffmpeg
+    waits for that one book. `state` is where the book in hand and the queue position
+    are reported (see `src.runstate`); it defaults to one nobody reads.
 
     Books are processed independently. A retryable failure is logged, recorded against
     the book and returned to the queue; once a book has used `settings.max_attempts` it
@@ -795,14 +839,25 @@ def download_books(audible: Audible, settings: Settings, progress: Progress | No
     )
 
     loop = waiting_download[:number_to_download]
-    downloader = Downloader(audible, progress=progress)
+    downloader = Downloader(audible, progress=progress, cancel=cancel)
+    state = state or RunState()
     succeeded = 0
     failed = []
     unavailable = []
+    cancelled = False
 
-    for book in loop:
+    for index, book in enumerate(loop):
         asin = book.asin
         title = book.title
+
+        # Checked before the claim, so a book the run never got to is left exactly as
+        # it was for the next run
+        if cancel is not None and cancel.is_set():
+            logger.info("Sync cancelled with %d books still in the queue", len(loop) - index)
+            cancelled = True
+            break
+
+        state.set_book(book, done=index, total=len(loop))
 
         # Claimed one at a time rather than as a batch: a run that stops half way, or is
         # killed, then leaves behind only the book it was actually working on, and only
@@ -824,6 +879,13 @@ def download_books(audible: Audible, settings: Settings, progress: Progress | No
             release_book(asin)
             failed.append((asin, title))
             break
+        except SyncCancelled:
+            # Nothing is wrong with the book; whoever stopped the run gets it back in the
+            # queue where it was, attempt count and all.
+            logger.info("Cancelled while downloading %s (%s), handing it back to the queue", title, asin)
+            release_book(asin)
+            cancelled = True
+            break
         except LicenseError as error:
             # Audible will not license this book today. That is usually a Plus title
             # withdrawn after it was added to the library, which Audible does offer
@@ -844,6 +906,7 @@ def download_books(audible: Audible, settings: Settings, progress: Progress | No
             if temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
+    state.set_book(None, done=succeeded + len(failed) + len(unavailable), total=len(loop))
     logger.info("Completed downloads: %d succeeded, %d failed", succeeded, len(failed))
     for asin, title in failed:
         logger.warning("Not downloaded: %s (%s)", title, asin)
@@ -857,4 +920,5 @@ def download_books(audible: Audible, settings: Settings, progress: Progress | No
         succeeded=succeeded,
         failed=len(failed),
         unavailable=len(unavailable),
+        cancelled=cancelled,
     )

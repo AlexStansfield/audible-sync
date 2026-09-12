@@ -7,16 +7,17 @@ Guidance for AI assistants working with the audible-sync codebase.
 | Aspect | Details |
 |--------|---------|
 | **Language** | Python 3.12 (`.python-version`, `pyproject.toml`) |
-| **Type** | CLI application (service + API planned for Milestone 3) |
-| **Entry Point** | `python -m src.main` (or `uv run python -m src.main`) |
+| **Type** | Background service with an HTTP API, plus a one-shot CLI |
+| **Entry Point** | `python -m src.service` (the service); `python -m src.main` (one sync and exit) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | `config/config.ini`, seeded once into the `settings` table which the app then runs on |
-| **Lines of Code** | ~2850 lines across 11 Python modules, plus ~3700 lines of tests |
+| **Lines of Code** | ~4000 lines across 16 Python modules, plus ~5100 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
 | **CI** | GitHub Actions: lint, format check and tests on every push/PR to `dev` and `main` |
 | **Package Manager** | uv (`pyproject.toml` + `uv.lock`); `requirements.txt` is generated for pip users |
+| **Web framework** | FastAPI + uvicorn (`src/api.py`, `src/service.py`); pydantic models in `src/schemas.py` |
 
 ## Project Overview
 
@@ -26,14 +27,16 @@ Guidance for AI assistants working with the audible-sync codebase.
 
 **Important:** This app does NOT crack DRM. It only decrypts audiobooks the user owns.
 
-**Current State (Milestone 2 complete):**
+**Current State (Milestone 2 complete, Milestone 3 in progress):**
 - Incremental library sync from the Audible API
 - Download and decrypt to M4B (stream copy) or re-encode to Ogg Opus (`.oga`) at a configurable bitrate, with metadata, cover art and chapters embedded in either format
 - Companion PDF, high-res cover and annotations downloaded alongside the book
 - Path-safe file naming from configurable templates, and per-book error handling (a failing book is skipped, not fatal)
+- Settings in a database table, seeded once from `config.ini`, changed at runtime through the API
+- A background service: a scheduler runs the pipeline every `sync_interval_minutes`, and a bearer-token API reports the run in flight, starts or cancels a run, lists the run history and reads/changes the settings. The Docker image runs the service
 - Docker image built by GitHub Actions on version tags
 
-Milestone 3 (API service, scheduler, web UI) is next. A code review before that pivot fixed the correctness problems listed below and recorded the structural work as **Step 0** in `todo.md`; do that before adding endpoints.
+Still to come in Milestone 3: accounts for several marketplaces, the Audible login flow, book management (monitor/delete/redownload) with library endpoints, and the extras (log, webhook, stats). The plan for those is in `todo.md`.
 
 ## Codebase Structure
 
@@ -48,8 +51,13 @@ audible-sync/
 │   ├── audible_sync.db       # SQLite database (created at runtime, gitignored)
 │   └── downloads/            # Temporary per-book working folders
 ├── src/
-│   ├── main.py               # Entry point: main(), run_pipeline(), logging setup
-│   ├── settings.py           # Frozen Settings dataclass, Settings.from_ini, validation
+│   ├── main.py               # CLI entry point: main(), run_pipeline(), logging setup
+│   ├── service.py            # Service entry point: env config, API token, wires scheduler + API, uvicorn
+│   ├── api.py                # create_app(): FastAPI routes, bearer auth, CORS, lifespan
+│   ├── schemas.py            # Pydantic request/response models - the API contract
+│   ├── scheduler.py          # Background thread: interval runs, trigger, cancel, wake
+│   ├── runstate.py           # RunState snapshot of the run in flight + StateProgress
+│   ├── settings.py           # Frozen Settings dataclass, from_ini/from_db, seeding, validation
 │   ├── paths.py              # REPO_ROOT and resolve_path: every path is anchored here
 │   ├── model.py              # Book and SyncRun data models
 │   ├── database.py           # SQLite schema, migrations, queries (library + sync_runs)
@@ -68,7 +76,11 @@ audible-sync/
 │   ├── test_model.py         # Book.from_row, legacy columns, the primary-series rule
 │   ├── test_settings.py      # Config parsing, defaults, path anchoring, validation
 │   ├── test_paths.py         # Repo-root anchoring, absolute paths, ~ expansion
-│   ├── test_main.py          # Log level, run_pipeline wiring, run recording, main ordering
+│   ├── test_main.py          # Log level, run_pipeline wiring, run recording, cancel outcome, main ordering
+│   ├── test_service.py       # Env config, API token resolution, build() wiring
+│   ├── test_api.py           # Every endpoint via TestClient with a fake scheduler, auth, CORS, lifespan
+│   ├── test_scheduler.py     # Due-time arithmetic and the thread: trigger, cancel, stop, failing runs
+│   ├── test_runstate.py      # The snapshot lifecycle and StateProgress
 │   ├── test_sync.py          # Incremental cursor, its fallbacks, the availability refresh pass
 │   ├── test_progress.py      # NullProgress and the tqdm adapter's lifecycle
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
@@ -83,15 +95,18 @@ audible-sync/
 ## Architecture
 
 ```
-main.py (orchestrator)
-  ├─→ settings.py   (config, validation)  ─→ paths.py
-  ├─→ database.py   (persistence)         ─→ paths.py
-  ├─→ audible_client.py (API integration)
-  ├─→ sync.py       (library sync, cursor)
-  └─→ downloader.py (download, metadata, decrypt, file)
-        ├─→ naming.py   (paths)
-        ├─→ encoding.py (format, Opus tags)
-        └─→ progress.py (byte progress reporting)
+service.py (entry point)
+  ├─→ api.py        (FastAPI routes)     ─→ schemas.py
+  ├─→ scheduler.py  (interval thread)    ─→ runstate.py
+  └─→ main.run_pipeline  ◄── also the CLI (main.main)
+        ├─→ settings.py   (config, validation)  ─→ database.py ─→ paths.py
+        ├─→ audible_client.py (API integration)
+        ├─→ sync.py       (library sync, cursor)
+        └─→ downloader.py (download, metadata, decrypt, file)
+              ├─→ naming.py   (paths)
+              ├─→ encoding.py (format, Opus tags)
+              ├─→ progress.py (byte progress reporting)
+              └─→ runstate.py (stage, book, queue position)
 ```
 
 **Data flow:**
@@ -113,7 +128,7 @@ Audible API → audible_client.py → sync.py → database.py → SQLite
 Three functions, no module-level work:
 
 - `configure_logging(debug)` sets the root logger from `settings.debug`. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
-- `run_pipeline(settings, progress=None)` creates the folders, initialises the DB, opens a `sync_runs` row, builds the `Audible` client from `settings.auth_file`, then runs `sync_library()` and `download_books(audible, settings, progress=progress)`. Importable and free of logging side effects, so the service and scheduler can run the same pipeline. It **owns the run record**: the row is opened before Audible is touched and closed on every exit, including the exception arm, which re-raises after recording. `SUCCESS` when nothing failed, `PARTIAL` when a book failed *or* an exception arrived after the sync had completed, `FAILED` only when the sync itself raised - the `synced` flag is what separates the last two, and only `SUCCESS`/`PARTIAL` become the next run's cursor
+- `run_pipeline(settings, progress=None, *, state=None, cancel=None)` creates the folders, initialises the DB, opens a `sync_runs` row, builds the `Audible` client from `settings.auth_file`, then runs `sync_library()` and `download_books(audible, settings, progress=progress, state=state, cancel=cancel)`. Importable and free of logging side effects, so the service and scheduler run the same pipeline. It **owns the run record**: the row is opened before Audible is touched and closed on every exit, including the exception arm, which re-raises after recording. `SUCCESS` when nothing failed, `PARTIAL` when a book failed *or* an exception arrived after the sync had completed, `FAILED` only when the sync itself raised - the `synced` flag is what separates the last two - and `CANCELLED` when `download_books` reports it stopped early. `SUCCESS`/`PARTIAL`/`CANCELLED` become the next run's cursor. `state` (a `RunState`, see `runstate.py`) gets `begin` before anything else and `end` in a `finally` *after* the row is closed, so a poll never sees "nothing running" beside a history row still in flight; `cancel` is a `threading.Event` only the download half honours
 - `main()` is the CLI entry point: `init_db()`, `seed_settings_from_ini()`, `Settings.from_db()`, then `configure_logging`, then `run_pipeline` with a `TqdmProgress()`. The database comes first because the settings live in it; the config file is copied in once. Settings are read (and therefore validated) before logging or any folder exists, so a bad template or bitrate fails before anything is created. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
 
 This is a one-shot run: sync + download, then exit.
@@ -135,6 +150,39 @@ This is a one-shot run: sync + download, then exit.
 - `auth_file` uses a `default_factory`, so `$HOME` is read when the settings are built rather than when the module is imported
 - The two folder defaults are module constants (`DEFAULT_DOWNLOAD_FOLDER`, `DEFAULT_AUDIOBOOK_FOLDER`), already resolved, because ruff's RUF009 forbids a function call in a dataclass default
 - `create_folders()` is the one side-effecting method: the two `mkdir(parents=True, exist_ok=True)` calls
+
+### runstate.py
+
+`RunState` is the value a poll of `/api/status` reads: a small, lock-protected snapshot of the run in flight - `run_id`, `started_at`, `stage` (`RunStage`: `syncing`, `downloading`, `cancelling`), `account` (unused until there are several), `book` (`asin`, `title`), `books_done`/`books_total`, and `transfer` (`desc`, `bytes`, `total`). `snapshot()` returns a copy, or `None` between runs; `begin(run_id)` resets everything and `end()` clears it. One instance lives for the life of the service and is shared by the scheduler and the API. `set_book` also drops the current transfer, since a new book means the previous one is over. It is a snapshot rather than an event stream on purpose: a client polling every second and one polling every minute both get the current picture with nothing to replay, and a push transport can be layered on later without changing what the pipeline reports.
+
+`StateProgress(state)` is the service's `Progress` (see `progress.py`): the same three-call lifecycle as `TqdmProgress`, writing into the state's `transfer` instead of drawing a bar. `service._run` builds one per run.
+
+### scheduler.py
+
+`Scheduler` is one daemon thread that waits until the next run is due, runs the pipeline, and waits again. Everything it reads is injected - `load_settings`, `run` (a `Pipeline`: `(settings, state, cancel) -> None`), `state`, `last_run_start`, `now`, `stop_timeout` - so the tests drive it with fakes rather than with time.
+
+- **Due** is `last_run_start + sync_interval_minutes`, never earlier than now, or *now* if nothing has ever run; `None` when `sync_enabled` is false. `last_run_start` is `database.latest_sync_run_start()`, the newest run **whatever became of it**, so a failing setup waits the full interval between tries instead of retrying every tick, and a restart carries on from the previous process rather than syncing on every boot
+- `trigger()` asks for a run now and returns `False` if one is in flight (the API's 409). It works with the schedule disabled: a manual run is the point of turning the schedule off
+- `cancel()` sets the event the pipeline checks and flips the state to `cancelling`; `False` when idle
+- `wake()` makes the thread re-read the settings, which `PUT /api/settings` calls so a changed interval or a toggled schedule applies to the wait already in progress
+- `stop()` cancels the run in flight and joins with `stop_timeout`. This is what a `docker stop` turns into via the app's lifespan: the book being downloaded is handed back to the queue and the process exits cleanly. The library sync and an ffmpeg pass are not interruptible, so `service.STOP_TIMEOUT` is 90 s and `compose.yml` sets `stop_grace_period: 2m` to match; a kill after that is what the stale-claim timeout recovers
+- The loop re-reads the settings before every wait and every run; if they will not parse (a bad value saved to the table) it logs and parks until woken rather than dying or spinning. A run that raises is logged and the thread survives; the pipeline has already recorded the failure on its row
+
+### api.py and schemas.py
+
+`create_app(*, scheduler, state, api_token, cors_origins=None, version=None)` builds the FastAPI app; it takes the scheduler and state rather than building them so tests hand it fakes (`FakeScheduler` in `tests/test_api.py` duck-types `start/stop/trigger/cancel/wake/status`). The lifespan starts the scheduler on startup and stops it on shutdown. Every endpoint is a plain `def` so FastAPI runs the SQLite calls in its threadpool.
+
+- Everything under `/api` except `/api/health` requires `Authorization: Bearer <token>` (`HTTPBearer`, compared with `secrets.compare_digest`); a missing or wrong token is a 401 with `WWW-Authenticate: Bearer`
+- Errors are always `{"detail": ...}`. A `ValueError` from the settings validators becomes a 422 carrying the message; pydantic's own `ValidationError` (a `ValueError` subclass) is re-raised so a response that does not fit its schema surfaces as a 500, not a misleading 422
+- Routes: `GET /api/health` (`status`, `version` from `pyproject.toml`), `GET /api/status` (`scheduler`, `current_run` = `state.snapshot()`, `last_run`), `POST /api/sync` (202 / 409), `POST /api/sync/cancel` (202 / 409), `GET /api/sync/runs?limit=&offset=` (`items`, `total`), `GET /api/sync/runs/{id}` (404), `GET /api/settings`, `PUT /api/settings`
+- `PUT /api/settings` takes a partial body (`SettingsUpdate`, `extra="forbid"`, every field optional; `model_dump(exclude_unset=True)` tells an omitted field from an explicit `null`), goes through `Settings.from_db().with_changes(...)` so validation runs, saves with `save_settings`, applies `debug` to the root logger at once, and calls `scheduler.wake()`. Other changes apply to the next run: `Settings` is frozen and the scheduler re-reads it per run
+- `schemas.py` holds the pydantic models. `SettingsOut` and `SyncRunOut` use `from_attributes` so a `Settings` or `SyncRun` validates directly; `SettingsOut` coerces the two `Path` fields to text in a `mode="before"` validator. These are the contract the web app codes against and may differ from the storage dataclasses
+
+### service.py
+
+`python -m src.service`. `ServiceConfig.from_env()` reads the process-level configuration - `AUDIBLE_SYNC_HOST` (`0.0.0.0`), `AUDIBLE_SYNC_PORT` (`8080`), `AUDIBLE_SYNC_API_TOKEN`, `AUDIBLE_SYNC_CORS_ORIGINS` (comma-separated), `AUDIBLE_SYNC_DEBUG` - which is deliberately only what is about the process; what to sync lives in the settings table. `build(config)` does `init_db`, `seed_settings_from_ini`, `Settings.from_db`, `configure_logging`, resolves the token, wires `RunState` + `Scheduler` + `create_app`, and returns the app without listening, so a test can drive it with `TestClient`. `main()` hands it to `uvicorn.run(..., log_config=None, access_log=False)`: uvicorn stays on the root logger, and the access log is off because a UI polling `/api/status` would write a line a second.
+
+`resolve_api_token(configured)`: the env value wins; otherwise the one stored in the settings table under `api_token`; otherwise a new `secrets.token_urlsafe(32)` is stored for next time. Generated once rather than per start, so the token copied from the log keeps working across restarts. `api_token` is a key `Settings.from_db` does not know, so it never appears in `GET /api/settings`. The token is logged at INFO on every start.
 
 ### paths.py
 
@@ -162,7 +210,7 @@ A series entry is `{"title", "sequence", "series_asin"}`. `series_asin` is the s
 
 `Book.from_row(row)` is the single owner of the JSON decode and the SQLite 0/1 to bool coercion. It reads by column name through `dict(row).get(...)`, so a column the row does not carry falls back to the field default and a legacy database still reads; only `asin` is required. The hand-written `__repr__` is kept on purpose - the generated one would put the cover URL and three file paths into every log line that formats a book. Dataclass field order deliberately does not mirror the table (`has_pdf` sits with the API fields); nothing is positional against a row any more.
 
-`SyncRun` models a row of `sync_runs`: `id`, `started_at`, `finished_at`, `outcome`, `books_seen`, `books_added`, `books_downloaded`, `books_failed`, `error`. Same `from_row` idiom as `Book`. `SyncOutcome` is the matching `StrEnum` - `running`, `success`, `partial`, `failed` - for the same reason `BookStatus` is one, with `_sync_outcome` tolerating an unrecognised value. **`partial` means the sync completed but the downloads did not all succeed**, and it counts as a cursor: the library really was read, and which books failed belongs to the `library` state machine. A row still `running` with a NULL `finished_at` is a run that was killed - the thing the library table could never tell apart from a run that found nothing.
+`SyncRun` models a row of `sync_runs`: `id`, `started_at`, `finished_at`, `outcome`, `books_seen`, `books_added`, `books_downloaded`, `books_failed`, `error`. Same `from_row` idiom as `Book`. `SyncOutcome` is the matching `StrEnum` - `running`, `success`, `partial`, `failed`, `cancelled` - for the same reason `BookStatus` is one, with `_sync_outcome` tolerating an unrecognised value. **`partial` means the sync completed but the downloads did not all succeed**, and it counts as a cursor: the library really was read, and which books failed belongs to the `library` state machine. **`cancelled` is a run somebody stopped**; a cancel is only honoured after the library sync (seconds, against the hours of downloads), so it has always read the library through and counts as a cursor too. A row still `running` with a NULL `finished_at` is a run that was killed - the thing the library table could never tell apart from a run that found nothing.
 
 ### database.py
 
@@ -187,8 +235,9 @@ The `sync_runs` functions are grouped together at the foot of the module, by tab
 
 - `start_sync_run() -> int` - opens a row at `running` with `started_at = _utcnow()` and returns its id. Written before anything is fetched, so a killed run leaves the row behind as its own record
 - `finish_sync_run(run_id, *, outcome, books_seen=, books_added=, books_downloaded=, books_failed=, error=)` - closes the row with `finished_at = _utcnow()`
-- `latest_successful_sync_start() -> str | None` - `MAX(started_at)` over `_CURSOR_OUTCOMES` (`success` and `partial`). **The incremental sync cursor.** The run's *start*, not its finish, because anything Audible added while the run was reading has to be picked up next time
-- `get_sync_runs(limit=20) -> list[SyncRun]` - newest first; unused by the pipeline, this is the read the API and UI are for
+- `latest_successful_sync_start() -> str | None` - `MAX(started_at)` over `_CURSOR_OUTCOMES` (`success`, `partial`, `cancelled`). **The incremental sync cursor.** The run's *start*, not its finish, because anything Audible added while the run was reading has to be picked up next time
+- `latest_sync_run_start() -> str | None` - `MAX(started_at)` over **every** run, whatever became of it. What the scheduler paces itself from, so a failing setup waits the full interval between tries
+- `get_sync_runs(limit=20, offset=0) -> list[SyncRun]`, `get_sync_run(run_id) -> SyncRun | None`, `count_sync_runs() -> int` - the run history reads; unused by the pipeline, these are what the API and UI are for
 
 The `settings` functions sit at the foot of the module for the same reason. The layer is deliberately **typeless** - text in, text out - so a value the running build cannot parse is still stored and read back rather than lost; `src/settings.py` owns parsing, defaults and validation:
 
@@ -244,7 +293,9 @@ The largest module. Key pieces:
 
 **Accessory contract:** the three accessory methods return `False` only when the thing is genuinely absent (404, non-PDF content type, no clips or bookmarks). Every other failure raises, so the book goes back to the queue and is retried (up to `max-attempts`) instead of being filed as complete with a `NULL` path that nothing would ever fix.
 
-**HTTP:** `get_http_client()` is a shared `httpx.Client` with a 30s connect / 120s read timeout and redirects followed. httpx defaults to 5s, which aborted a part-finished multi-gigabyte download on any brief CDN stall. `_stream_to_file(response, path, desc=None, progress=None)` is the one streaming loop for all three downloads; it writes to a `.part` file and renames on completion. Progress goes to the injected object (see `progress.py`), defaulting to `NullProgress`, and `finish()` runs in a `finally` so a failed download does not leave a bar open across the next one. `Downloader(audible, progress=None)` holds it and passes it to all three.
+**HTTP:** `get_http_client()` is a shared `httpx.Client` with a 30s connect / 120s read timeout and redirects followed. httpx defaults to 5s, which aborted a part-finished multi-gigabyte download on any brief CDN stall. `_stream_to_file(response, path, desc=None, progress=None, cancel=None)` is the one streaming loop for all three downloads; it writes to a `.part` file and renames on completion. Progress goes to the injected object (see `progress.py`), defaulting to `NullProgress`, and `finish()` runs in a `finally` so a failed download does not leave a bar open across the next one. `cancel` is checked between chunks and raises `SyncCancelled`, which is what makes a stop take effect within seconds of a multi-gigabyte download rather than at the end of it; the `.part` file is left for the temp-folder cleanup. `Downloader(audible, progress=None, cancel=None)` holds both and passes them to all three transfers.
+
+**Cancellation:** `SyncCancelled` is not a `RuntimeError` - nothing about the book went wrong - and `download_books` handles it like an auth failure: `release_book` (attempt count untouched) and break. The event is also checked *before* each claim, so a book the run never reached is left exactly as it was. `decrypt_aaxc` is not interruptible; a cancel that lands during ffmpeg waits for that one book. `DownloadStats` carries a `cancelled` flag (defaulted, so the four counts still read positionally) from which `run_pipeline` records `SyncOutcome.CANCELLED`.
 
 **Chapters:** `flatten_chapters(chapters)` descends into the nested `chapters` list Audible returns for books split into parts. Taking only the top level left a multi-part book with a few hours-long "Part One" markers instead of its real chapters.
 
@@ -260,7 +311,7 @@ The largest module. Key pieces:
 - `_download_accessories(downloader, book, temp_dir, safe_title)` - PDF, cover and annotations, keyed by the database column they belong to. The cover extension comes from the image bytes (`image_info`), not the URL, because plenty of cover URLs carry no extension and the name is kept permanently.
 - `_resolve_output_path(final_folder, stem, extension, asin)` - keeps two books that render to the same name apart. Every output carries its own ASIN in the comment tag, so a file belonging to this book is reused and anything else gets ` [{asin}]` appended. Without this the second book silently overwrote the first (the live library has two *Red Rising* ASINs that collide).
 - The finished book is **moved**, not copied, and the AAXC and voucher are deleted straight after decryption, which keeps peak disk at roughly one copy of the book rather than three.
-- `download_books(audible, settings, progress=None)` - loops over waiting books, up to `settings.max_download`, and returns a `DownloadStats` NamedTuple `(attempted, succeeded, failed, unavailable)`, which is what `run_pipeline` writes the run record from. `attempted` counts slots taken, including books lost to another run's claim. Each book is **claimed** (`claim_book_for_download`) before it is touched, one at a time rather than as a batch, so a scheduler tick starting mid-run skips a book another process holds and only books really tried spend an attempt. A lost claim still costs a slot in the `max_download` slice: that is a cap on work attempted, not a quota. Three failure arms, and order matters - `LicenseError` subclasses `RuntimeError`, so its arm must sit above `except Exception`:
+- `download_books(audible, settings, progress=None, *, state=None, cancel=None)` - loops over waiting books, up to `settings.max_download`, and returns a `DownloadStats` NamedTuple `(attempted, succeeded, failed, unavailable, cancelled=False)`, which is what `run_pipeline` writes the run record from. `state.set_book(book, done=index, total=len(loop))` is called before each claim and `set_book(None, ...)` after the loop, so a poll sees the book in hand and the queue position. `attempted` counts slots taken, including books lost to another run's claim. Each book is **claimed** (`claim_book_for_download`) before it is touched, one at a time rather than as a batch, so a scheduler tick starting mid-run skips a book another process holds and only books really tried spend an attempt. A lost claim still costs a slot in the `max_download` slice: that is a cap on work attempted, not a quota. Three failure arms, and order matters - `LicenseError` subclasses `RuntimeError`, so its arm must sit above `except Exception`:
   - `Unauthorized`/`NoRefreshToken`/`AuthFlowError` **breaks** the loop and calls `release_book` first: every remaining book would fail the same way, and an expiring token must not burn a good book's attempts
   - `LicenseError` calls `mark_book_unavailable(...)` - **not** a failure. The denial raises before any of the book is downloaded, so it costs one cheap POST, and the title may be offered again; the book is parked and reported separately from the failures
   - anything else calls `mark_book_failed(...)` with `settings.max_attempts`, which returns the book to the queue until the cap is reached and then fails it terminally
@@ -291,6 +342,7 @@ Where download byte progress is reported. `_stream_to_file` used to open a `tqdm
 - `Progress` - a `Protocol` with `start(desc, total)`, `advance(amount)` and `finish()`. A protocol rather than a bare callback because a bar has a lifecycle: it has to be created with a total, advanced, and closed. `total` is `None` when the response carries no `Content-Length`, which is normal
 - `NullProgress` - reports nothing, and is the default everywhere `progress` is omitted, so no call site needs to guard on `progress is not None`
 - `TqdmProgress` - the CLI adapter, built with the same arguments as the bar it replaced so a terminal run looks exactly as it did. One instance drives one transfer at a time, and `start` closes any bar left open rather than leaking it
+- `StateProgress` (in `runstate.py`) - the service's adapter, writing into a `RunState`
 
 **`tqdm` is imported here and nowhere else**, so no library module depends on a terminal. Keep it that way.
 
@@ -323,6 +375,8 @@ audiobooks = audiobooks
 ```
 
 Read in `src/settings.py` with `configparser`, into a frozen `Settings`, and copied into the `settings` table on the first run only - after that the table is the live configuration (see `settings.py` above). Relative paths are anchored to the repo root, so the app can be started from any working directory. The config file is copied into the Docker image, so committed values become the image defaults for a fresh database. Users override by mounting `./config` (see `compose.yml`).
+
+The **service process** is configured by environment variables, kept deliberately to what is about the process rather than about syncing: `AUDIBLE_SYNC_HOST`, `AUDIBLE_SYNC_PORT`, `AUDIBLE_SYNC_API_TOKEN`, `AUDIBLE_SYNC_CORS_ORIGINS`, `AUDIBLE_SYNC_DEBUG` (see `service.py`).
 
 ## Development
 
@@ -391,7 +445,11 @@ uv run pytest -k sanitize   # subset
 - For database tests point `src.database.DB_FILE` at a temp file (`tmp_path` fixture) and call `init_db()`.
 - For `download_books`, patch `get_books_to_download`, `claim_book_for_download`, `mark_book_downloaded`, `mark_book_failed`, `release_book`, `Downloader.download_book` and `decrypt_aaxc`, then assert on the resulting files and calls (see `_patch_pipeline`). All of these are looked up as attributes of `src.downloader`, so patch them there - miss one and the test writes to the real library database. `_patch_pipeline` takes optional `claimed=` and `failures=` recorder lists. It takes `(audible, settings)`; build the settings with `make_settings(download_folder=..., audiobook_folder=...)`. This is how the per-book error handling was verified. `Downloader.download_book` takes `(book: Book, temp_dir)` and returns a `DownloadedBook`.
 - For progress, pass a recorder implementing `start`/`advance`/`finish` (see `RecordingProgress` in `tests/test_downloader.py`) and a fake streaming response whose `num_bytes_downloaded` advances as chunks are yielded, because that counter - not `len(chunk)` - is what `_stream_to_file` takes its deltas from. For `TqdmProgress`, monkeypatch `src.progress.tqdm`.
-- For `run_pipeline`, patch `start_sync_run` and `finish_sync_run` as attributes of `src.main` alongside the rest; `tests/test_main.py`'s `_patch_pipeline` takes `synced=` and `stats=` which may be exceptions, so one helper drives both failure arms.
+- For `run_pipeline`, patch `start_sync_run` and `finish_sync_run` as attributes of `src.main` alongside the rest; `tests/test_main.py`'s `_patch_pipeline` takes `synced=` and `stats=` which may be exceptions, so one helper drives both failure arms. Its fake `download_books` accepts `state=` and `cancel=` and records the state's snapshot, which is how the stage reporting is asserted.
+- For the API, `tests/test_api.py` builds the app with `create_app(scheduler=FakeScheduler(), state=RunState(), api_token=..., version="test")` and a `db` fixture pointing `DB_FILE` at a temp file, then uses `fastapi.testclient.TestClient` **without** the context manager so the lifespan (and the scheduler) is not started; one test uses `with TestClient(app)` to assert the lifespan starts and stops the scheduler. `httpx2` is in the dev group because Starlette's TestClient now needs it.
+- For the scheduler, everything is injected: `Scheduler(load_settings=..., run=FakeRun(), state=..., last_run_start=lambda: ..., now=lambda: NOW)`. `FakeRun` sets `started`/`finished` events and can block until released or cancelled; call `_settle(scheduler)` before re-triggering after a run, because the fake signals `finished` a moment before the scheduler flips `running` off. The fixture stops every scheduler it made.
+- For cancellation in `download_books`, set the event from inside the fake `download_book` (or before the call) and assert on `release_book`, the claims made, and `stats.cancelled`. For `_stream_to_file`, yield the chunks from a generator that sets the event between them.
+- `tests/test_service.py` exercises `ServiceConfig.from_env` with explicit dicts, `resolve_api_token` against the `db` fixture, and `build()` with `configure_logging` and `seed_settings_from_ini` patched on `src.service`.
 - For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible_client.py`.
 - For `Settings.from_db` and the seed, `tests/test_settings.py` has its own `db` fixture pointing `src.database.DB_FILE` at a temp file; write text with `database.save_settings` and read back with `Settings.from_db()`.
 - `tests/conftest.py` holds the shared `make_book()` and `make_settings()` factories. `make_settings(**overrides)` is `dataclasses.replace(Settings(), **overrides)`, so an override that would not survive `from_ini` still raises; import it as `from tests.conftest import make_book` (`tests` is in ruff's `known-first-party`). It returns a real `Book` with decoded lists - never JSON strings, which is what the old row-tuple helpers built. Keep other fixtures small and inline.
@@ -399,6 +457,18 @@ uv run pytest -k sanitize   # subset
 The suite currently covers the sanitizer, metadata generation, the FFMETADATA writer, the ffmpeg argv for both formats, the encoding helpers, the per-book error handling in `download_books`, the progress seam, the run record, the sync cursor and its fallbacks, and the database layer. If you touch a module that has no tests yet, add the tests for the part you touched rather than for the whole module.
 
 ### Manual integration checklist
+
+Service (a quick local version with no Audible access is a scratch database, `HOME` pointed at an empty folder so the auth file is missing, and `build()` under `uvicorn.Server` in a thread - a triggered run then records `failed` within a second):
+
+- [ ] `docker compose up` → `/api/health` 200 without a token, `/api/status` 401 without and 200 with the token, the scheduler shows `next_run_at`
+- [ ] `POST /api/sync` → 202 and `/api/status` shows the stage, the book and the bytes moving; a second `POST` → 409
+- [ ] `POST /api/sync/cancel` during a download → the run is recorded `cancelled`, the book is back in `waiting_download` with `attempts` unchanged and its temp folder removed
+- [ ] `docker stop` during a download → clean exit within the grace period, claim released
+- [ ] `PUT /api/settings {"sync_interval_minutes": 5}` → `next_run_at` moves without a restart; a bad bitrate → 422 carrying the validator text
+- [ ] The first service start seeds the settings table from `config.ini`; a later edit to the file is *not* picked up
+- [ ] The API token survives a restart when not set in the environment
+
+Pipeline:
 
 - [ ] Full sync on an empty database, and one `sync_runs` row with `outcome=success`, `finished_at` set and counters matching the log
 - [ ] Incremental sync on an existing database: the `Fetching books purchased since ...Z` line shows the previous run's start minus an hour, in Audible's `Z` format
@@ -431,9 +501,9 @@ docker compose run --rm -it audible-sync bash
 
 ## Docker
 
-- `Dockerfile`: `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked`, `CMD uv run python -m src.main`
-- `compose.yml`: mounts `~/.audible`, `./data`, `./audiobooks`; optional `./config` mount
-- Run with `docker compose run audible-sync`. Note `restart: unless-stopped` is set, so `docker compose up` would restart the one-shot process in a loop.
+- `Dockerfile`: `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
+- `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` through from the environment (empty means "generate one"), mounts `~/.audible`, `./data`, `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
+- Run with `docker compose up -d`; `restart: unless-stopped` is right for the service. A one-shot run is `docker compose run --rm audible-sync uv run python -m src.main`
 - `.dockerignore` does not exclude `data/`, `audiobooks/`, `venv/` or `audible.json`; keep those out of the build context when building locally.
 - Image: `ghcr.io/alexstansfield/audible-sync:latest` and `:vX.Y.Z`, published on `v*` tags
 
@@ -469,7 +539,7 @@ See `todo.md` for the authoritative list.
 
 **Milestone 2 - complete:** logging, PDF/cover/annotations, metadata and chapter embedding, configurable file naming, and Ogg Opus encoding with a bitrate setting. Async download progress is still listed under it in `todo.md` but only pays off with a web UI; recommended to move to Milestone 3.
 
-**Milestone 3 - in progress:** settings table (done, 2026-09-12), then the FastAPI service with a scheduler, accounts for several marketplaces, the Audible login flow, book management and the extras. **Step 0 is complete** (2026-09-09), including the smaller items folded in with it. There is no service module to build on yet: the broken `api.py` stub was deleted and `fastapi`/`uvicorn` dropped from the runtime dependencies, so the service starts fresh and adds them back when it exists.
+**Milestone 3 - in progress:** settings table and the service runtime (scheduler, run state, cancel, status/sync/runs/settings endpoints, bearer token, Docker runs the service) are done (2026-09-12). Next: accounts for several marketplaces, the Audible login flow, book management with library endpoints, and the extras (log endpoint, webhook, stats). **Step 0 is complete** (2026-09-09), including the smaller items folded in with it.
 
 ## Understanding "Sync"
 
@@ -477,7 +547,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.7
+**Document Version:** 4.8
 **Last Updated:** 2026-09-12
-**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0 and the settings table complete (settings live in the database, seeded once from `config.ini`)
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0, the settings table and the service runtime complete (scheduler, run state, cancellation, bearer-token API for status/sync/runs/settings; the Docker image runs the service)
 **Primary Branch:** `dev`
