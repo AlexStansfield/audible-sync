@@ -1,4 +1,5 @@
 import logging
+import threading
 
 import pytest
 
@@ -6,6 +7,7 @@ from src import main as main_module
 from src.downloader import DownloadStats
 from src.main import configure_logging, main, run_pipeline
 from src.model import SyncOutcome
+from src.runstate import RunStage, RunState
 from src.sync import SyncResult
 from tests.conftest import make_settings
 
@@ -44,9 +46,13 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS):
             raise synced
         return synced
 
-    def fake_download(client, settings, progress=None):
+    def fake_download(client, settings, progress=None, *, state=None, cancel=None):
         calls["downloaded"] = (client, settings)
         calls["progress"] = progress
+        calls["state"] = state
+        calls["cancel"] = cancel
+        # What the run looks like to a poll while the downloads are going
+        calls["snapshot"] = state.snapshot() if state is not None else None
         if isinstance(stats, Exception):
             raise stats
         return stats
@@ -177,3 +183,51 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     assert (step, passed_settings) == ("pipeline", settings)
     # The bar is a terminal concern the CLI injects, like the logging config above
     assert isinstance(progress, main_module.TqdmProgress)
+
+
+def test_run_pipeline_records_cancelled_when_the_downloads_were_stopped(tmp_path, monkeypatch):
+    """A cancelled run still read the library through, so it is recorded with its counts
+    and counts as a cursor - the outcome just says why it stopped early."""
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, stats=DownloadStats(5, 2, 0, 0, cancelled=True))
+
+    run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] == SyncOutcome.CANCELLED
+    assert recorded["books_downloaded"] == 2
+
+
+def test_run_pipeline_reports_its_stages_to_the_run_state(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+    state = RunState()
+
+    run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"), state=state)
+
+    # Seen from inside the download half: the run row's id and the downloading stage
+    assert calls["snapshot"]["run_id"] == 7
+    assert calls["snapshot"]["stage"] == RunStage.DOWNLOADING
+    # And nothing once the run is over
+    assert state.snapshot() is None
+
+
+def test_run_pipeline_clears_the_run_state_when_the_run_raises(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("no library"))
+    state = RunState()
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"), state=state)
+
+    assert state.snapshot() is None
+
+
+def test_run_pipeline_hands_the_cancel_event_to_the_downloads(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+    cancel = threading.Event()
+
+    run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"), cancel=cancel)
+
+    assert calls["cancel"] is cancel

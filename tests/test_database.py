@@ -858,3 +858,56 @@ def test_save_settings_with_nothing_to_write_touches_nothing(db):
     database.save_settings({})
 
     assert database.has_settings() is False
+
+
+# --- run history ----------------------------------------------------------------
+
+
+def _finished_run(outcome, started_at, monkeypatch):
+    monkeypatch.setattr(database, "_utcnow", lambda: started_at)
+    run_id = database.start_sync_run()
+    database.finish_sync_run(run_id, outcome=outcome)
+    return run_id
+
+
+def test_get_sync_run_returns_the_row_or_none(db, monkeypatch):
+    run_id = _finished_run(SyncOutcome.SUCCESS, "2026-09-12T10:00:00+00:00", monkeypatch)
+
+    run = database.get_sync_run(run_id)
+
+    assert isinstance(run, SyncRun)
+    assert (run.id, run.outcome) == (run_id, SyncOutcome.SUCCESS)
+    assert database.get_sync_run(run_id + 1) is None
+
+
+def test_get_sync_runs_pages_newest_first(db, monkeypatch):
+    ids = [_finished_run(SyncOutcome.SUCCESS, f"2026-09-1{d}T10:00:00+00:00", monkeypatch) for d in (1, 2, 3)]
+
+    assert [r.id for r in database.get_sync_runs(limit=2)] == [ids[2], ids[1]]
+    assert [r.id for r in database.get_sync_runs(limit=2, offset=2)] == [ids[0]]
+    assert database.count_sync_runs() == 3
+
+
+def test_count_sync_runs_is_zero_on_a_fresh_database(db):
+    assert database.count_sync_runs() == 0
+
+
+def test_latest_sync_run_start_counts_every_run_whatever_became_of_it(db, monkeypatch):
+    """The scheduler paces from the last attempt, so a failing setup waits the full
+    interval between tries rather than retrying every tick."""
+    assert database.latest_sync_run_start() is None
+    _finished_run(SyncOutcome.SUCCESS, "2026-09-11T10:00:00+00:00", monkeypatch)
+    _finished_run(SyncOutcome.FAILED, "2026-09-12T10:00:00+00:00", monkeypatch)
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-13T10:00:00+00:00")
+    database.start_sync_run()  # still running
+
+    assert database.latest_sync_run_start() == "2026-09-13T10:00:00+00:00"
+
+
+def test_a_cancelled_run_is_a_cursor(db, monkeypatch):
+    """A cancel is only honoured after the library sync, so the library was read through."""
+    _finished_run(SyncOutcome.SUCCESS, "2026-09-11T10:00:00+00:00", monkeypatch)
+    _finished_run(SyncOutcome.CANCELLED, "2026-09-12T10:00:00+00:00", monkeypatch)
+    _finished_run(SyncOutcome.FAILED, "2026-09-13T10:00:00+00:00", monkeypatch)
+
+    assert database.latest_successful_sync_start() == "2026-09-12T10:00:00+00:00"

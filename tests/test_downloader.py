@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import subprocess
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +25,7 @@ from src.downloader import (
 )
 from src.encoding import output_extension
 from src.model import BookStatus
+from src.runstate import RunState
 from tests.conftest import make_book, make_settings
 
 
@@ -924,9 +926,10 @@ def test_download_file_names_the_transfer_and_uses_the_configured_progress(tmp_p
     progress = RecordingProgress()
     streamed = {}
 
-    def fake_stream_to_file(response, path, desc=None, progress=None):
+    def fake_stream_to_file(response, path, desc=None, progress=None, cancel=None):
         streamed["desc"] = desc
         streamed["progress"] = progress
+        streamed["cancel"] = cancel
 
     monkeypatch.setattr(downloader, "_stream_to_file", fake_stream_to_file)
     monkeypatch.setattr(
@@ -935,9 +938,12 @@ def test_download_file_names_the_transfer_and_uses_the_configured_progress(tmp_p
         lambda: SimpleNamespace(stream=lambda *a, **kw: _null_stream()),
     )
 
-    downloader.Downloader(object(), progress=progress).download_file("https://cdn/x", tmp_path / "b.aaxc", desc="Book")
+    cancel = threading.Event()
+    downloader.Downloader(object(), progress=progress, cancel=cancel).download_file(
+        "https://cdn/x", tmp_path / "b.aaxc", desc="Book"
+    )
 
-    assert streamed == {"desc": "Book", "progress": progress}
+    assert streamed == {"desc": "Book", "progress": progress, "cancel": cancel}
 
 
 def _null_stream():
@@ -1304,3 +1310,126 @@ def test_download_book_returns_no_chapters_when_there_are_none(tmp_path, monkeyp
     downloader_ = _book_downloader(monkeypatch, chapter_info=None)
 
     assert downloader_.download_book(make_book(asin="B001"), tmp_path / "work").chapters is None
+
+
+# --- cancellation ---------------------------------------------------------------
+
+
+def test_stream_to_file_stops_between_chunks_once_cancelled(tmp_path):
+    """A cancel lands within a chunk of a multi-gigabyte download, not at the end of it."""
+    progress = RecordingProgress()
+    cancel = threading.Event()
+
+    def chunks():
+        yield b"abcd"
+        cancel.set()
+        yield b"ef"
+
+    with pytest.raises(downloader.SyncCancelled, match="Book"):
+        _stream_to_file(
+            FakeStream(chunks(), content_length=6),
+            tmp_path / "book.aaxc",
+            desc="Book",
+            progress=progress,
+            cancel=cancel,
+        )
+
+    # The bar is closed and nothing that looks complete is left behind
+    assert progress.finished == 1
+    assert not (tmp_path / "book.aaxc").exists()
+    assert (tmp_path / "book.aaxc.part").read_bytes() == b"abcd"
+
+
+def test_stream_to_file_ignores_a_cancel_event_that_is_not_set(tmp_path):
+    _stream_to_file(FakeStream([b"ab"], content_length=2), tmp_path / "x", cancel=threading.Event())
+
+    assert (tmp_path / "x").read_bytes() == b"ab"
+
+
+def _cancel_patches(monkeypatch, books, claimed, released):
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: claimed.append(asin) or True)
+    monkeypatch.setattr(downloader, "release_book", released.append)
+    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
+    monkeypatch.setattr(downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a cancel is not a failure"))
+
+
+def test_download_books_hands_the_book_back_when_cancelled_mid_download(tmp_path, monkeypatch, caplog):
+    caplog.set_level(logging.INFO)
+    claimed, released = [], []
+    _cancel_patches(monkeypatch, [make_book("A1", "First"), make_book("A2", "Second")], claimed, released)
+    cancel = threading.Event()
+
+    def stop(self, book, temp_dir):
+        cancel.set()
+        raise downloader.SyncCancelled("stopped")
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", stop)
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib"), cancel=cancel
+    )
+
+    # The book in hand goes back with its attempt untouched; the next is never claimed
+    assert claimed == ["A1"]
+    assert released == ["A1"]
+    assert stats == DownloadStats(attempted=2, succeeded=0, failed=0, unavailable=0, cancelled=True)
+    assert "handing it back to the queue" in caplog.text
+
+
+def test_download_books_claims_nothing_once_cancelled(tmp_path, monkeypatch):
+    """Checked before the claim, so a book the run never reached is left as it was."""
+    claimed, released = [], []
+    _cancel_patches(monkeypatch, [make_book("A1", "First")], claimed, released)
+    cancel = threading.Event()
+    cancel.set()
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib"), cancel=cancel
+    )
+
+    assert claimed == []
+    assert released == []
+    assert stats.cancelled is True
+
+
+def test_download_books_hands_the_downloader_the_cancel_event(tmp_path, monkeypatch):
+    monkeypatch.setattr(downloader, "get_books_to_download", list)
+    seen = {}
+
+    class SpyDownloader(downloader.Downloader):
+        def __init__(self, audible, progress=None, cancel=None):
+            seen["cancel"] = cancel
+
+    monkeypatch.setattr(downloader, "Downloader", SpyDownloader)
+    cancel = threading.Event()
+
+    downloader.download_books(object(), make_settings(download_folder=tmp_path / "dl"), cancel=cancel)
+
+    assert seen["cancel"] is cancel
+
+
+def test_download_books_reports_the_book_in_hand_to_the_run_state(tmp_path, monkeypatch):
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(
+        monkeypatch, [make_book("OK2", "Two"), make_book("OK3", "Three")], marked, accessories, decrypt_calls
+    )
+    state = RunState()
+    state.begin(1)
+    snapshots = []
+    original = downloader.Downloader.download_book
+
+    def spy(self, book, temp_dir):
+        snapshots.append(state.snapshot())
+        return original(self, book, temp_dir)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", spy)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib"), state=state
+    )
+
+    assert [(s["book"]["asin"], s["books_done"], s["books_total"]) for s in snapshots] == [("OK2", 0, 2), ("OK3", 1, 2)]
+    # Once the loop is over there is no book in hand, and the queue reads as done
+    assert state.snapshot()["book"] is None
+    assert state.snapshot()["books_done"] == 2

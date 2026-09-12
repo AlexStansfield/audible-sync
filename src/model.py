@@ -47,12 +47,18 @@ class SyncOutcome(StrEnum):
     `PARTIAL` means the sync completed but the downloads did not all succeed. It counts
     as a cursor for the next run, because the library really was read; which books
     failed is the `library` state machine's business, not the run's.
+
+    `CANCELLED` is a run somebody stopped. A cancel is only honoured once the library
+    sync has completed - the sync is seconds, the downloads are the hours - so a
+    cancelled run has always read the library through and counts as a cursor too. The
+    book it was on is handed back to the queue with its attempt count untouched.
     """
 
     RUNNING = "running"
     SUCCESS = "success"
     PARTIAL = "partial"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 def _json_list(value: str | None) -> list:
