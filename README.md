@@ -225,11 +225,19 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `PATCH /api/accounts/{id}` | Rename or enable/disable an account; a disabled account is skipped by the sync |
 | `DELETE /api/accounts/{id}?deregister=true` | Remove an account with its library rows and run history; files on disk stay. `deregister` also removes the device from Amazon's device list first (best effort) |
 | `POST /api/accounts/import` | `{"path", "name"?, "monitor_existing"?}`: create an account from an auth file the service can read |
+| `GET /api/books?account_id=&status=&monitored=&q=&sort=&order=&page=&page_size=` | The library, paged (`items`, `total`, `page`, `page_size`). `q` matches title, author or series; `sort` is `date_added` (default), `title`, `author`, `release_date` or `downloaded_at` |
+| `GET /api/books/{id}` | One book, with `primary_series` (the series it is filed under) worked out |
+| `PATCH /api/books/{id}` | `{"monitored": bool}`: whether the book is wanted. An unmonitored book is never queued |
+| `POST /api/books/{id}/delete-files` | Remove the audio, PDF, cover and annotations (and folders left empty) and unmonitor the book, so it stays deleted |
+| `POST /api/books/{id}/redownload` | Remove the files and queue the book afresh, attempts reset |
+| `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
+| `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
+| `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
 | `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |
 | `POST /api/accounts/login` | `{"country_code"}`: step one of signing in. Returns `login_id`, the `url` to open in a browser, and `expires_at` (15 minutes) |
 | `POST /api/accounts/login/{login_id}` | `{"response_url", "name"?, "monitor_existing"?}`: step two. `response_url` is the address of the "page not found" page the browser lands on after signing in. `201` with the new account; `404` if the login expired (start again), `400` if the address carries no code, `502` if Amazon rejected it |
 
-Timestamps are ISO 8601 in UTC.
+Timestamps are ISO 8601 in UTC. The file actions refuse (`409`) a book a run is downloading; cancel the run first.
 
 ## Todo
 

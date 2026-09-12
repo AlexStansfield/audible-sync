@@ -13,7 +13,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.model import SyncOutcome
+from src.model import BookStatus, SyncOutcome
 from src.runstate import RunStage
 
 
@@ -151,6 +151,69 @@ class LoginComplete(BaseModel):
     response_url: str = Field(min_length=1)
     name: str | None = Field(default=None, min_length=1)
     monitor_existing: bool = True
+
+
+class SeriesEntry(BaseModel):
+    title: str | None
+    sequence: str | None
+    series_asin: str | None = None
+
+
+class BookOut(BaseModel):
+    """A book as the API shows it, with the series it files under worked out."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    account_id: int
+    asin: str
+    title: str
+    subtitle: str
+    authors: list[str]
+    narrators: list[str]
+    series: list[SeriesEntry]
+    # The one series the book is filed and tagged under (see `Book.primary_series`)
+    primary_series: SeriesEntry | None
+    genres: list[str]
+    length: int
+    is_finished: bool
+    percent_complete: float
+    date_added: str | None
+    release_date: str | None
+    cover_url: str
+    has_pdf: bool
+    is_consumable: bool
+    status: BookStatus | None
+    monitored: bool
+    attempts: int
+    last_error: str | None
+    last_attempt_at: str | None
+    file_path: str | None
+    pdf_path: str | None
+    cover_path: str | None
+    annotations_path: str | None
+    encoding_format: str | None
+    downloaded_at: str | None
+
+
+class BookList(BaseModel):
+    items: list[BookOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class BookUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monitored: bool
+
+
+class BookAction(BaseModel):
+    """What a per-book action did."""
+
+    status: str
+    removed: list[str] = []
 
 
 class Status(BaseModel):
