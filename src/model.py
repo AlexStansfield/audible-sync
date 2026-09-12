@@ -3,6 +3,7 @@ import math
 import sqlite3
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class BookStatus(StrEnum):
@@ -155,6 +156,10 @@ class Book:
     asin: str
     title: str
     subtitle: str = ""
+    # Database only: the row id the API addresses a book by, and the account whose
+    # library it is in. None on a book that came straight from the API
+    id: int | None = None
+    account_id: int | None = None
     authors: list[str] = field(default_factory=list)
     narrators: list[str] = field(default_factory=list)
     series: list[dict[str, str | None]] = field(default_factory=list)
@@ -174,6 +179,9 @@ class Book:
 
     # Database only, so None on a book that came straight from the Audible API
     status: BookStatus | None = None
+    # Whether the book is wanted at all. An unmonitored book is never queued; it is how
+    # a back catalogue is kept out of the way and how a deleted download stays deleted
+    monitored: bool = True
     # `attempts` counts claims, not failures, so it survives a success as a record of
     # what the book cost. Its default must stay in step with the column default.
     attempts: int = 0
@@ -196,9 +204,12 @@ class Book:
         and a column the row does not carry falls back to its field default.
         """
         data = dict(row)
+        monitored = data.get("monitored")
         return cls(
             asin=data["asin"],
             title=data.get("title") or "",
+            id=data.get("id"),
+            account_id=data.get("account_id"),
             subtitle=data.get("subtitle") or "",
             authors=_json_list(data.get("authors")),
             narrators=_json_list(data.get("narrators")),
@@ -216,6 +227,8 @@ class Book:
             # legacy library as unavailable.
             is_consumable=bool(data["is_consumable"]) if data.get("is_consumable") is not None else True,
             status=_book_status(data.get("status")),
+            # A row from before the column existed is wanted, like every row was then
+            monitored=bool(monitored) if monitored is not None else True,
             attempts=data.get("attempts") or 0,
             last_error=data.get("last_error"),
             last_attempt_at=data.get("last_attempt_at"),
@@ -254,13 +267,71 @@ class Book:
 
 
 @dataclass
+class Account:
+    """
+    One row of the `accounts` table: one login to one Audible marketplace.
+
+    The same person can hold libraries in several marketplaces (UK and US, say), and
+    each is a separate login with its own credentials, so an account is a marketplace
+    login rather than a person. `auth` is the decoded `Authenticator.to_dict()` blob and
+    is None for an account that has no working credentials yet - the placeholder the
+    migration creates when no auth file was found, or an account whose login was
+    invalidated. Such an account is skipped by the pipeline and reported as needing a
+    login. It is deliberately kept out of `__repr__`.
+
+    `monitor_existing` is the choice made when the account was added: whether the
+    library it already held is queued for download (True) or inserted unmonitored so
+    the user picks (False). It only governs the first, full fetch; purchases seen by
+    the incremental sync follow the global `auto_monitor_new` setting.
+    """
+
+    id: int
+    name: str
+    country_code: str
+    customer_name: str | None = None
+    auth: dict[str, Any] | None = None
+    enabled: bool = True
+    monitor_existing: bool = True
+    created_at: str | None = None
+    last_synced_at: str | None = None
+
+    @property
+    def needs_login(self) -> bool:
+        return self.auth is None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "Account":
+        data = dict(row)
+        auth = data.get("auth")
+        return cls(
+            id=data["id"],
+            name=data.get("name") or "",
+            country_code=data.get("country_code") or "",
+            customer_name=data.get("customer_name"),
+            auth=json.loads(auth) if auth else None,
+            enabled=bool(data.get("enabled", 1)),
+            monitor_existing=bool(data.get("monitor_existing", 1)),
+            created_at=data.get("created_at"),
+            last_synced_at=data.get("last_synced_at"),
+        )
+
+    def __repr__(self):
+        # Never the credentials
+        return (
+            f"Account(id={self.id}, name={self.name!r}, country_code={self.country_code!r}, "
+            f"enabled={self.enabled}, needs_login={self.needs_login})"
+        )
+
+
+@dataclass
 class SyncRun:
     """
-    One row of the `sync_runs` table: a single pass of the pipeline.
+    One row of the `sync_runs` table: a single pass of the pipeline for one account.
 
     A run spans both halves of the pipeline, so the counters cover the library sync
     (`books_seen`, `books_added`) and the downloads (`books_downloaded`,
-    `books_failed`) that followed it.
+    `books_failed`) that followed it. `account_id` is None on a row written before
+    there were accounts.
 
     `started_at` is the only field the pipeline itself reads back: the next run's
     incremental cursor is the newest start time of a run whose sync completed.
@@ -270,6 +341,7 @@ class SyncRun:
 
     id: int
     started_at: str
+    account_id: int | None = None
     finished_at: str | None = None
     outcome: SyncOutcome | None = None
     books_seen: int = 0
@@ -285,6 +357,7 @@ class SyncRun:
         return cls(
             id=data["id"],
             started_at=data["started_at"],
+            account_id=data.get("account_id"),
             finished_at=data.get("finished_at"),
             outcome=_sync_outcome(data.get("outcome")),
             books_seen=data.get("books_seen") or 0,

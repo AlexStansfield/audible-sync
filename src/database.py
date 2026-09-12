@@ -3,7 +3,7 @@ import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
-from src.model import Book, BookStatus, SyncOutcome, SyncRun
+from src.model import Account, Book, BookStatus, SyncOutcome, SyncRun
 from src.paths import REPO_ROOT
 
 DB_FILE = str(REPO_ROOT / "data" / "audible_sync.db")
@@ -39,44 +39,35 @@ def init_db():
     # connection - including ones opened by a process that never calls init_db.
     cursor.execute("PRAGMA journal_mode=WAL")
 
+    # One row per marketplace login. `auth` is the Authenticator blob as JSON, NULL for
+    # an account that has no working credentials yet (see `Account`).
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS library (
-            asin TEXT PRIMARY KEY,
-            title TEXT,
-            subtitle TEXT,
-            authors JSON,
-            narrators JSON,
-            series JSON,
-            genres JSON,
-            length INTEGER,
-            is_finished BOOLEAN,
-            percent_complete REAL,
-            date_added TEXT,
-            release_date TEXT,
-            cover_url TEXT,
-            status TEXT,
-            pdf_path TEXT,
-            cover_path TEXT,
-            annotations_path TEXT,
-            has_pdf BOOLEAN DEFAULT 0,
-            encoding_format TEXT,
-            downloaded_at TEXT,
-            -- Nullable on purpose: NULL means a row written before this column
-            -- existed, i.e. consumability has never been read from the API for it.
-            is_consumable BOOLEAN,
-            attempts INTEGER NOT NULL DEFAULT 0,
-            last_error TEXT,
-            last_attempt_at TEXT
+        CREATE TABLE IF NOT EXISTS accounts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            country_code TEXT NOT NULL DEFAULT '',
+            customer_name TEXT,
+            auth JSON,
+            enabled BOOLEAN NOT NULL DEFAULT 1,
+            monitor_existing BOOLEAN NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            last_synced_at TEXT
         )
     """)
 
-    # One row per pipeline run, covering both halves of it: the library sync and the
-    # downloads that followed. The newest start time of a run whose sync completed is
-    # the next run's incremental cursor, which the library table could never provide -
-    # `MAX(date_added)` says what was purchased, not when we last looked.
+    # A book is one ASIN in one account's library. The same ASIN can be owned in two
+    # marketplaces, so the identity is the pair and `id` is what the API addresses.
+    cursor.execute(_library_ddl())
+
+    # One row per pipeline run of one account, covering both halves of it: the library
+    # sync and the downloads that followed. The newest start time of a run whose sync
+    # completed is that account's next incremental cursor, which the library table
+    # could never provide - `MAX(date_added)` says what was purchased, not when we
+    # last looked. `account_id` is NULL on rows from before there were accounts.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sync_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER REFERENCES accounts(id),
             started_at TEXT NOT NULL,
             -- NULL while the run is in flight. A row still `running` long after its
             -- started_at is a run that was killed, which is the state the todo item
@@ -103,6 +94,8 @@ def init_db():
 
     # Migrate existing databases to add new columns
     _migrate_schema(conn)
+    # ... and to the per-account shape, which needs the table rebuilt
+    _migrate_library_to_accounts(conn)
 
     _create_indexes(conn)
 
@@ -130,8 +123,15 @@ def _create_indexes(conn: sqlite3.Connection) -> None:
     existing_columns = {row[1] for row in cursor.fetchall()}
 
     cursor.execute("PRAGMA table_info(sync_runs)")
-    if cursor.fetchall():
+    run_columns = {row[1] for row in cursor.fetchall()}
+    if run_columns:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_runs_outcome_started_at ON sync_runs(outcome, started_at)")
+    if "account_id" in run_columns:
+        # The cursor is per account now: filter on account and outcome, take the newest start
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sync_runs_account_outcome_started_at "
+            "ON sync_runs(account_id, outcome, started_at)"
+        )
 
     if "date_added" in existing_columns:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_library_date_added ON library(date_added)")
@@ -165,24 +165,129 @@ def _migrate_schema(conn):
         "attempts": "INTEGER NOT NULL DEFAULT 0",
         "last_error": "TEXT",
         "last_attempt_at": "TEXT",
+        "monitored": "BOOLEAN NOT NULL DEFAULT 1",
     }
 
     for column, column_type in new_columns.items():
         if column not in existing_columns:
             cursor.execute(f"ALTER TABLE library ADD COLUMN {column} {column_type}")
 
+    cursor.execute("PRAGMA table_info(sync_runs)")
+    if "account_id" not in {row[1] for row in cursor.fetchall()}:
+        cursor.execute("ALTER TABLE sync_runs ADD COLUMN account_id INTEGER REFERENCES accounts(id)")
+
     conn.commit()
 
 
-def update_books(books: list[Book]) -> int:
-    """
-    Insert new books, refresh the mutable API fields on the ones already stored, and
-    return how many rows were genuinely added.
+# The columns a rebuilt `library` carries, in DDL order; `_migrate_library_to_accounts`
+# copies whichever of them the old table has.
+_LIBRARY_COLUMNS = (
+    "asin", "title", "subtitle", "authors", "narrators", "series", "genres", "length",
+    "is_finished", "percent_complete", "date_added", "release_date", "cover_url", "status",
+    "monitored", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
+    "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at",
+)  # fmt: skip
 
-    `asin` is the primary key, so one upsert does the de-duplication. Checking first on
-    a second connection could not see the rows this transaction had already inserted, so
-    a repeated ASIN inside a single API response raised IntegrityError and rolled the
+
+def _migrate_library_to_accounts(conn: sqlite3.Connection) -> None:
+    """
+    Rebuild a `library` written before there were accounts.
+
+    The old table was keyed by `asin` alone; the new one has a surrogate `id` and is
+    unique on `(account_id, asin)`. SQLite cannot change a primary key in place, so the
+    rows are copied into a fresh table under a single account. That account is created
+    here with no credentials if none exists - this module cannot read the auth file
+    (that is settings' business, and settings imports this module), so
+    `accounts.ensure_account_from_auth_file` fills it in from the configured file on the
+    next start. Until then it reads as needing a login rather than blocking the start.
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(library)")
+    old_columns = [row[1] for row in cursor.fetchall()]
+    if not old_columns or "account_id" in old_columns:
+        return
+
+    cursor.execute("SELECT id FROM accounts ORDER BY id LIMIT 1")
+    row = cursor.fetchone()
+    if row is None:
+        cursor.execute(
+            "INSERT INTO accounts (name, country_code, auth, created_at) VALUES (?, '', NULL, ?)",
+            (LEGACY_ACCOUNT_NAME, _utcnow()),
+        )
+        account_id = cursor.lastrowid
+    else:
+        account_id = row[0]
+
+    copied = [column for column in _LIBRARY_COLUMNS if column in old_columns]
+    columns = ", ".join(copied)
+    cursor.execute("ALTER TABLE library RENAME TO library_legacy")
+    # The CREATE TABLE in init_db is IF NOT EXISTS, and the renamed table no longer
+    # answers to `library`, so running init_db's DDL again creates the new shape
+    cursor.execute(_library_ddl())
+    cursor.execute(
+        f"INSERT INTO library (account_id, {columns}) SELECT ?, {columns} FROM library_legacy", (account_id,)
+    )
+    cursor.execute("DROP TABLE library_legacy")
+    # Indexes went with the old table; `_create_indexes` recreates them
+    conn.commit()
+
+
+# What the migration names the account it has to invent for a pre-accounts library
+LEGACY_ACCOUNT_NAME = "Audible"
+
+
+def _library_ddl() -> str:
+    """The `library` DDL, shared by `init_db` and the rebuild so the two cannot drift."""
+    return """
+        CREATE TABLE IF NOT EXISTS library (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id INTEGER NOT NULL REFERENCES accounts(id),
+            asin TEXT NOT NULL,
+            title TEXT,
+            subtitle TEXT,
+            authors JSON,
+            narrators JSON,
+            series JSON,
+            genres JSON,
+            length INTEGER,
+            is_finished BOOLEAN,
+            percent_complete REAL,
+            date_added TEXT,
+            release_date TEXT,
+            cover_url TEXT,
+            status TEXT,
+            -- Whether the book is wanted at all; an unmonitored book is never queued
+            monitored BOOLEAN NOT NULL DEFAULT 1,
+            pdf_path TEXT,
+            cover_path TEXT,
+            annotations_path TEXT,
+            has_pdf BOOLEAN DEFAULT 0,
+            encoding_format TEXT,
+            downloaded_at TEXT,
+            -- Nullable on purpose: NULL means a row written before this column
+            -- existed, i.e. consumability has never been read from the API for it.
+            is_consumable BOOLEAN,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
+            last_attempt_at TEXT,
+            UNIQUE (account_id, asin)
+        )
+    """
+
+
+def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True) -> int:
+    """
+    Insert new books into one account's library, refresh the mutable API fields on the
+    ones already stored, and return how many rows were genuinely added.
+
+    `(account_id, asin)` is unique, so one upsert does the de-duplication. Checking first
+    on a second connection could not see the rows this transaction had already inserted,
+    so a repeated ASIN inside a single API response raised IntegrityError and rolled the
     whole sync back.
+
+    `monitor_new` is what a book inserted by this call gets for `monitored`; it is never
+    written on conflict, because whether a book already in the library is wanted is the
+    user's decision, not the sync's.
 
     The conflict clause deliberately refreshes only what Audible owns. It never writes
     `date_added` (the incremental sync cursor - moving it would skip or re-fetch
@@ -199,6 +304,7 @@ def update_books(books: list[Book]) -> int:
     # Decoded again by `Book.from_row`; keep the two sides in step.
     rows = [
         (
+            account_id,
             book.asin,
             book.title,
             book.subtitle,
@@ -216,6 +322,7 @@ def update_books(books: list[Book]) -> int:
             # A title Audible has withdrawn goes straight to `unavailable` so it never
             # enters the queue and never costs a licence request.
             BookStatus.WAITING_DOWNLOAD if book.is_consumable else BookStatus.UNAVAILABLE,
+            monitor_new,
             book.has_pdf,
             book.is_consumable,
             # Bound for the CASE in the conflict clause below
@@ -236,11 +343,11 @@ def update_books(books: list[Book]) -> int:
         books_before = cursor.execute("SELECT COUNT(*) FROM library").fetchone()[0]
         cursor.executemany(
             """
-            INSERT INTO library (asin, title, subtitle, authors, narrators, series, genres, length,
-                                 is_finished, percent_complete, date_added, release_date, cover_url,
-                                 status, has_pdf, is_consumable)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(asin) DO UPDATE SET
+            INSERT INTO library (account_id, asin, title, subtitle, authors, narrators, series, genres,
+                                 length, is_finished, percent_complete, date_added, release_date,
+                                 cover_url, status, monitored, has_pdf, is_consumable)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, asin) DO UPDATE SET
                 title = excluded.title,
                 subtitle = excluded.subtitle,
                 authors = excluded.authors,
@@ -272,21 +379,27 @@ def update_books(books: list[Book]) -> int:
     return books_added
 
 
-def get_books(limit: int | None = None) -> list[Book]:
-    """All books, newest `date_added` first."""
-    sql = "SELECT * FROM library ORDER BY date_added DESC"
+def get_books(limit: int | None = None, *, account_id: int | None = None) -> list[Book]:
+    """All books, newest `date_added` first; one account's or everyone's."""
+    sql = "SELECT * FROM library"
     params: tuple = ()
+    if account_id is not None:
+        sql = f"{sql} WHERE account_id = ?"
+        params = (account_id,)
+    sql = f"{sql} ORDER BY date_added DESC"
     if limit is not None:
         sql = f"{sql} LIMIT ?"
-        params = (limit,)
+        params = (*params, limit)
 
     with closing(_get_connection()) as conn:
         return [Book.from_row(row) for row in conn.execute(sql, params)]
 
 
-def get_books_to_download(*, stale_after: int = STALE_CLAIM_SECONDS) -> list[Book]:
+def get_books_to_download(*, account_id: int | None = None, stale_after: int = STALE_CLAIM_SECONDS) -> list[Book]:
     """
-    Books the downloader should try, oldest first.
+    Books the downloader should try, oldest first: one account's, or everyone's.
+
+    Only monitored books: an unmonitored one is not wanted, whatever its status says.
 
     Both the rows still `waiting_download` and any left in `downloading` by a process
     that died. Selecting only `waiting_download` made `STALE_CLAIM_SECONDS` unreachable:
@@ -309,39 +422,60 @@ def get_books_to_download(*, stale_after: int = STALE_CLAIM_SECONDS) -> list[Boo
     Returns:
         Books to attempt, oldest `date_added` first
     """
+    sql = """
+        SELECT * FROM library
+         WHERE monitored = 1
+           AND (status = ?
+                OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
+    """
+    params: tuple = (BookStatus.WAITING_DOWNLOAD, BookStatus.DOWNLOADING, _stale_cutoff(stale_after))
+    if account_id is not None:
+        sql = f"{sql} AND account_id = ?"
+        params = (*params, account_id)
     with closing(_get_connection()) as conn:
-        rows = conn.execute(
-            """
-            SELECT * FROM library
-             WHERE status = ?
-                OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?))
-             ORDER BY date_added ASC
-            """,
-            (BookStatus.WAITING_DOWNLOAD, BookStatus.DOWNLOADING, _stale_cutoff(stale_after)),
-        )
+        rows = conn.execute(f"{sql} ORDER BY date_added ASC", params)
         return [Book.from_row(row) for row in rows]
 
 
-def get_book_by_asin(asin: str) -> Book | None:
+def get_book(book_id: int) -> Book | None:
+    """One book by its row id, which is how the API addresses one."""
     with closing(_get_connection()) as conn:
-        row = conn.execute("SELECT * FROM library WHERE asin=?", (asin,)).fetchone()
+        row = conn.execute("SELECT * FROM library WHERE id = ?", (book_id,)).fetchone()
     return Book.from_row(row) if row is not None else None
 
 
-def latest_date_added() -> str | None:
+def get_book_by_asin(asin: str, *, account_id: int | None = None) -> Book | None:
     """
-    The newest `date_added` in the library, or None when it is empty.
+    One book by ASIN: in one account's library, or the first found in any.
+
+    Without an account this is only unambiguous while one account holds the ASIN, so
+    anything addressing a specific book should use `get_book`.
+    """
+    sql = "SELECT * FROM library WHERE asin = ?"
+    params: tuple = (asin,)
+    if account_id is not None:
+        sql = f"{sql} AND account_id = ?"
+        params = (asin, account_id)
+    with closing(_get_connection()) as conn:
+        row = conn.execute(f"{sql} ORDER BY id LIMIT 1", params).fetchone()
+    return Book.from_row(row) if row is not None else None
+
+
+def latest_date_added(account_id: int) -> str | None:
+    """
+    The newest `date_added` in one account's library, or None when it is empty.
 
     Sync uses this as its incremental cursor. Reading it directly keeps that
     cursor independent of how `get_books` happens to sort or paginate.
     """
     with closing(_get_connection()) as conn:
-        return conn.execute("SELECT MAX(date_added) FROM library").fetchone()[0]
+        return conn.execute("SELECT MAX(date_added) FROM library WHERE account_id = ?", (account_id,)).fetchone()[0]
 
 
-def needs_consumability_refresh() -> bool:
+def needs_consumability_refresh(account_id: int) -> bool:
     """
-    Whether the library holds books whose availability the incremental sync cannot see.
+    Whether one account's library holds books whose availability the incremental sync
+    cannot see.
 
     The incremental sync only fetches what was purchased after the newest `date_added`,
     so a book already in the library is never re-read and its `is_consumable` never
@@ -354,8 +488,8 @@ def needs_consumability_refresh() -> bool:
     """
     with closing(_get_connection()) as conn:
         row = conn.execute(
-            "SELECT EXISTS(SELECT 1 FROM library WHERE is_consumable IS NULL OR status = ?)",
-            (BookStatus.UNAVAILABLE,),
+            "SELECT EXISTS(SELECT 1 FROM library WHERE account_id = ? AND (is_consumable IS NULL OR status = ?))",
+            (account_id, BookStatus.UNAVAILABLE),
         ).fetchone()
     return bool(row[0])
 
@@ -378,7 +512,7 @@ def _stale_cutoff(seconds: int) -> str:
     return (datetime.now(UTC) - timedelta(seconds=seconds)).replace(microsecond=0).isoformat()
 
 
-def claim_book_for_download(asin: str, *, stale_after: int = STALE_CLAIM_SECONDS) -> bool:
+def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECONDS) -> bool:
     """
     Take ownership of one book, moving it to `downloading` and counting the attempt.
 
@@ -391,7 +525,7 @@ def claim_book_for_download(asin: str, *, stale_after: int = STALE_CLAIM_SECONDS
     since such a row would otherwise never be picked up by anything again.
 
     Args:
-        asin: The book to claim
+        book_id: The book to claim
         stale_after: Seconds after which a `downloading` row is treated as abandoned
 
     Returns:
@@ -404,14 +538,14 @@ def claim_book_for_download(asin: str, *, stale_after: int = STALE_CLAIM_SECONDS
                SET status = ?,
                    attempts = attempts + 1,
                    last_attempt_at = ?
-             WHERE asin = ?
+             WHERE id = ?
                AND (status = ?
                     OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
             """,
             (
                 BookStatus.DOWNLOADING,
                 _utcnow(),
-                asin,
+                book_id,
                 BookStatus.WAITING_DOWNLOAD,
                 BookStatus.DOWNLOADING,
                 _stale_cutoff(stale_after),
@@ -422,7 +556,7 @@ def claim_book_for_download(asin: str, *, stale_after: int = STALE_CLAIM_SECONDS
     return cursor.rowcount == 1
 
 
-def mark_book_failed(asin: str, error: str, *, max_attempts: int, terminal: bool = False) -> BookStatus | None:
+def mark_book_failed(book_id: int, error: str, *, max_attempts: int, terminal: bool = False) -> BookStatus | None:
     """
     Record why a download failed and decide whether the book gets another go.
 
@@ -436,7 +570,7 @@ def mark_book_failed(asin: str, error: str, *, max_attempts: int, terminal: bool
     licence Audible refuses is not going to be granted on the third ask.
 
     Args:
-        asin: The book that failed
+        book_id: The book that failed
         error: Message stored in `last_error` for a later run, or a UI, to show
         max_attempts: Attempts allowed before the book is given up on
         terminal: Fail the book now, whatever `attempts` says
@@ -450,17 +584,17 @@ def mark_book_failed(asin: str, error: str, *, max_attempts: int, terminal: bool
             UPDATE library
                SET status = CASE WHEN ? OR attempts >= ? THEN ? ELSE ? END,
                    last_error = ?
-             WHERE asin = ?
+             WHERE id = ?
          RETURNING status
             """,
-            (terminal, max_attempts, BookStatus.FAILED, BookStatus.WAITING_DOWNLOAD, error, asin),
+            (terminal, max_attempts, BookStatus.FAILED, BookStatus.WAITING_DOWNLOAD, error, book_id),
         ).fetchone()
         conn.commit()
 
     return None if row is None else BookStatus(row["status"])
 
 
-def mark_book_unavailable(asin: str, error: str) -> None:
+def mark_book_unavailable(book_id: int, error: str) -> None:
     """
     Park a book Audible will not currently license, without failing it.
 
@@ -482,14 +616,14 @@ def mark_book_unavailable(asin: str, error: str) -> None:
                SET status = ?,
                    is_consumable = 0,
                    last_error = ?
-             WHERE asin = ?
+             WHERE id = ?
             """,
-            (BookStatus.UNAVAILABLE, error, asin),
+            (BookStatus.UNAVAILABLE, error, book_id),
         )
         conn.commit()
 
 
-def release_book(asin: str) -> None:
+def release_book(book_id: int) -> None:
     """
     Put a claimed book back exactly as it was found, attempt count and all.
 
@@ -507,15 +641,15 @@ def release_book(asin: str) -> None:
             UPDATE library
                SET status = ?,
                    attempts = MAX(attempts - 1, 0)
-             WHERE asin = ? AND status = ?
+             WHERE id = ? AND status = ?
             """,
-            (BookStatus.WAITING_DOWNLOAD, asin, BookStatus.DOWNLOADING),
+            (BookStatus.WAITING_DOWNLOAD, book_id, BookStatus.DOWNLOADING),
         )
         conn.commit()
 
 
 def mark_book_downloaded(
-    asin: str,
+    book_id: int,
     encoding_format: str | None = None,
     *,
     pdf_path: str | None = None,
@@ -545,15 +679,15 @@ def mark_book_downloaded(
                    pdf_path = COALESCE(?, pdf_path),
                    cover_path = COALESCE(?, cover_path),
                    annotations_path = COALESCE(?, annotations_path)
-             WHERE asin = ?
+             WHERE id = ?
             """,
-            (BookStatus.DOWNLOADED, encoding_format, _utcnow(), pdf_path, cover_path, annotations_path, asin),
+            (BookStatus.DOWNLOADED, encoding_format, _utcnow(), pdf_path, cover_path, annotations_path, book_id),
         )
         conn.commit()
 
 
 def update_book_accessories(
-    asin: str,
+    book_id: int,
     pdf_path: str | None = None,
     cover_path: str | None = None,
     annotations_path: str | None = None,
@@ -575,9 +709,9 @@ def update_book_accessories(
     if not updates:
         return
 
-    values.append(asin)
+    values.append(book_id)
     with closing(_get_connection()) as conn:
-        conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE asin = ?", values)
+        conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE id = ?", values)
         conn.commit()
 
 
@@ -592,9 +726,9 @@ def update_book_accessories(
 _CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED)
 
 
-def start_sync_run() -> int:
+def start_sync_run(account_id: int | None = None) -> int:
     """
-    Open a run row and return its id.
+    Open a run row for one account and return its id.
 
     Written before anything is fetched, so a run that is killed leaves a row that is
     still `running` with no `finished_at` - the record that tells a run which died half
@@ -602,8 +736,8 @@ def start_sync_run() -> int:
     """
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            "INSERT INTO sync_runs (started_at, outcome) VALUES (?, ?)",
-            (_utcnow(), SyncOutcome.RUNNING),
+            "INSERT INTO sync_runs (account_id, started_at, outcome) VALUES (?, ?, ?)",
+            (account_id, _utcnow(), SyncOutcome.RUNNING),
         )
         conn.commit()
         return cursor.lastrowid
@@ -650,9 +784,9 @@ def finish_sync_run(
         conn.commit()
 
 
-def latest_successful_sync_start() -> str | None:
+def latest_successful_sync_start(account_id: int | None = None) -> str | None:
     """
-    When the last run that read the library through started, or None if there is none.
+    When one account's last run that read the library through started, or None.
 
     This is the incremental sync cursor. It is the run's **start** rather than its
     finish because anything Audible added while the run was reading has to be picked up
@@ -660,12 +794,20 @@ def latest_successful_sync_start() -> str | None:
 
     `partial` counts alongside `success`: its sync completed, and a book that failed to
     download is tracked by the library state machine, not by the cursor.
+
+    Rows written before there were accounts carry no `account_id`, and they count for
+    the migrated account too: they were that library's runs. So the lookup takes rows
+    with a NULL account alongside the account's own.
     """
     placeholders = ", ".join("?" for _ in _CURSOR_OUTCOMES)
     with closing(_get_connection()) as conn:
         return conn.execute(
-            f"SELECT MAX(started_at) FROM sync_runs WHERE outcome IN ({placeholders})",
-            _CURSOR_OUTCOMES,
+            f"""
+            SELECT MAX(started_at) FROM sync_runs
+             WHERE outcome IN ({placeholders})
+               AND (account_id = ? OR account_id IS NULL)
+            """,
+            (*_CURSOR_OUTCOMES, account_id),
         ).fetchone()[0]
 
 
@@ -681,18 +823,21 @@ def latest_sync_run_start() -> str | None:
         return conn.execute("SELECT MAX(started_at) FROM sync_runs").fetchone()[0]
 
 
-def get_sync_runs(limit: int = 20, offset: int = 0) -> list[SyncRun]:
+def get_sync_runs(limit: int = 20, offset: int = 0, *, account_id: int | None = None) -> list[SyncRun]:
     """
-    Run history, newest first.
+    Run history, newest first, for one account or all.
 
     Unused by the pipeline: this is the read the API and the UI are for, and `offset`
     is how a history view pages.
     """
+    sql = "SELECT * FROM sync_runs"
+    params: tuple = ()
+    if account_id is not None:
+        sql = f"{sql} WHERE account_id = ?"
+        params = (account_id,)
     with closing(_get_connection()) as conn:
-        rows = conn.execute(
-            "SELECT * FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?", (limit, offset)
-        ).fetchall()
-    return [SyncRun.from_row(row) for row in rows]
+        rows = conn.execute(f"{sql} ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?", (*params, limit, offset))
+        return [SyncRun.from_row(row) for row in rows]
 
 
 def get_sync_run(run_id: int) -> SyncRun | None:
@@ -701,9 +846,115 @@ def get_sync_run(run_id: int) -> SyncRun | None:
     return SyncRun.from_row(row) if row is not None else None
 
 
-def count_sync_runs() -> int:
+def count_sync_runs(*, account_id: int | None = None) -> int:
     with closing(_get_connection()) as conn:
-        return conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0]
+        if account_id is None:
+            return conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0]
+        return conn.execute("SELECT COUNT(*) FROM sync_runs WHERE account_id = ?", (account_id,)).fetchone()[0]
+
+
+# --- accounts ------------------------------------------------------------------
+# One row per marketplace login. The credentials are stored as the JSON of
+# `Authenticator.to_dict()`; `src.accounts` is the only thing that encodes or decodes
+# them, this layer just keeps the text.
+
+
+def add_account(
+    name: str,
+    country_code: str,
+    *,
+    auth: dict | None,
+    customer_name: str | None = None,
+    monitor_existing: bool = True,
+) -> int:
+    """Create an account and return its id. `auth` None means it still needs a login."""
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO accounts (name, country_code, customer_name, auth, monitor_existing, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                name,
+                country_code,
+                customer_name,
+                json.dumps(auth) if auth is not None else None,
+                monitor_existing,
+                _utcnow(),
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_accounts() -> list[Account]:
+    """Every account, oldest first."""
+    with closing(_get_connection()) as conn:
+        return [Account.from_row(row) for row in conn.execute("SELECT * FROM accounts ORDER BY id")]
+
+
+def get_account(account_id: int) -> Account | None:
+    with closing(_get_connection()) as conn:
+        row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+    return Account.from_row(row) if row is not None else None
+
+
+def update_account(
+    account_id: int,
+    *,
+    name: str | None = None,
+    country_code: str | None = None,
+    customer_name: str | None = None,
+    enabled: bool | None = None,
+) -> None:
+    """Change the given fields and leave the rest alone."""
+    updates = []
+    values: list = []
+    for column, value in (
+        ("name", name),
+        ("country_code", country_code),
+        ("customer_name", customer_name),
+        ("enabled", enabled),
+    ):
+        if value is not None:
+            updates.append(f"{column} = ?")
+            values.append(value)
+    if not updates:
+        return
+    values.append(account_id)
+    with closing(_get_connection()) as conn:
+        conn.execute(f"UPDATE accounts SET {', '.join(updates)} WHERE id = ?", values)
+        conn.commit()
+
+
+def save_account_auth(account_id: int, auth: dict | None) -> None:
+    """Store the credentials, or clear them (None) so the account reads as needing a login."""
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            "UPDATE accounts SET auth = ? WHERE id = ?",
+            (json.dumps(auth) if auth is not None else None, account_id),
+        )
+        conn.commit()
+
+
+def mark_account_synced(account_id: int) -> None:
+    with closing(_get_connection()) as conn:
+        conn.execute("UPDATE accounts SET last_synced_at = ? WHERE id = ?", (_utcnow(), account_id))
+        conn.commit()
+
+
+def delete_account(account_id: int) -> None:
+    """
+    Remove an account with its library rows and run history.
+
+    The files on disk are left alone: they are the user's, and a re-added account files
+    the same book to the same path and reuses them.
+    """
+    with closing(_get_connection()) as conn:
+        conn.execute("DELETE FROM library WHERE account_id = ?", (account_id,))
+        conn.execute("DELETE FROM sync_runs WHERE account_id = ?", (account_id,))
+        conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+        conn.commit()
 
 
 # --- settings ------------------------------------------------------------------
