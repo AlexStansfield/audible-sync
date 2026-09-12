@@ -74,6 +74,12 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
     monkeypatch.setattr(main_module, "sync_library", fake_sync)
     monkeypatch.setattr(main_module, "download_books", fake_download)
     monkeypatch.setattr(main_module, "start_sync_run", lambda account_id: calls.setdefault("run_id", 7))
+    monkeypatch.setattr(main_module, "get_sync_run", lambda run_id: f"run-{run_id}")
+    monkeypatch.setattr(
+        main_module,
+        "notify_run_finished",
+        lambda url, run, account: calls.setdefault("notified", []).append((url, run, account.id)),
+    )
     monkeypatch.setattr(
         main_module,
         "finish_sync_run",
@@ -401,3 +407,40 @@ def test_login_command_refuses_an_unknown_marketplace(monkeypatch, capsys):
         main(["login", "--marketplace", "xx"])
 
     assert "invalid choice" in capsys.readouterr().err
+
+
+# --- the webhook -------------------------------------------------------------------
+
+
+def test_run_account_sends_the_webhook_with_the_closed_run(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(
+        make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", webhook_url="https://hooks/x")
+    )
+
+    assert calls["notified"] == [("https://hooks/x", "run-7", 1)]
+
+
+def test_run_account_sends_the_webhook_when_the_run_fails_too(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("down"))
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(
+            make_settings(
+                download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", webhook_url="https://hooks/x"
+            )
+        )
+
+    assert calls["notified"] == [("https://hooks/x", "run-7", 1)]
+
+
+def test_run_account_sends_no_webhook_without_a_url(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(_settings(tmp_path))
+
+    assert "notified" not in calls

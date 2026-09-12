@@ -838,6 +838,36 @@ def list_books(
         return [Book.from_row(row) for row in rows], total
 
 
+def library_stats(*, account_id: int | None = None) -> dict:
+    """
+    Counts for a dashboard: books by status, wanted or not, and the total.
+
+    Every `BookStatus` appears in `by_status`, zero when empty, so a UI has a stable
+    shape to draw from.
+    """
+    clause = "" if account_id is None else " WHERE account_id = ?"
+    params: tuple = () if account_id is None else (account_id,)
+    with closing(_get_connection()) as conn:
+        by_status = {status.value: 0 for status in BookStatus}
+        for status, count in conn.execute(f"SELECT status, COUNT(*) FROM library{clause} GROUP BY status", params):
+            if status in by_status:
+                by_status[status] = count
+        monitored = conn.execute(f"SELECT COUNT(*) FROM library{clause}", params).fetchone()[0]
+        wanted = conn.execute(
+            f"SELECT COUNT(*) FROM library{clause}{' AND' if clause else ' WHERE'} monitored = 1", params
+        ).fetchone()[0]
+    return {"by_status": by_status, "monitored": wanted, "unmonitored": monitored - wanted, "total": monitored}
+
+
+def downloaded_file_paths(*, account_id: int | None = None) -> list[str]:
+    """Every recorded `file_path`, for adding up what the library takes on disk."""
+    clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple = (account_id,) if account_id is not None else ()
+    with closing(_get_connection()) as conn:
+        rows = conn.execute(f"SELECT file_path FROM library WHERE file_path IS NOT NULL{clause}", params)
+        return [row[0] for row in rows]
+
+
 # --- sync_runs -------------------------------------------------------------------
 # Grouped by table rather than split across the readers and writers above: the four
 # functions below are only meaningful together, and only `latest_successful_sync_start`

@@ -1347,3 +1347,43 @@ def test_list_books_sorts(db):
 def test_list_books_rejects_an_unknown_sort(db):
     with pytest.raises(ValueError, match="sort must be one of"):
         database.list_books(sort="colour")
+
+
+# --- stats -----------------------------------------------------------------------------
+
+
+def test_library_stats_counts_every_status_and_whether_wanted(db):
+    other = _shelf(db)
+
+    stats = database.library_stats()
+    assert stats["by_status"] == {
+        "waiting_download": 3,
+        "downloading": 0,
+        "downloaded": 1,
+        "unavailable": 0,
+        "failed": 0,
+    }
+    assert (stats["monitored"], stats["unmonitored"], stats["total"]) == (3, 1, 4)
+
+    assert database.library_stats(account_id=other) == {
+        "by_status": {"waiting_download": 1, "downloading": 0, "downloaded": 0, "unavailable": 0, "failed": 0},
+        "monitored": 0,
+        "unmonitored": 1,
+        "total": 1,
+    }
+
+
+def test_library_stats_on_an_empty_library(db):
+    stats = database.library_stats()
+
+    assert stats["total"] == 0
+    assert set(stats["by_status"]) == {s.value for s in BookStatus}
+
+
+def test_downloaded_file_paths(db):
+    other = _shelf(db)
+    database.mark_book_downloaded(_id("B003"), "m4b", file_path="/lib/a.m4b")
+    database.mark_book_downloaded(database.get_book_by_asin("B004", account_id=other).id, "m4b", file_path="/lib/b.m4b")
+
+    assert sorted(database.downloaded_file_paths()) == ["/lib/a.m4b", "/lib/b.m4b"]
+    assert database.downloaded_file_paths(account_id=other) == ["/lib/b.m4b"]

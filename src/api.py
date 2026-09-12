@@ -33,23 +33,28 @@ from src.database import (
     BOOK_SORT_COLUMNS,
     count_sync_runs,
     delete_account,
+    downloaded_file_paths,
     get_account,
     get_accounts,
     get_book,
     get_sync_run,
     get_sync_runs,
+    library_stats,
     list_books,
     save_settings,
     set_monitored,
     update_account,
 )
+from src.logbuffer import RingBufferHandler
 from src.model import BookStatus
+from src.notify import send_webhook
 from src.paths import REPO_ROOT
 from src.runstate import RunState
 from src.scheduler import Scheduler
 from src.schemas import (
     AccountImport,
     AccountOut,
+    AccountStats,
     AccountUpdate,
     BookAction,
     BookList,
@@ -59,13 +64,16 @@ from src.schemas import (
     LoginComplete,
     LoginStart,
     LoginStarted,
+    LogList,
     MarketplaceOut,
     Message,
     SettingsOut,
     SettingsUpdate,
+    Stats,
     Status,
     SyncRunList,
     SyncRunOut,
+    WebhookTest,
 )
 from src.settings import Settings
 
@@ -101,6 +109,7 @@ def create_app(
     cors_origins: list[str] | None = None,
     version: str | None = None,
     logins: PendingLogins | None = None,
+    log_buffer: RingBufferHandler | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -113,6 +122,8 @@ def create_app(
         cors_origins: Origins allowed to call from a browser, e.g. the UI's dev server
         version: Reported by the health check; defaults to `pyproject.toml`'s
         logins: The store of logins started and not yet completed; defaults to a fresh one
+        log_buffer: The handler holding recent log lines for `GET /api/logs`; without one
+            the endpoint answers with nothing
     """
     logins = logins or PendingLogins()
 
@@ -207,6 +218,50 @@ def create_app(
         # A changed interval or a toggled schedule applies to the wait already in progress
         scheduler.wake()
         return SettingsOut.model_validate(settings)
+
+    @router.post("/settings/webhook/test", response_model=Message)
+    def test_webhook(body: WebhookTest) -> Message:
+        """Send a sample event to `url`, or the configured webhook; 502 if it fails."""
+        url = body.url or Settings.from_db().webhook_url
+        if not url:
+            raise HTTPException(status_code=400, detail="No webhook URL configured")
+        try:
+            send_webhook(url, {"event": "test", "message": "Audible Sync webhook test"})
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"Webhook failed: {error}") from None
+        return Message(status="sent")
+
+    @router.get("/logs", response_model=LogList)
+    def get_logs(
+        limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+        level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None,
+    ) -> LogList:
+        """The newest log lines, oldest first, at or above `level`."""
+        return LogList(items=log_buffer.records(limit=limit, level=level) if log_buffer else [])
+
+    @router.get("/stats", response_model=Stats)
+    def get_stats() -> Stats:
+        """The numbers a dashboard opens with: per account and in total."""
+        settings = Settings.from_db()
+        per_account = []
+        for account in get_accounts():
+            last = get_sync_runs(limit=1, account_id=account.id)
+            per_account.append(
+                AccountStats(
+                    account=account,
+                    books=library_stats(account_id=account.id),
+                    bytes_on_disk=_bytes_on_disk(downloaded_file_paths(account_id=account.id)),
+                    last_run=last[0] if last else None,
+                )
+            )
+        last = get_sync_runs(limit=1)
+        return Stats(
+            accounts=per_account,
+            books=library_stats(),
+            bytes_on_disk=sum(a.bytes_on_disk for a in per_account),
+            last_run=last[0] if last else None,
+            next_run_at=scheduler.status(settings)["next_run_at"],
+        )
 
     @router.get("/accounts", response_model=list[AccountOut])
     def list_accounts() -> list[AccountOut]:
@@ -389,6 +444,17 @@ def _busy_to_409(action, book, settings):
         return action(book, settings)
     except library.BookBusy as error:
         raise HTTPException(status_code=409, detail=str(error)) from None
+
+
+def _bytes_on_disk(paths: list[str]) -> int:
+    """Sum of the file sizes, ignoring any file that has gone."""
+    total = 0
+    for path in paths:
+        try:
+            total += Path(path).stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _account_or_404(account_id: int):

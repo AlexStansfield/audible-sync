@@ -7,6 +7,7 @@ import src.database as database
 from src import api as api_module
 from src.api import create_app, read_version
 from src.audible_login import PendingLogins
+from src.logbuffer import RingBufferHandler
 from src.model import SyncOutcome
 from src.runstate import RunStage, RunState
 from src.settings import Settings
@@ -68,12 +69,16 @@ def api(db):
     scheduler = FakeScheduler()
     state = RunState()
     logins = PendingLogins()
-    app = create_app(scheduler=scheduler, state=state, api_token=TOKEN, version="test", logins=logins)
+    log_buffer = RingBufferHandler(capacity=50)
+    app = create_app(
+        scheduler=scheduler, state=state, api_token=TOKEN, version="test", logins=logins, log_buffer=log_buffer
+    )
     # No context manager: the lifespan (and so the scheduler) is exercised on its own
     client = TestClient(app)
     client.scheduler = scheduler
     client.state = state
     client.logins = logins
+    client.log_buffer = log_buffer
     return client
 
 
@@ -844,3 +849,114 @@ def test_cover_404_when_there_is_none(api):
     (book,) = _shelve(_account(), make_book("B001", cover_url=""))
 
     assert api.get(f"/api/books/{book.id}/cover", headers=AUTH).status_code == 404
+
+
+# --- extras ----------------------------------------------------------------------------
+
+
+def test_logs_returns_the_buffered_lines(api):
+    log = logging.getLogger("tests.api.extras")
+    log.setLevel(logging.INFO)
+    log.addHandler(api.log_buffer)
+    try:
+        log.info("hello")
+        log.warning("careful")
+    finally:
+        log.removeHandler(api.log_buffer)
+
+    body = api.get("/api/logs", headers=AUTH).json()
+    assert [(e["level"], e["message"]) for e in body["items"]][-2:] == [("INFO", "hello"), ("WARNING", "careful")]
+
+    body = api.get("/api/logs", headers=AUTH, params={"level": "WARNING", "limit": 1}).json()
+    assert [e["message"] for e in body["items"]] == ["careful"]
+
+
+@pytest.mark.parametrize("params", [{"level": "LOUD"}, {"limit": 0}, {"limit": 1001}])
+def test_logs_rejects_bad_parameters(api, params):
+    assert api.get("/api/logs", headers=AUTH, params=params).status_code == 422
+
+
+def test_logs_is_empty_without_a_buffer(db):
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN)
+
+    assert TestClient(app).get("/api/logs", headers=AUTH).json() == {"items": []}
+
+
+def test_stats(api, tmp_path, monkeypatch):
+    account_id = _account()
+    other = _account("Other", "us")
+    (book,) = _shelve(account_id, make_book("B001"))
+    _shelve(other, make_book("B002"), make_book("B003"), monitor_new=False)
+    audio = tmp_path / "a.m4b"
+    audio.write_bytes(b"x" * 1234)
+    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio))
+    database.mark_book_downloaded(
+        database.get_book_by_asin("B002", account_id=other).id, "m4b", file_path=str(tmp_path / "gone.m4b")
+    )
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
+    database.finish_sync_run(database.start_sync_run(account_id), outcome="success")
+
+    body = api.get("/api/stats", headers=AUTH).json()
+
+    assert body["books"]["total"] == 3
+    assert body["books"]["by_status"]["downloaded"] == 2
+    assert (body["books"]["monitored"], body["books"]["unmonitored"]) == (1, 2)
+    assert body["bytes_on_disk"] == 1234  # the file that has gone counts for nothing
+    assert body["next_run_at"] == "2026-09-12T18:00:00+00:00"
+    assert body["last_run"]["outcome"] == "success"
+    mine, theirs = body["accounts"]
+    assert mine["account"]["name"] == "Alex (UK)"
+    assert mine["books"]["total"] == 1
+    assert mine["bytes_on_disk"] == 1234
+    assert mine["last_run"]["account_id"] == account_id
+    assert theirs["books"]["unmonitored"] == 2
+    assert theirs["last_run"] is None
+    assert "auth" not in mine["account"]
+
+
+def test_stats_on_an_empty_database(api):
+    body = api.get("/api/stats", headers=AUTH).json()
+
+    assert body["accounts"] == []
+    assert body["books"]["total"] == 0
+    assert body["last_run"] is None
+
+
+def test_webhook_test_sends_to_the_configured_url(api, monkeypatch):
+    sent = []
+    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append((url, payload["event"])))
+    api.put("/api/settings", headers=AUTH, json={"webhook_url": "https://hooks/configured"})
+
+    response = api.post("/api/settings/webhook/test", headers=AUTH, json={})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "sent"}
+    assert sent == [("https://hooks/configured", "test")]
+
+
+def test_webhook_test_can_try_a_url_before_saving_it(api, monkeypatch):
+    sent = []
+    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append(url))
+
+    api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/try"})
+
+    assert sent == ["https://hooks/try"]
+
+
+def test_webhook_test_without_a_url(api):
+    response = api.post("/api/settings/webhook/test", headers=AUTH, json={})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No webhook URL configured"}
+
+
+def test_webhook_test_reports_a_failure(api, monkeypatch):
+    def down(url, payload):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(api_module, "send_webhook", down)
+
+    response = api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/x"})
+
+    assert response.status_code == 502
+    assert "connection refused" in response.json()["detail"]

@@ -216,6 +216,47 @@ class BookAction(BaseModel):
     removed: list[str] = []
 
 
+class LogEntry(BaseModel):
+    time: str
+    level: str
+    logger: str
+    message: str
+
+
+class LogList(BaseModel):
+    items: list[LogEntry]
+
+
+class WebhookTest(BaseModel):
+    """Try a webhook; `url` defaults to the configured one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str | None = None
+
+
+class BookCounts(BaseModel):
+    by_status: dict[str, int]
+    monitored: int
+    unmonitored: int
+    total: int
+
+
+class AccountStats(BaseModel):
+    account: AccountOut
+    books: BookCounts
+    bytes_on_disk: int
+    last_run: SyncRunOut | None
+
+
+class Stats(BaseModel):
+    accounts: list[AccountStats]
+    books: BookCounts
+    bytes_on_disk: int
+    last_run: SyncRunOut | None
+    next_run_at: str | None
+
+
 class Status(BaseModel):
     scheduler: SchedulerStatus
     current_run: RunSnapshot | None

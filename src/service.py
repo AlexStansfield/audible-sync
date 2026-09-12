@@ -28,6 +28,7 @@ import uvicorn
 from src.accounts import ensure_account_from_auth_file
 from src.api import create_app
 from src.database import get_settings, init_db, save_settings
+from src.logbuffer import RingBufferHandler
 from src.main import configure_logging, run_pipeline
 from src.runstate import RunState, StateProgress
 from src.scheduler import Scheduler
@@ -46,6 +47,8 @@ DEFAULT_PORT = 8080
 # interruptible, so this has to cover a slow re-encode. `compose.yml` sets Docker's
 # stop grace period to match; a kill after that is what the stale-claim timeout is for.
 STOP_TIMEOUT = 90.0
+# How many log lines GET /api/logs can look back over
+LOG_BUFFER_LINES = 1000
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +104,9 @@ def build(config: ServiceConfig):
     seed_settings_from_ini()
     settings = Settings.from_db()
     configure_logging(config.debug or settings.debug)
+    # Everything logged from here on is also readable through GET /api/logs
+    log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
+    logging.getLogger().addHandler(log_buffer)
     # An installation from before there were accounts has its auth file made into one
     ensure_account_from_auth_file(settings.auth_file)
 
@@ -109,7 +115,13 @@ def build(config: ServiceConfig):
 
     state = RunState()
     scheduler = Scheduler(load_settings=Settings.from_db, run=_run, state=state, stop_timeout=STOP_TIMEOUT)
-    return create_app(scheduler=scheduler, state=state, api_token=api_token, cors_origins=list(config.cors_origins))
+    return create_app(
+        scheduler=scheduler,
+        state=state,
+        api_token=api_token,
+        cors_origins=list(config.cors_origins),
+        log_buffer=log_buffer,
+    )
 
 
 def main() -> None:

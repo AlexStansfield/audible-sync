@@ -10,9 +10,10 @@ from src.accounts import (
 )
 from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, login_interactively
-from src.database import finish_sync_run, get_accounts, init_db, mark_account_synced, start_sync_run
+from src.database import finish_sync_run, get_accounts, get_sync_run, init_db, mark_account_synced, start_sync_run
 from src.downloader import DownloadStats, download_books
 from src.model import Account, SyncOutcome
+from src.notify import notify_run_finished
 from src.progress import Progress, TqdmProgress
 from src.runstate import RunStage, RunState
 from src.settings import Settings, seed_settings_from_ini
@@ -171,6 +172,11 @@ def run_account(
             books_failed=stats.failed,
         )
     finally:
+        # The row is closed on every path above, so what is sent is the final record
+        if settings.webhook_url:
+            run = get_sync_run(run_id)
+            if run is not None:
+                notify_run_finished(settings.webhook_url, run, account)
         # After the row is closed, so a poll never sees "nothing running" beside a run
         # the history still shows in flight
         state.end()
