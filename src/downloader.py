@@ -780,7 +780,7 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
         logger.info("%s moved to %s", column.removesuffix("_path").capitalize(), final_path)
 
     # Record the accessory paths and the completed status in one statement
-    mark_book_downloaded(asin, encoding_format=settings.encoding_format, **final_paths)
+    mark_book_downloaded(book.id, encoding_format=settings.encoding_format, **final_paths)
 
 
 def download_books(
@@ -788,14 +788,17 @@ def download_books(
     settings: Settings,
     progress: Progress | None = None,
     *,
+    account_id: int | None = None,
     state: RunState | None = None,
     cancel: threading.Event | None = None,
 ) -> DownloadStats:
     """
     Download, decrypt and file every book waiting for download.
 
-    Each book is claimed before it is touched, so a scheduler tick starting mid-run
-    cannot pick up a book another process is already downloading.
+    `audible` is one marketplace's client, so `account_id` restricts the queue to that
+    account's books; None takes everyone's, which only makes sense while there is one
+    account. Each book is claimed before it is touched, so a scheduler tick starting
+    mid-run cannot pick up a book another process is already downloading.
 
     `cancel` stops the loop: it is checked before each book, so a book the run never
     reached is never claimed, and inside each transfer, so the book in flight is
@@ -826,7 +829,7 @@ def download_books(
     Returns the counts the run record is written from. `attempted` is how many books
     this call took a slot for, including any lost to another run's claim.
     """
-    waiting_download = get_books_to_download()
+    waiting_download = get_books_to_download(account_id=account_id)
     total_to_download = len(waiting_download)
     max_download = settings.max_download
     number_to_download = total_to_download if max_download is None else min(max_download, total_to_download)
@@ -862,7 +865,7 @@ def download_books(
         # Claimed one at a time rather than as a batch: a run that stops half way, or is
         # killed, then leaves behind only the book it was actually working on, and only
         # the books really tried spend an attempt.
-        if not claim_book_for_download(asin):
+        if not claim_book_for_download(book.id):
             logger.info("Skipping %s (%s): another run is already downloading it", title, asin)
             continue
 
@@ -876,14 +879,14 @@ def download_books(
             # its attempt count untouched, or a token that expires often would
             # eventually mark perfectly good books failed.
             logger.exception("Audible rejected our credentials, stopping before %s (%s)", title, asin)
-            release_book(asin)
+            release_book(book.id)
             failed.append((asin, title))
             break
         except SyncCancelled:
             # Nothing is wrong with the book; whoever stopped the run gets it back in the
             # queue where it was, attempt count and all.
             logger.info("Cancelled while downloading %s (%s), handing it back to the queue", title, asin)
-            release_book(asin)
+            release_book(book.id)
             cancelled = True
             break
         except LicenseError as error:
@@ -893,11 +896,11 @@ def download_books(
             # the next sync that sees it consumable puts it back. The denial costs one
             # cheap POST and happens before any of the book is downloaded.
             logger.warning("Audible will not license %s (%s) right now, parking it: %s", title, asin, error)
-            mark_book_unavailable(asin, str(error))
+            mark_book_unavailable(book.id, str(error))
             unavailable.append((asin, title))
         except Exception as error:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
-            status = mark_book_failed(asin, f"{type(error).__name__}: {error}", max_attempts=settings.max_attempts)
+            status = mark_book_failed(book.id, f"{type(error).__name__}: {error}", max_attempts=settings.max_attempts)
             if status is BookStatus.FAILED:
                 logger.warning("Giving up on %s (%s) after %d attempts", title, asin, settings.max_attempts)
             failed.append((asin, title))

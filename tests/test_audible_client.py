@@ -185,7 +185,7 @@ def test_client_is_given_a_timeout_that_fits_a_full_page(monkeypatch):
     monkeypatch.setattr(src.audible_client.audible, "Authenticator", FakeAuthenticator)
     monkeypatch.setattr(src.audible_client.audible, "Client", fake_client)
 
-    src.audible_client.Audible("ignored.json")
+    src.audible_client.Audible.from_file("ignored.json")
 
     assert captured["timeout"] == src.audible_client._API_TIMEOUT
     assert captured["timeout"] > 10

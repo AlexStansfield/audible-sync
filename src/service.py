@@ -25,6 +25,7 @@ from dataclasses import dataclass
 
 import uvicorn
 
+from src.accounts import ensure_account_from_auth_file
 from src.api import create_app
 from src.database import get_settings, init_db, save_settings
 from src.main import configure_logging, run_pipeline
@@ -100,6 +101,8 @@ def build(config: ServiceConfig):
     seed_settings_from_ini()
     settings = Settings.from_db()
     configure_logging(config.debug or settings.debug)
+    # An installation from before there were accounts has its auth file made into one
+    ensure_account_from_auth_file(settings.auth_file)
 
     api_token = resolve_api_token(config.api_token)
     logger.info("API token: %s", api_token)
