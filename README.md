@@ -18,11 +18,13 @@ The purpose of this app is to allow the user more control over how they consumer
 
 You will need to have an existing audible authentication json file. 
 
-Later I plan to add support to be able to login and create this through the app but until then you need to create it by other means.
+Logging in through the app itself is next on the list; until then you need to create the file by other means.
 
 The easiest way is to use [audible-cli](https://github.com/mkb79/audible-cli). Take a look at the [Getting Started](https://github.com/mkb79/audible-cli?tab=readme-ov-file#getting-started) instruction on using the `quickstart` command. By default this should create a `.audible` folder in your home with an `audible.json` file inside. It's this file that is needed by this app.
 
 If you decide not to store the file at the default location you can update the `audible-auth-file` setting in the `config.ini` to point to the file location.
+
+On the first start the file is imported into the database as an **account** and is not read again: from then on accounts are managed through the API. The same person can have several - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. A second auth file is added with `POST /api/accounts/import`. A book the account already owned when it was added is downloaded or not according to the account's `monitor_existing` choice; purchases after that follow the `auto-monitor-new` setting.
 
 ## Config
 
@@ -202,10 +204,15 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer) and the last run |
 | `POST /api/sync` | Start a run now; `409` if one is already running |
 | `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |
-| `GET /api/sync/runs?limit=&offset=` | Run history, newest first, with a `total` |
+| `GET /api/sync/runs?limit=&offset=&account_id=` | Run history, newest first, with a `total`; optionally one account's |
 | `GET /api/sync/runs/{id}` | One run |
 | `GET /api/settings` | Every runtime setting |
 | `PUT /api/settings` | Change some settings: send only the fields to change, `null` clears an optional one. A bad value is a `422` carrying the reason; the change applies to the next run |
+| `GET /api/accounts` | Every account (never the credentials), with `needs_login` for one that has none |
+| `GET /api/accounts/{id}` | One account |
+| `PATCH /api/accounts/{id}` | Rename or enable/disable an account; a disabled account is skipped by the sync |
+| `DELETE /api/accounts/{id}?deregister=true` | Remove an account with its library rows and run history; files on disk stay. `deregister` also removes the device from Amazon's device list first (best effort) |
+| `POST /api/accounts/import` | `{"path", "name"?, "monitor_existing"?}`: create an account from an auth file the service can read |
 
 Timestamps are ISO 8601 in UTC.
 

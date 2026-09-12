@@ -65,6 +65,8 @@ class SyncRunOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    # None on a run from before there were accounts
+    account_id: int | None
     started_at: str
     finished_at: str | None
     outcome: SyncOutcome | None
@@ -80,10 +82,45 @@ class SyncRunList(BaseModel):
     total: int
 
 
+class AccountOut(BaseModel):
+    """An account as the API shows it: everything but the credentials."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    country_code: str
+    customer_name: str | None
+    enabled: bool
+    monitor_existing: bool
+    # True while the account has no working credentials; the pipeline skips it
+    needs_login: bool
+    created_at: str | None
+    last_synced_at: str | None
+
+
+class AccountUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1)
+    enabled: bool | None = None
+
+
+class AccountImport(BaseModel):
+    """Import an `audible-cli` style auth file the service can read."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(min_length=1)
+    name: str | None = Field(default=None, min_length=1)
+    monitor_existing: bool = True
+
+
 class Status(BaseModel):
     scheduler: SchedulerStatus
     current_run: RunSnapshot | None
     last_run: SyncRunOut | None
+    accounts: list[AccountOut]
 
 
 class SettingsOut(BaseModel):
