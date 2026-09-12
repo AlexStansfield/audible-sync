@@ -116,6 +116,43 @@ class AccountImport(BaseModel):
     monitor_existing: bool = True
 
 
+class MarketplaceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    country_code: str
+    domain: str
+    name: str
+
+
+class LoginStart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    country_code: str = Field(min_length=2)
+
+
+class LoginStarted(BaseModel):
+    """Step one: open `url` in a browser, then post the address it lands on to step two."""
+
+    login_id: str
+    url: str
+    # ISO 8601 UTC
+    expires_at: str
+
+
+class LoginComplete(BaseModel):
+    """
+    Step two. `response_url` is the "page not found" address the browser lands on after
+    signing in; `monitor_existing` is whether the library the account already holds is
+    queued for download or inserted unmonitored so the user picks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    response_url: str = Field(min_length=1)
+    name: str | None = Field(default=None, min_length=1)
+    monitor_existing: bool = True
+
+
 class Status(BaseModel):
     scheduler: SchedulerStatus
     current_run: RunSnapshot | None

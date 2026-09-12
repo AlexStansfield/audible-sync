@@ -25,7 +25,8 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from src.accounts import authenticator_for, import_auth_file
+from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file
+from src.audible_login import MARKETPLACES, PendingLogins, complete_login
 from src.database import (
     count_sync_runs,
     delete_account,
@@ -44,6 +45,10 @@ from src.schemas import (
     AccountOut,
     AccountUpdate,
     Health,
+    LoginComplete,
+    LoginStart,
+    LoginStarted,
+    MarketplaceOut,
     Message,
     SettingsOut,
     SettingsUpdate,
@@ -84,6 +89,7 @@ def create_app(
     api_token: str,
     cors_origins: list[str] | None = None,
     version: str | None = None,
+    logins: PendingLogins | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -95,7 +101,9 @@ def create_app(
         api_token: The bearer token every request except the health check must carry
         cors_origins: Origins allowed to call from a browser, e.g. the UI's dev server
         version: Reported by the health check; defaults to `pyproject.toml`'s
+        logins: The store of logins started and not yet completed; defaults to a fresh one
     """
+    logins = logins or PendingLogins()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -221,6 +229,42 @@ def create_app(
                 logger.warning("Could not deregister %r with Amazon; removing it anyway", account, exc_info=True)
         delete_account(account_id)
         return Message(status="deleted")
+
+    @router.get("/marketplaces", response_model=list[MarketplaceOut])
+    def list_marketplaces() -> list[MarketplaceOut]:
+        return list(MARKETPLACES)
+
+    @router.post("/accounts/login", response_model=LoginStarted)
+    def start_account_login(body: LoginStart) -> LoginStarted:
+        """
+        Step one of adding an account: the address to sign in at.
+
+        The user opens `url`, signs in to Amazon in their own browser, and lands on a
+        "page not found" page; its address goes to step two within `expires_at`.
+        """
+        pending = logins.start(body.country_code)  # ValueError for an unknown marketplace -> 422
+        return LoginStarted(login_id=pending.id, url=pending.url, expires_at=pending.expires_at.isoformat())
+
+    @router.post("/accounts/login/{login_id}", response_model=AccountOut, status_code=201)
+    def complete_account_login(login_id: str, body: LoginComplete) -> AccountOut:
+        """
+        Step two: the pasted address becomes an account.
+
+        404 for a login that was never started or has expired (start again), 400 for an
+        address that carries no authorization code, 502 when Amazon rejects the code.
+        """
+        pending = logins.pop(login_id)
+        if pending is None:
+            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
+        try:
+            auth = complete_login(pending, body.response_url)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except Exception as error:
+            logger.warning("Amazon rejected the login for %s", pending.country_code, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
+        account_id = add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
+        return get_account(account_id)
 
     @router.post("/accounts/import", response_model=AccountOut, status_code=201)
     def import_account(body: AccountImport) -> AccountOut:
