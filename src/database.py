@@ -90,6 +90,15 @@ def init_db():
             error TEXT
         )
     """)
+    # Runtime settings as text, one row per key. Seeded from config.ini on the first run
+    # and changed through the API after that; `src.settings` owns the parsing.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
 
     # Migrate existing databases to add new columns
@@ -667,3 +676,44 @@ def get_sync_runs(limit: int = 20) -> list[SyncRun]:
     with closing(_get_connection()) as conn:
         rows = conn.execute("SELECT * FROM sync_runs ORDER BY started_at DESC, id DESC LIMIT ?", (limit,)).fetchall()
     return [SyncRun.from_row(row) for row in rows]
+
+
+# --- settings ------------------------------------------------------------------
+# Text in, text out: `src.settings` is the only reader and writer, and it owns the
+# parsing, the defaults and the validation. Keeping this layer typeless means a value
+# the running build cannot parse is still stored and read back rather than lost.
+
+
+def get_settings() -> dict[str, str]:
+    """Every stored setting, keyed by name. Empty on a database that has never been seeded."""
+    with closing(_get_connection()) as conn:
+        return {row["key"]: row["value"] for row in conn.execute("SELECT key, value FROM settings")}
+
+
+def save_settings(values: dict[str, str]) -> None:
+    """
+    Write settings, replacing any that already exist.
+
+    An upsert per key rather than a wipe and rewrite, so a partial update from the API
+    leaves every other setting exactly as it was. `updated_at` is stamped on the keys
+    written, which is what tells a UI when each value last changed.
+    """
+    if not values:
+        return
+
+    now = _utcnow()
+    with closing(_get_connection()) as conn:
+        conn.executemany(
+            """
+            INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+            """,
+            [(key, value, now) for key, value in values.items()],
+        )
+        conn.commit()
+
+
+def has_settings() -> bool:
+    """Whether anything has ever been stored, which is what decides if config.ini is seeded."""
+    with closing(_get_connection()) as conn:
+        return bool(conn.execute("SELECT EXISTS(SELECT 1 FROM settings)").fetchone()[0])

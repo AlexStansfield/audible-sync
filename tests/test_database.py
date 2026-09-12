@@ -808,3 +808,53 @@ def test_get_sync_runs_is_newest_first_and_honours_the_limit(db, monkeypatch):
     runs = database.get_sync_runs(limit=2)
 
     assert [run.started_at for run in runs] == ["2026-03-01T00:00:00+00:00", "2026-02-01T00:00:00+00:00"]
+
+
+# --- settings ---------------------------------------------------------------------
+
+
+def test_init_db_creates_the_settings_table(db):
+    conn = sqlite3.connect(db)
+    columns = [row[1] for row in conn.execute("PRAGMA table_info(settings)")]
+    conn.close()
+
+    assert columns == ["key", "value", "updated_at"]
+
+
+def test_get_settings_is_empty_on_a_fresh_database(db):
+    assert database.get_settings() == {}
+    assert database.has_settings() is False
+
+
+def test_save_settings_stores_text_and_stamps_when(db, monkeypatch):
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
+
+    database.save_settings({"bitrate": "48", "debug": "true"})
+
+    assert database.get_settings() == {"bitrate": "48", "debug": "true"}
+    assert database.has_settings() is True
+    conn = sqlite3.connect(db)
+    stamps = {row[0] for row in conn.execute("SELECT updated_at FROM settings")}
+    conn.close()
+    assert stamps == {"2026-09-12T10:00:00+00:00"}
+
+
+def test_save_settings_replaces_a_key_and_leaves_the_others_alone(db, monkeypatch):
+    """A partial update from the API must not wipe the settings it did not mention."""
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
+    database.save_settings({"bitrate": "48", "debug": "true"})
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T11:00:00+00:00")
+
+    database.save_settings({"bitrate": "32"})
+
+    assert database.get_settings() == {"bitrate": "32", "debug": "true"}
+    conn = sqlite3.connect(db)
+    stamps = dict(conn.execute("SELECT key, updated_at FROM settings"))
+    conn.close()
+    assert stamps == {"bitrate": "2026-09-12T11:00:00+00:00", "debug": "2026-09-12T10:00:00+00:00"}
+
+
+def test_save_settings_with_nothing_to_write_touches_nothing(db):
+    database.save_settings({})
+
+    assert database.has_settings() is False

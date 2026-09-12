@@ -3,8 +3,25 @@ from pathlib import Path
 
 import pytest
 
+import src.database as database
 from src.paths import REPO_ROOT
-from src.settings import Settings, validate_max_attempts, validate_max_download
+from src.settings import (
+    DB_SETTING_KEYS,
+    Settings,
+    seed_settings_from_ini,
+    validate_max_attempts,
+    validate_max_download,
+    validate_sync_interval,
+    validate_webhook_url,
+)
+from tests.conftest import make_settings
+
+
+@pytest.fixture
+def db(tmp_path, monkeypatch):
+    """Point the database module at a fresh temporary file and create the schema."""
+    monkeypatch.setattr(database, "DB_FILE", str(tmp_path / "test.db"))
+    database.init_db()
 
 
 def write_config(tmp_path, body: str) -> Path:
@@ -18,8 +35,11 @@ FULL_CONFIG = """
 debug = true
 
 [sync]
+enabled = false
+interval-minutes = 90
 max-download = 5
 max-attempts = 4
+auto-monitor-new = false
 audible-auth-file = /keys/audible.json
 
 [folders]
@@ -33,6 +53,9 @@ filename = {title} ({year})
 [encoding]
 format = oga
 bitrate = 48
+
+[notifications]
+webhook-url = https://hooks.example/audible
 """
 
 
@@ -40,8 +63,11 @@ def test_from_ini_reads_every_setting(tmp_path):
     settings = Settings.from_ini(write_config(tmp_path, FULL_CONFIG))
 
     assert settings.debug is True
+    assert settings.sync_enabled is False
+    assert settings.sync_interval_minutes == 90
     assert settings.max_download == 5
     assert settings.max_attempts == 4
+    assert settings.auto_monitor_new is False
     assert settings.auth_file == Path("/keys/audible.json")
     assert settings.download_folder == Path("/var/tmp/downloads")
     assert settings.audiobook_folder == Path("/mnt/media/audiobooks")
@@ -49,6 +75,7 @@ def test_from_ini_reads_every_setting(tmp_path):
     assert settings.filename_template == "{title} ({year})"
     assert settings.encoding_format == "oga"
     assert settings.bitrate == 48
+    assert settings.webhook_url == "https://hooks.example/audible"
 
 
 def test_from_ini_falls_back_to_every_default(tmp_path):
@@ -161,6 +188,8 @@ def test_from_ini_resolves_a_relative_config_path(tmp_path):
         ("[sync]\nmax-download = -1\n", "max-download must be 1 or more"),
         ("[sync]\nmax-attempts = 0\n", "max-attempts must be 1 or more"),
         ("[sync]\nmax-attempts = -1\n", "max-attempts must be 1 or more"),
+        ("[sync]\ninterval-minutes = 4\n", "interval-minutes must be 5 or more"),
+        ("[notifications]\nwebhook-url = ftp://hooks\n", "webhook-url must start with http"),
     ],
 )
 def test_from_ini_validates_up_front(tmp_path, body, message):
@@ -214,3 +243,205 @@ def test_validate_max_attempts_rejects_zero_and_negative_caps(value):
     """Zero would fail every book on its first claim, before it had been tried once."""
     with pytest.raises(ValueError, match="max-attempts must be 1 or more"):
         validate_max_attempts(value)
+
+
+@pytest.mark.parametrize("body", ["[notifications]\n", "[notifications]\nwebhook-url =\n"])
+def test_webhook_url_empty_means_unset(tmp_path, body):
+    assert Settings.from_ini(write_config(tmp_path, body)).webhook_url is None
+
+
+@pytest.mark.parametrize("value", [5, 60, 1440])
+def test_validate_sync_interval_accepts_five_minutes_and_up(value):
+    validate_sync_interval(value)
+
+
+@pytest.mark.parametrize("value", [0, 4, -1])
+def test_validate_sync_interval_rejects_intervals_too_short_to_finish_a_run(value):
+    with pytest.raises(ValueError, match="interval-minutes must be 5 or more"):
+        validate_sync_interval(value)
+
+
+@pytest.mark.parametrize("value", [None, "http://hooks.local/x", "https://hooks.example/audible"])
+def test_validate_webhook_url_accepts_unset_and_http_targets(value):
+    validate_webhook_url(value)
+
+
+@pytest.mark.parametrize("value", ["hooks.example", "ftp://hooks.example", ""])
+def test_validate_webhook_url_rejects_anything_that_is_not_http(value):
+    with pytest.raises(ValueError, match="webhook-url must start with http"):
+        validate_webhook_url(value)
+
+
+# --- the settings table ---------------------------------------------------------
+
+# Every runtime setting moved off its default, so a round trip that drops one shows
+_CHANGED = {
+    "debug": True,
+    "sync_enabled": False,
+    "sync_interval_minutes": 45,
+    "max_download": 7,
+    "max_attempts": 5,
+    "auto_monitor_new": False,
+    "download_folder": Path("/var/tmp/dl"),
+    "audiobook_folder": Path("/mnt/books"),
+    "folder_template": "{author}/{title}",
+    "filename_template": "{title} ({year})",
+    "encoding_format": "oga",
+    "bitrate": 40,
+    "webhook_url": "https://hooks.example/audible",
+}
+
+
+def test_db_setting_keys_are_every_field_but_the_auth_file():
+    """The auth file is where a login is imported from, not something a run reads."""
+    expected = {f.name for f in dataclasses.fields(Settings)} - {"auth_file"}
+
+    assert set(DB_SETTING_KEYS) == expected
+    assert set(_CHANGED) == expected
+
+
+def test_to_db_values_writes_text_the_ini_file_would_accept():
+    values = make_settings(**_CHANGED).to_db_values()
+
+    assert values["debug"] == "true"
+    assert values["sync_enabled"] == "false"
+    assert values["sync_interval_minutes"] == "45"
+    assert values["download_folder"] == "/var/tmp/dl"
+    assert values["webhook_url"] == "https://hooks.example/audible"
+    assert "auth_file" not in values
+
+
+def test_to_db_values_writes_unset_as_an_empty_string():
+    values = Settings().to_db_values()
+
+    assert values["max_download"] == ""
+    assert values["webhook_url"] == ""
+
+
+def test_from_db_round_trips_every_runtime_setting(db):
+    settings = make_settings(**_CHANGED)
+
+    database.save_settings(settings.to_db_values())
+
+    assert Settings.from_db() == settings
+
+
+def test_from_db_on_an_empty_table_is_the_defaults(db):
+    assert Settings.from_db() == Settings()
+
+
+def test_from_db_reads_an_empty_value_as_unset(db):
+    database.save_settings({"max_download": "", "webhook_url": ""})
+
+    settings = Settings.from_db()
+
+    assert settings.max_download is None
+    assert settings.webhook_url is None
+
+
+def test_from_db_accepts_the_ini_spellings_of_a_flag(db):
+    database.save_settings({"debug": "yes", "sync_enabled": "0"})
+
+    settings = Settings.from_db()
+
+    assert settings.debug is True
+    assert settings.sync_enabled is False
+
+
+def test_from_db_anchors_a_relative_folder_to_the_repo_root(db):
+    database.save_settings({"audiobook_folder": "audiobooks"})
+
+    assert Settings.from_db().audiobook_folder == REPO_ROOT / "audiobooks"
+
+
+def test_from_db_ignores_a_key_this_build_does_not_know(db):
+    """A database written by a newer version must still read."""
+    database.save_settings({"future_setting": "x", "bitrate": "32"})
+
+    assert Settings.from_db().bitrate == 32
+
+
+@pytest.mark.parametrize(
+    ("key", "text", "message"),
+    [
+        ("bitrate", "lots", "bitrate must be a whole number"),
+        ("max_download", "ten", "max_download must be a whole number"),
+        ("debug", "maybe", "debug must be true or false"),
+    ],
+)
+def test_from_db_names_the_setting_it_cannot_parse(db, key, text, message):
+    database.save_settings({key: text})
+
+    with pytest.raises(ValueError, match=message):
+        Settings.from_db()
+
+
+def test_from_db_validates_like_every_other_route(db):
+    database.save_settings({"bitrate": "0"})
+
+    with pytest.raises(ValueError, match="bitrate"):
+        Settings.from_db()
+
+
+def test_with_changes_revalidates():
+    with pytest.raises(ValueError, match="max-download must be 1 or more"):
+        Settings().with_changes(max_download=0)
+
+
+def test_with_changes_replaces_only_what_it_is_given():
+    settings = Settings().with_changes(bitrate=32, encoding_format="oga")
+
+    assert (settings.bitrate, settings.encoding_format) == (32, "oga")
+    assert settings.folder_template == Settings().folder_template
+
+
+@pytest.mark.parametrize("key", ["auth_file", "nope"])
+def test_with_changes_refuses_a_key_that_is_not_a_runtime_setting(key):
+    """A typo must not pass silently, and the auth file is import-only."""
+    with pytest.raises(ValueError, match=f"not a runtime setting: {key}"):
+        Settings().with_changes(**{key: "x"})
+
+
+def test_with_changes_anchors_a_folder_given_as_text():
+    settings = Settings().with_changes(download_folder="data/dl", audiobook_folder="/mnt/books")
+
+    assert settings.download_folder == REPO_ROOT / "data" / "dl"
+    assert settings.audiobook_folder == Path("/mnt/books")
+
+
+def test_with_changes_reads_an_empty_webhook_url_as_unset():
+    settings = Settings().with_changes(webhook_url="https://x").with_changes(webhook_url="")
+
+    assert settings.webhook_url is None
+
+
+def test_seed_settings_from_ini_copies_the_file_into_an_empty_table(db, tmp_path):
+    path = write_config(tmp_path, FULL_CONFIG)
+
+    assert seed_settings_from_ini(path) is True
+    # The auth file is import-only and never stored, so compare what the table holds
+    assert Settings.from_db().to_db_values() == Settings.from_ini(path).to_db_values()
+
+
+def test_seed_settings_from_ini_seeds_only_once(db, tmp_path):
+    """After the first run the table is what the user has changed; the file must not
+    overwrite it on every start."""
+    path = write_config(tmp_path, FULL_CONFIG)
+    seed_settings_from_ini(path)
+    database.save_settings({"bitrate": "24"})
+
+    assert seed_settings_from_ini(path) is False
+    assert Settings.from_db().bitrate == 24
+
+
+def test_seed_settings_from_ini_leaves_a_saved_setting_alone(db, tmp_path):
+    database.save_settings({"bitrate": "24"})
+
+    assert seed_settings_from_ini(write_config(tmp_path, FULL_CONFIG)) is False
+    assert database.get_settings() == {"bitrate": "24"}
+
+
+def test_seed_settings_from_ini_skips_a_missing_file(db, tmp_path):
+    """The service needs no file at all; the defaults apply."""
+    assert seed_settings_from_ini(tmp_path / "nope.ini") is False
+    assert database.has_settings() is False
