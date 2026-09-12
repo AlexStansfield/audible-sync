@@ -340,7 +340,7 @@ def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, c
 
     def fake_mark(book_id, **kw):
         marked.append((asins[book_id], kw["encoding_format"]))
-        accessories.append({k: v for k, v in kw.items() if k.endswith("_path")})
+        accessories.append({k: v for k, v in kw.items() if k.endswith("_path") and k != "file_path"})
 
     monkeypatch.setattr(downloader, "mark_book_downloaded", fake_mark)
 
@@ -1463,3 +1463,19 @@ def test_download_books_asks_the_queue_for_one_accounts_books(tmp_path, monkeypa
     downloader.download_books(object(), make_settings(download_folder=tmp_path / "dl"), account_id=7)
 
     assert seen == {"account_id": 7}
+
+
+def test_download_books_records_where_the_audio_was_filed(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    library = tmp_path / "audiobooks"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [make_book("OK2", "Two")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    filed = {}
+    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda book_id, **kw: filed.update(kw))
+
+    downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
+
+    assert filed["file_path"] == str(library / "Author One" / "Two" / "Two.m4b")
+    assert Path(filed["file_path"]).exists()

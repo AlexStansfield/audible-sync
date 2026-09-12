@@ -779,8 +779,8 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
         final_paths[column] = str(final_path)
         logger.info("%s moved to %s", column.removesuffix("_path").capitalize(), final_path)
 
-    # Record the accessory paths and the completed status in one statement
-    mark_book_downloaded(book.id, encoding_format=settings.encoding_format, **final_paths)
+    # Record where everything went and the completed status in one statement
+    mark_book_downloaded(book.id, encoding_format=settings.encoding_format, file_path=str(to_path), **final_paths)
 
 
 def download_books(
