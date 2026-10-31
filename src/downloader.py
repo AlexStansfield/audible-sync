@@ -890,12 +890,15 @@ def download_books(
             cancelled = True
             break
         except LicenseError as error:
-            # Audible will not license this book today. That is usually a Plus title
-            # withdrawn after it was added to the library, which Audible does offer
-            # again, so the book is parked rather than failed: it leaves the queue, and
-            # the next sync that sees it consumable puts it back. The denial costs one
-            # cheap POST and happens before any of the book is downloaded.
-            logger.warning("Audible will not license %s (%s) right now, parking it: %s", title, asin, error)
+            # Audible will not license this book for download although the sync saw it
+            # as consumable - a title retired to streaming only, or rights changing
+            # between the sync and now. The book is parked rather than failed: it leaves
+            # the queue and stays out until it is retried through the API, so it cannot
+            # take a download slot on every run. The denial costs one cheap POST and
+            # happens before any of the book is downloaded.
+            logger.warning(
+                "Audible will not license %s (%s) for download, parking it until retried: %s", title, asin, error
+            )
             mark_book_unavailable(book.id, str(error))
             unavailable.append((asin, title))
         except Exception as error:

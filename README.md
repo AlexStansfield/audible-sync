@@ -125,7 +125,7 @@ The first run starts as soon as the service does, then every `interval-minutes` 
 For a single sync-and-exit instead of the service:
 
 ```
-docker compose run --rm audible-sync uv run python -m src.main
+docker compose run --rm audible-sync uv run --no-sync python -m src.main
 ```
 
 ### Running the App with Python (No Docker)

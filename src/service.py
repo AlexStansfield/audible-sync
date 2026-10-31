@@ -34,7 +34,8 @@ from src.runstate import RunState, StateProgress
 from src.scheduler import Scheduler
 from src.settings import Settings, seed_settings_from_ini
 
-logger = logging.getLogger(__name__)
+# Run as `python -m`, this module is `__main__`; name the logger after the module anyway
+logger = logging.getLogger("src.service" if __name__ == "__main__" else __name__)
 
 # Kept in the settings table under a key `Settings.from_db` does not know, so it is
 # stored beside the rest but never appears in `GET /api/settings`

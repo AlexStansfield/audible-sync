@@ -19,7 +19,8 @@ from src.runstate import RunStage, RunState
 from src.settings import Settings, seed_settings_from_ini
 from src.sync import sync_library
 
-logger = logging.getLogger(__name__)
+# Run as `python -m`, this module is `__main__`; name the logger after the module anyway
+logger = logging.getLogger("src.main" if __name__ == "__main__" else __name__)
 
 
 def configure_logging(debug: bool = False) -> None:

@@ -671,23 +671,53 @@ def test_mark_book_unavailable_parks_a_book_without_failing_it(db):
 
     book = database.get_book_by_asin("B001")
     assert book.status is BookStatus.UNAVAILABLE
-    assert book.is_consumable is False
+    # The API's view is left alone: it said consumable, Audible refused anyway
+    assert book.is_consumable is True
     assert "Denied" in book.last_error
     # The attempt really happened, but nothing terminal is decided from it here
     assert book.attempts == 1
     assert database.get_books_to_download() == []
 
 
-def test_a_parked_book_comes_back_on_the_next_sync(db):
-    """The full round trip: denied at download time, then restored by a later sync."""
+def test_a_licence_denied_book_stays_parked_through_the_next_sync(db):
+    """
+    Found live (2026-10-31): Audible refused the download licence for two titles it
+    reported consumable. Restoring them on every sync queued them to be refused again,
+    and with `max-download = 2` nothing else ever downloaded.
+    """
     database.update_books(ACCOUNT, [make_book("B001")])
     database.claim_book_for_download(_id("B001"))
     database.mark_book_unavailable(_id("B001"), "Denied")
 
     database.update_books(ACCOUNT, [make_book("B001", is_consumable=True)])
 
+    assert database.get_book_by_asin("B001").status is BookStatus.UNAVAILABLE
+    assert database.get_books_to_download() == []
+    # Nothing for a re-read to discover, so the sync does not re-read the library for it
+    assert database.needs_consumability_refresh(ACCOUNT) is False
+
+
+def test_a_licence_denied_book_comes_back_when_retried(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    database.claim_book_for_download(_id("B001"))
+    database.mark_book_unavailable(_id("B001"), "Denied")
+
+    assert database.reset_for_download(_id("B001"), monitored=True) is True
+
+    assert [b.asin for b in database.get_books_to_download()] == ["B001"]
+
+
+def test_a_withdrawn_book_comes_back_on_the_next_sync(db):
+    """The full round trip for a Plus title: withdrawn at sync time, then offered again."""
+    database.update_books(ACCOUNT, [make_book("B001", is_consumable=False)])
+    assert database.get_book_by_asin("B001").status is BookStatus.UNAVAILABLE
+    assert database.needs_consumability_refresh(ACCOUNT) is True
+
+    database.update_books(ACCOUNT, [make_book("B001", is_consumable=True)])
+
     assert database.get_book_by_asin("B001").status is BookStatus.WAITING_DOWNLOAD
     assert [b.asin for b in database.get_books_to_download()] == ["B001"]
+    assert database.needs_consumability_refresh(ACCOUNT) is False
 
 
 def test_needs_consumability_refresh_is_false_for_a_fully_read_library(db):
