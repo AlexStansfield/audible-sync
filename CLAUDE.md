@@ -591,7 +591,7 @@ docker compose run --rm -it audible-sync bash
 - `Dockerfile`: `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
 - `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` through from the environment (empty means "generate one"), mounts `~/.audible`, `./data`, `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
 - Run with `docker compose up -d`; `restart: unless-stopped` is right for the service. A one-shot run is `docker compose run --rm audible-sync uv run python -m src.main`
-- `.dockerignore` does not exclude `data/`, `audiobooks/`, `venv/` or `audible.json`; keep those out of the build context when building locally.
+- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/` and `audible.json`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored): a compose file with `build: ..` and its own `config/` mount.
 - Image: `ghcr.io/alexstansfield/audible-sync:latest` and `:vX.Y.Z`, published on `v*` tags
 
 ## Continuous Integration
