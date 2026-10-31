@@ -27,7 +27,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from src import library
-from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file
+from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file, replace_account_auth
 from src.audible_login import MARKETPLACES, PendingLogins, complete_login
 from src.database import (
     BOOK_SORT_COLUMNS,
@@ -314,11 +314,13 @@ def create_app(
     @router.post("/accounts/login/{login_id}", response_model=AccountOut, status_code=201)
     def complete_account_login(login_id: str, body: LoginComplete) -> AccountOut:
         """
-        Step two: the pasted address becomes an account.
+        Step two: the pasted address becomes an account, or new credentials for one.
 
         404 for a login that was never started or has expired (start again), 400 for an
         address that carries no authorization code, 502 when Amazon rejects the code.
+        With `account_id`, that account's credentials are replaced and its library kept.
         """
+        existing = _account_or_404(body.account_id) if body.account_id is not None else None
         pending = logins.pop(login_id)
         if pending is None:
             raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
@@ -329,6 +331,9 @@ def create_app(
         except Exception as error:
             logger.warning("Amazon rejected the login for %s", pending.country_code, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
+        if existing is not None:
+            replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
+            return get_account(existing.id)
         account_id = add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
         return get_account(account_id)
 

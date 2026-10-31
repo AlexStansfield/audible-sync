@@ -444,3 +444,26 @@ def test_run_account_sends_no_webhook_without_a_url(tmp_path, monkeypatch):
     run_pipeline(_settings(tmp_path))
 
     assert "notified" not in calls
+
+
+def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+    replaced = []
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: replaced.append((account.id, auth)))
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda *a, **kw: pytest.fail("must not add"))
+
+    main(["login", "--marketplace", "uk", "--account", "3"])
+
+    assert replaced == [(3, "auth")]
+    assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+
+
+def test_login_command_refuses_an_unknown_account_before_the_browser_step(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: None)
+    monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: pytest.fail("must not start a login"))
+
+    with pytest.raises(SystemExit, match="No account with id 9"):
+        main(["login", "--marketplace", "uk", "--account", "9"])

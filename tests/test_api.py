@@ -960,3 +960,44 @@ def test_webhook_test_reports_a_failure(api, monkeypatch):
 
     assert response.status_code == 502
     assert "connection refused" in response.json()["detail"]
+
+
+def test_login_step_two_can_replace_an_existing_accounts_credentials(api, monkeypatch):
+    """The recovery for a registration Audible stopped licensing: the library stays attached."""
+    _fake_complete(monkeypatch)
+    account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
+    _shelve(account_id, make_book("B001"))
+    replaced = []
+    monkeypatch.setattr(
+        api_module,
+        "replace_account_auth",
+        lambda account, auth, *, deregister_previous: (
+            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
+        ),
+    )
+    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+
+    response = api.post(
+        f"/api/accounts/login/{login_id}",
+        headers=AUTH,
+        json={"response_url": "u", "account_id": account_id, "deregister_previous": False},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["id"] == account_id
+    assert replaced == [(account_id, False)]
+    assert database.get_account(account_id).auth["access_token"] == "Atna|access"
+    assert len(database.get_accounts()) == 1
+    assert database.get_books(account_id=account_id)[0].asin == "B001"
+
+
+def test_login_step_two_for_an_unknown_account_is_a_404_and_keeps_the_login(api, monkeypatch):
+    _fake_complete(monkeypatch)
+    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u", "account_id": 99})
+
+    assert response.status_code == 404
+    assert "No account with id 99" in response.json()["detail"]
+    # The pasted address is still usable for a corrected request
+    assert api.logins.pop(login_id) is not None

@@ -144,6 +144,11 @@ class LoginComplete(BaseModel):
     Step two. `response_url` is the "page not found" address the browser lands on after
     signing in; `monitor_existing` is whether the library the account already holds is
     queued for download or inserted unmonitored so the user picks.
+
+    With `account_id`, the new credentials replace those of an existing account instead
+    of creating one - the way back when a registration stops working - and `name` and
+    `monitor_existing` are ignored. `deregister_previous` removes the old device from
+    Amazon first, best effort.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -151,6 +156,8 @@ class LoginComplete(BaseModel):
     response_url: str = Field(min_length=1)
     name: str | None = Field(default=None, min_length=1)
     monitor_existing: bool = True
+    account_id: int | None = None
+    deregister_previous: bool = True
 
 
 class SeriesEntry(BaseModel):
