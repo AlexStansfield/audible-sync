@@ -16,7 +16,7 @@ The purpose of this app is to allow the user more control over how they consumer
 
 ## Initial Setup
 
-Add your Audible account by signing in through your own browser. The app never sees your Amazon password: it builds a sign-in address, you sign in to Amazon there (captcha and two-factor included), and Amazon sends the browser to a **"page not found"** page whose address carries a one-time code. Paste that address back and the app exchanges it for credentials, which are stored in the database.
+Add your Audible account by signing in to Amazon with a code, the way the Audible apps do. The app never sees your Amazon password: it asks Amazon for a five-letter code and shows it to you, you open `https://www.amazon.co.uk/code` (your marketplace's) on any device - a phone is fine - sign in if asked, and enter the code; the app notices within a few seconds and stores the credentials in the database. The code is good for ten minutes.
 
 From the command line:
 
@@ -24,7 +24,9 @@ From the command line:
 python -m src.main login --marketplace uk
 ```
 
-Or through the API (see below): `POST /api/accounts/login` gives the address, `POST /api/accounts/login/{login_id}` takes the pasted one. `GET /api/marketplaces` lists the marketplaces (`uk`, `us`, `de`, `fr`, `ca`, `it`, `au`, `in`, `jp`, `es`, `br`).
+Or through the API (see below): `POST /api/accounts/login` gives the code, `GET /api/accounts/login/{login_id}` reports `confirmed` once you have entered it. `GET /api/marketplaces` lists the marketplaces (`uk`, `us`, `de`, `fr`, `ca`, `it`, `au`, `in`, `jp`, `es`, `br`).
+
+If your Audible account predates Amazon sign-in and the code is refused, add `--browser` (or `"method": "browser"`): you sign in to Amazon in your own browser at the address the app prints, land on a **"page not found"** page whose address carries a one-time code, and paste that address back (`POST /api/accounts/login/{login_id}`).
 
 The same person can have several accounts - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. When an account is added you choose whether the books it already owns are queued for download (`monitor_existing`, the default) or left unmonitored so you pick them later; `--no-download-existing` on the command line. Purchases after that follow the `auto-monitor-new` setting.
 
@@ -194,7 +196,7 @@ python -m src.main
 or add an account:
 
 ```
-python -m src.main login --marketplace uk [--name "Main"] [--no-download-existing] [--account ID]
+python -m src.main login --marketplace uk [--name "Main"] [--no-download-existing] [--account ID] [--browser]
 ```
 
 `--account ID` signs in again for an existing account - its library and download history are kept - which is what to do if Audible starts answering every download with "License not granted to customer": Audible stopped licensing devices registered with the older app profile in October 2026, and a fresh sign-in registers one it accepts.
@@ -240,8 +242,9 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `GET /api/logs?limit=&level=` | The newest log lines (up to 1000 are kept), oldest first, at or above `level` |
 | `GET /api/stats` | For a dashboard: per account and in total, books by status, monitored/unmonitored, bytes on disk, the last run, and when the next one is due |
 | `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |
-| `POST /api/accounts/login` | `{"country_code"}`: step one of signing in. Returns `login_id`, the `url` to open in a browser, and `expires_at` (15 minutes) |
-| `POST /api/accounts/login/{login_id}` | `{"response_url", "name"?, "monitor_existing"?, "account_id"?, "deregister_previous"?}`: step two. `response_url` is the address of the "page not found" page the browser lands on after signing in. `201` with the new account; `404` if the login expired (start again), `400` if the address carries no code, `502` if Amazon rejected it. With `account_id` the new credentials replace an existing account's and its library is kept - the way back when Audible stops licensing a registration |
+| `POST /api/accounts/login` | `{"country_code", "method"?, "name"?, "monitor_existing"?, "account_id"?, "deregister_previous"?}`: start signing in; `202` with the login. With the default `method` `code` it carries the `code` to enter at `verification_url` on any device, and the service polls Amazon until you have; with `browser` it carries the `url` to sign in at. `name` and `monitor_existing` describe the account to create; `account_id` instead replaces an existing account's credentials, keeping its library - the way back when Audible stops licensing a registration - with `deregister_previous` removing its old device from Amazon first. `422` for an unknown marketplace, `404` for an unknown account, `502` when Amazon will not issue a code |
+| `GET /api/accounts/login/{login_id}` | How the login is going: `status` is `pending`, then `confirmed` with the `account`, or `expired` (start again) or `failed` with the `error`. A finished login stays readable for 15 minutes, then `404` |
+| `POST /api/accounts/login/{login_id}` | `{"response_url"}`: step two of a `browser` login, the address of the "page not found" page the browser lands on after signing in. `201` with the confirmed login; `404` if it expired or was already completed (start again), `400` if the address carries no code (paste again), `502` if Amazon rejected it |
 
 Timestamps are ISO 8601 in UTC. The file actions refuse (`409`) a book a run is downloading; cancel the run first.
 

@@ -75,7 +75,7 @@ List of tasks to complete by phases
 - [x] Convert to an API service: background scheduler, status, manual sync trigger and cancel, run history and settings endpoints, bearer token, Docker image runs the service
 - [x] Monitor download progress (the run in flight is polled through `GET /api/status`)
 - [x] Add support for multiple audible subscriptions: one account per marketplace login, credentials in the database, per-account library, cursor and run history, account endpoints
-- [x] Login and save credentials: browser sign-in split into start/complete API calls (and a CLI `login` command), credentials stored on the account
+- [x] Login and save credentials: Amazon's device-code sign-in (a code entered on any device, the service polls until confirmed) with the browser sign-in as the fallback, through the API and a CLI `login` command; credentials stored on the account
 - [x] Delete a book: `POST /api/books/{id}/delete-files` removes the files and unmonitors; `/redownload` and `/retry` queue it again
 - [x] Set book as monitored/unmonitored to remove from sync (`PATCH /api/books/{id}`), plus a paged, searchable `GET /api/books` and a cover endpoint
 - [x] Extras: `GET /api/logs`, a webhook posted after every run (`webhook-url`, with `POST /api/settings/webhook/test`), `GET /api/stats`
