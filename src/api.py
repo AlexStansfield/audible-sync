@@ -15,11 +15,13 @@ has one error format to handle.
 import logging
 import secrets
 import tomllib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
+import httpx
+from audible import Authenticator
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -28,7 +30,7 @@ from pydantic import ValidationError
 
 from src import library
 from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file, replace_account_auth
-from src.audible_login import MARKETPLACES, PendingLogins, complete_login
+from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
     count_sync_runs,
@@ -46,7 +48,7 @@ from src.database import (
     update_account,
 )
 from src.logbuffer import RingBufferHandler
-from src.model import BookStatus
+from src.model import Account, BookStatus
 from src.notify import send_webhook
 from src.paths import REPO_ROOT
 from src.runstate import RunState
@@ -62,8 +64,8 @@ from src.schemas import (
     BookUpdate,
     Health,
     LoginComplete,
+    LoginOut,
     LoginStart,
-    LoginStarted,
     LogList,
     MarketplaceOut,
     Message,
@@ -300,42 +302,82 @@ def create_app(
     def list_marketplaces() -> list[MarketplaceOut]:
         return list(MARKETPLACES)
 
-    @router.post("/accounts/login", response_model=LoginStarted)
-    def start_account_login(body: LoginStart) -> LoginStarted:
-        """
-        Step one of adding an account: the address to sign in at.
+    def _finisher(body: LoginStart, existing: Account | None) -> Callable[[Authenticator], int]:
+        """What a confirmed login does with its credentials: a new account, or new credentials for one."""
 
-        The user opens `url`, signs in to Amazon in their own browser, and lands on a
-        "page not found" page; its address goes to step two within `expires_at`.
-        """
-        pending = logins.start(body.country_code)  # ValueError for an unknown marketplace -> 422
-        return LoginStarted(login_id=pending.id, url=pending.url, expires_at=pending.expires_at.isoformat())
+        def finish(auth: Authenticator) -> int:
+            if existing is not None:
+                replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
+                return existing.id
+            return add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
 
-    @router.post("/accounts/login/{login_id}", response_model=AccountOut, status_code=201)
-    def complete_account_login(login_id: str, body: LoginComplete) -> AccountOut:
-        """
-        Step two: the pasted address becomes an account, or new credentials for one.
+        return finish
 
-        404 for a login that was never started or has expired (start again), 400 for an
-        address that carries no authorization code, 502 when Amazon rejects the code.
-        With `account_id`, that account's credentials are replaced and its library kept.
+    def _login_out(login: BrowserLogin | CodeLogin) -> LoginOut:
+        account = get_account(login.account_id) if login.account_id is not None else None
+        return LoginOut(
+            login_id=login.id,
+            method=login.method,
+            status=login.status,
+            expires_at=login.expires_at.isoformat(),
+            code=login.code if isinstance(login, CodeLogin) else None,
+            verification_url=login.verification_url if isinstance(login, CodeLogin) else None,
+            url=login.url if isinstance(login, BrowserLogin) else None,
+            account=AccountOut.model_validate(account) if account is not None else None,
+            error=login.error,
+        )
+
+    @router.post("/accounts/login", response_model=LoginOut, status_code=202)
+    def start_account_login(body: LoginStart) -> LoginOut:
+        """
+        Start signing in to a marketplace.
+
+        With the default `code` method the answer carries the `code` to enter at
+        `verification_url`, on any device; the service polls Amazon and the login turns
+        `confirmed` (with the account) on `GET /api/accounts/login/{login_id}` once the
+        user has entered it. With `browser`, open `url`, sign in, and post the "page not
+        found" address to `POST /api/accounts/login/{login_id}`. 422 for an unknown
+        marketplace, 404 for an unknown `account_id`, 502 when Amazon will not issue a code.
         """
         existing = _account_or_404(body.account_id) if body.account_id is not None else None
-        pending = logins.pop(login_id)
-        if pending is None:
-            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
+        finish = _finisher(body, existing)
+        if body.method == "browser":
+            return _login_out(logins.start(body.country_code, finish))  # ValueError -> 422
         try:
-            auth = complete_login(pending, body.response_url)
+            login = logins.start_code(body.country_code, finish)
+        except LoginFailed as error:
+            raise HTTPException(status_code=502, detail=str(error)) from None
+        except httpx.HTTPError as error:
+            raise HTTPException(status_code=502, detail=f"Could not reach Amazon: {error}") from None
+        return _login_out(login)
+
+    @router.get("/accounts/login/{login_id}", response_model=LoginOut)
+    def login_status(login_id: str) -> LoginOut:
+        """How a login is going; 404 once it has been forgotten (a while after it ended)."""
+        login = logins.get(login_id)
+        if login is None:
+            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
+        return _login_out(login)
+
+    @router.post("/accounts/login/{login_id}", response_model=LoginOut, status_code=201)
+    def complete_account_login(login_id: str, body: LoginComplete) -> LoginOut:
+        """
+        Step two of a browser login: the pasted address becomes the account.
+
+        404 for a login that is unknown, expired or already finished (start again), 400
+        for an address that carries no authorization code (the login stays open for the
+        right one), 502 when Amazon rejects the code.
+        """
+        try:
+            login = logins.complete(login_id, body.response_url)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again") from None
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from None
         except Exception as error:
-            logger.warning("Amazon rejected the login for %s", pending.country_code, exc_info=True)
+            logger.warning("Amazon rejected the login %s", login_id, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
-        if existing is not None:
-            replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
-            return get_account(existing.id)
-        account_id = add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
-        return get_account(account_id)
+        return _login_out(login)
 
     @router.post("/accounts/import", response_model=AccountOut, status_code=201)
     def import_account(body: AccountImport) -> AccountOut:

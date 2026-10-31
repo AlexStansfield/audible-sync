@@ -1,16 +1,20 @@
 import logging
+import threading
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
 from src import api as api_module
+from src import audible_login as login_module
 from src.api import create_app, read_version
 from src.audible_login import PendingLogins
 from src.logbuffer import RingBufferHandler
 from src.model import SyncOutcome
 from src.runstate import RunStage, RunState
 from src.settings import Settings
+from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
 
 TOKEN = "s3cret"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -68,7 +72,11 @@ def api(db):
     """An app on a fresh database, with its fakes reachable for assertions."""
     scheduler = FakeScheduler()
     state = RunState()
-    logins = PendingLogins()
+    # Amazon's auth endpoints are faked; a code login's polling thread barely sleeps, and
+    # sleeps on `stop` so the teardown can end a login a test left pending
+    amazon = FakeAmazon()
+    stop = threading.Event()
+    logins = PendingLogins(http=amazon.client(), sleep=lambda seconds: stop.wait(min(seconds, 0.01)))
     log_buffer = RingBufferHandler(capacity=50)
     app = create_app(
         scheduler=scheduler, state=state, api_token=TOKEN, version="test", logins=logins, log_buffer=log_buffer
@@ -78,8 +86,14 @@ def api(db):
     client.scheduler = scheduler
     client.state = state
     client.logins = logins
+    client.amazon = amazon
     client.log_buffer = log_buffer
-    return client
+    yield client
+    # End any poll still waiting: Amazon now refuses, the sleep returns at once
+    amazon.polls, amazon.default = [], REJECTED
+    stop.set()
+    for thread in list(logins._threads.values()):
+        thread.join(timeout=5)
 
 
 # --- auth ------------------------------------------------------------------------
@@ -526,22 +540,156 @@ def test_marketplaces(api):
     assert len(body) >= 10
 
 
-def test_login_step_one_returns_the_sign_in_url(api):
+def _start(api, **body):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", **body})
+    assert response.status_code == 202, response.text
+    return response.json()
+
+
+def _confirmed(api, login_id):
+    """Wait for the polling thread, then read the login back."""
+    api.logins.join(login_id, timeout=5)
+    response = api.get(f"/api/accounts/login/{login_id}", headers=AUTH)
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_login_with_a_code_starts_pending_with_the_code_to_enter(api):
+    api.amazon.polls = [PENDING]  # then pending for ever; the fixture ends it
+
+    body = _start(api)
+
+    assert body["method"] == "code"
+    assert body["status"] == "pending"
+    assert body["code"] == "ABCDE"
+    assert body["verification_url"] == "https://www.amazon.co.uk/code"
+    assert body["url"] is None
+    assert body["account"] is None
+    assert body["error"] is None
+    assert body["expires_at"].endswith("+00:00")
+    # Amazon was asked for the code pair for the marketplace
+    assert api.amazon.requests[0].url.host == "api.amazon.co.uk"
+    # ...and the status can be polled
+    status = api.get(f"/api/accounts/login/{body['login_id']}", headers=AUTH)
+    assert status.status_code == 200
+    assert status.json()["status"] == "pending"
+
+
+def test_login_with_a_code_becomes_the_account_once_confirmed(api):
+    api.amazon.polls = [PENDING, registered_response()]
+
+    started = _start(api, monitor_existing=False)
+    body = _confirmed(api, started["login_id"])
+
+    assert body["status"] == "confirmed"
+    assert body["error"] is None
+    account = body["account"]
+    assert (account["name"], account["country_code"], account["monitor_existing"], account["needs_login"]) == (
+        "Alex (UK)",
+        "uk",
+        False,
+        False,
+    )
+    assert database.get_account(account["id"]).auth["access_token"] == "Atna|access"
+    assert [a.id for a in database.get_accounts()] == [account["id"]]
+
+
+def test_login_with_a_code_takes_a_name(api):
+    api.amazon.polls = [registered_response()]
+
+    body = _confirmed(api, _start(api, name="Main")["login_id"])
+
+    assert body["account"]["name"] == "Main"
+    assert body["account"]["monitor_existing"] is True
+
+
+def test_login_with_a_code_amazon_refuses_is_failed(api):
+    api.amazon.polls = [REJECTED]
+
+    body = _confirmed(api, _start(api)["login_id"])
+
+    assert body["status"] == "failed"
+    assert "refused the device registration" in body["error"]
+    assert body["account"] is None
+    assert database.get_accounts() == []
+
+
+def test_login_when_amazon_will_not_issue_a_code(api):
+    api.amazon.code_pair = REJECTED
+
     response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"})
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["url"].startswith("https://www.amazon.co.uk/ap/signin?")
-    assert body["expires_at"].endswith("+00:00")
-    # The store now holds it for step two
-    assert api.logins.pop(body["login_id"]) is not None
+    assert response.status_code == 502
+    assert "refused to create a device code" in response.json()["detail"]
 
 
-def test_login_step_one_rejects_an_unknown_marketplace(api):
+def test_login_when_amazon_cannot_be_reached(api):
+    api.amazon.code_pair = httpx.ConnectError("no route")
+
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"})
+
+    assert response.status_code == 502
+    assert "Could not reach Amazon" in response.json()["detail"]
+
+
+def test_login_rejects_an_unknown_marketplace(api):
     response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "xx"})
 
     assert response.status_code == 422
     assert "unknown marketplace" in response.json()["detail"]
+    assert api.amazon.requests == []
+
+
+def test_login_rejects_an_unknown_method(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", "method": "carrier pigeon"})
+
+    assert response.status_code == 422
+
+
+def test_login_status_of_an_unknown_login(api):
+    response = api.get("/api/accounts/login/nope", headers=AUTH)
+
+    assert response.status_code == 404
+    assert "start again" in response.json()["detail"]
+
+
+def test_login_with_a_code_can_replace_an_existing_accounts_credentials(api, monkeypatch):
+    """The recovery for a registration Audible stopped licensing: the library stays attached."""
+    api.amazon.polls = [registered_response()]
+    account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
+    _shelve(account_id, make_book("B001"))
+    replaced = []
+    monkeypatch.setattr(
+        api_module,
+        "replace_account_auth",
+        lambda account, auth, *, deregister_previous: (
+            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
+        ),
+    )
+
+    started = _start(api, account_id=account_id, deregister_previous=False)
+    body = _confirmed(api, started["login_id"])
+
+    assert body["status"] == "confirmed"
+    assert body["account"]["id"] == account_id
+    assert replaced == [(account_id, False)]
+    assert database.get_account(account_id).auth["access_token"] == "Atna|access"
+    assert len(database.get_accounts()) == 1
+    assert database.get_books(account_id=account_id)[0].asin == "B001"
+
+
+def test_login_for_an_unknown_account_is_a_404_before_amazon_is_asked(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", "account_id": 99})
+
+    assert response.status_code == 404
+    assert "No account with id 99" in response.json()["detail"]
+    assert api.amazon.requests == []
+
+
+# the browser method
+
+
+LANDING = "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=X"
 
 
 def _fake_complete(monkeypatch, *, raises=None):
@@ -557,56 +705,66 @@ def _fake_complete(monkeypatch, *, raises=None):
             raise raises
         return Authenticator.from_dict(dict(AUTH_BLOB))
 
-    monkeypatch.setattr(api_module, "complete_login", fake)
+    monkeypatch.setattr(login_module, "complete_login", fake)
     return calls
 
 
-def test_login_step_two_creates_the_account(api, monkeypatch):
-    calls = _fake_complete(monkeypatch)
-    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+def test_browser_login_step_one_returns_the_sign_in_url(api):
+    body = _start(api, method="browser")
 
-    response = api.post(
-        f"/api/accounts/login/{login_id}",
-        headers=AUTH,
-        json={
-            "response_url": "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=X",
-            "monitor_existing": False,
-        },
-    )
+    assert body["method"] == "browser"
+    assert body["status"] == "pending"
+    assert body["url"].startswith("https://www.amazon.co.uk/ap/signin?")
+    assert body["code"] is None
+    assert body["verification_url"] is None
+    assert body["expires_at"].endswith("+00:00")
+    # Nothing goes to Amazon until the address is pasted
+    assert api.amazon.requests == []
+    assert api.get(f"/api/accounts/login/{body['login_id']}", headers=AUTH).json()["status"] == "pending"
+
+
+def test_browser_login_step_two_creates_the_account(api, monkeypatch):
+    calls = _fake_complete(monkeypatch)
+    login_id = _start(api, method="browser", monitor_existing=False)["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
 
     assert response.status_code == 201
     body = response.json()
-    assert (body["name"], body["country_code"], body["monitor_existing"], body["needs_login"]) == (
+    assert body["status"] == "confirmed"
+    account = body["account"]
+    assert (account["name"], account["country_code"], account["monitor_existing"], account["needs_login"]) == (
         "Alex (UK)",
         "uk",
         False,
         False,
     )
-    assert calls == [("uk", "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=X")]
-    assert database.get_account(body["id"]).auth["access_token"] == "Atna|access"
-    # Single use
+    assert calls == [("uk", LANDING)]
+    assert database.get_account(account["id"]).auth["access_token"] == "Atna|access"
+    # The status endpoint agrees; a second paste is refused
+    assert api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "confirmed"
     assert api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "x"}).status_code == 404
 
 
-def test_login_step_two_takes_a_name(api, monkeypatch):
+def test_browser_login_step_two_takes_the_name_given_at_the_start(api, monkeypatch):
     _fake_complete(monkeypatch)
-    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+    login_id = _start(api, method="browser", name="Main")["login_id"]
 
-    body = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u", "name": "Main"}).json()
+    body = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING}).json()
 
-    assert body["name"] == "Main"
+    assert body["account"]["name"] == "Main"
 
 
-def test_login_step_two_for_an_unknown_or_expired_login(api):
+def test_browser_login_step_two_for_an_unknown_or_expired_login(api):
     response = api.post("/api/accounts/login/nope", headers=AUTH, json={"response_url": "u"})
 
     assert response.status_code == 404
     assert "start again" in response.json()["detail"]
 
 
-def test_login_step_two_with_a_url_that_carries_no_code(api, monkeypatch):
+def test_browser_login_step_two_with_a_url_that_carries_no_code_keeps_the_login_open(api, monkeypatch):
     _fake_complete(monkeypatch, raises=ValueError("that URL carries no authorization code"))
-    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+    login_id = _start(api, method="browser")["login_id"]
 
     response = api.post(
         f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "https://www.amazon.co.uk/"}
@@ -615,17 +773,61 @@ def test_login_step_two_with_a_url_that_carries_no_code(api, monkeypatch):
     assert response.status_code == 400
     assert "no authorization code" in response.json()["detail"]
     assert database.get_accounts() == []
+    assert api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "pending"
 
 
-def test_login_step_two_when_amazon_rejects_the_code(api, monkeypatch, caplog):
+def test_browser_login_step_two_when_amazon_rejects_the_code(api, monkeypatch, caplog):
     _fake_complete(monkeypatch, raises=Exception({"error": "InvalidValue"}))
-    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+    login_id = _start(api, method="browser")["login_id"]
 
-    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u"})
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
 
     assert response.status_code == 502
     assert "Amazon rejected the login" in response.json()["detail"]
     assert "InvalidValue" in caplog.text
+    body = api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()
+    assert body["status"] == "failed"
+    assert "InvalidValue" in body["error"]
+
+
+def test_browser_login_step_two_refuses_a_code_login(api):
+    api.amazon.polls = [registered_response()]
+    login_id = _start(api)["login_id"]
+    api.logins.join(login_id, timeout=5)
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u"})
+
+    assert response.status_code == 404
+
+
+def test_browser_login_step_two_rejects_account_fields(api):
+    """They belong to step one now, for both methods."""
+    login_id = _start(api, method="browser")["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u", "name": "Main"})
+
+    assert response.status_code == 422
+
+
+def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeypatch):
+    _fake_complete(monkeypatch)
+    account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
+    replaced = []
+    monkeypatch.setattr(
+        api_module,
+        "replace_account_auth",
+        lambda account, auth, *, deregister_previous: (
+            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
+        ),
+    )
+    login_id = _start(api, method="browser", account_id=account_id)["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 201
+    assert response.json()["account"]["id"] == account_id
+    assert replaced == [(account_id, True)]
+    assert len(database.get_accounts()) == 1
 
 
 # --- books ---------------------------------------------------------------------------
@@ -960,44 +1162,3 @@ def test_webhook_test_reports_a_failure(api, monkeypatch):
 
     assert response.status_code == 502
     assert "connection refused" in response.json()["detail"]
-
-
-def test_login_step_two_can_replace_an_existing_accounts_credentials(api, monkeypatch):
-    """The recovery for a registration Audible stopped licensing: the library stays attached."""
-    _fake_complete(monkeypatch)
-    account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
-    _shelve(account_id, make_book("B001"))
-    replaced = []
-    monkeypatch.setattr(
-        api_module,
-        "replace_account_auth",
-        lambda account, auth, *, deregister_previous: (
-            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
-        ),
-    )
-    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
-
-    response = api.post(
-        f"/api/accounts/login/{login_id}",
-        headers=AUTH,
-        json={"response_url": "u", "account_id": account_id, "deregister_previous": False},
-    )
-
-    assert response.status_code == 201
-    assert response.json()["id"] == account_id
-    assert replaced == [(account_id, False)]
-    assert database.get_account(account_id).auth["access_token"] == "Atna|access"
-    assert len(database.get_accounts()) == 1
-    assert database.get_books(account_id=account_id)[0].asin == "B001"
-
-
-def test_login_step_two_for_an_unknown_account_is_a_404_and_keeps_the_login(api, monkeypatch):
-    _fake_complete(monkeypatch)
-    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
-
-    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u", "account_id": 99})
-
-    assert response.status_code == 404
-    assert "No account with id 99" in response.json()["detail"]
-    # The pasted address is still usable for a corrected request
-    assert api.logins.pop(login_id) is not None

@@ -10,7 +10,7 @@ from src.accounts import (
     replace_account_auth,
 )
 from src.audible_client import Audible
-from src.audible_login import MARKETPLACES, login_interactively
+from src.audible_login import MARKETPLACES, LoginFailed, login_interactively, login_with_code
 from src.database import (
     finish_sync_run,
     get_account,
@@ -222,10 +222,13 @@ def run_command() -> None:
     run_pipeline(settings, progress=TqdmProgress())
 
 
-def login_command(marketplace: str, *, name: str | None, monitor_existing: bool, account_id: int | None = None) -> None:
+def login_command(
+    marketplace: str, *, name: str | None, monitor_existing: bool, account_id: int | None = None, browser: bool = False
+) -> None:
     """
-    Add an account by signing in through the browser and pasting the address back, or
-    with `account_id` give an existing account new credentials and keep its library.
+    Add an account by signing in to Amazon - a code entered on any device, or with
+    `browser` a sign-in in the browser and the address pasted back - or with
+    `account_id` give an existing account new credentials and keep its library.
     """
     _prepare()
     existing = None
@@ -233,7 +236,10 @@ def login_command(marketplace: str, *, name: str | None, monitor_existing: bool,
         existing = get_account(account_id)
         if existing is None:
             raise SystemExit(f"No account with id {account_id}")
-    auth = login_interactively(marketplace)
+    try:
+        auth = login_interactively(marketplace) if browser else login_with_code(marketplace)
+    except LoginFailed as error:
+        raise SystemExit(f"Login failed: {error}") from None
     if existing is not None:
         replace_account_auth(existing, auth)
         print(f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept.")
@@ -247,7 +253,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src.main", description="Sync an Audible library to DRM-free files")
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("run", help="sync and download once, then exit (the default)")
-    login = commands.add_parser("login", help="add an Audible account by signing in through your browser")
+    login = commands.add_parser("login", help="add an Audible account by signing in to Amazon")
     login.add_argument(
         "--marketplace",
         required=True,
@@ -266,6 +272,11 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="ID",
         help="replace the credentials of this existing account instead of adding one; its library is kept",
     )
+    login.add_argument(
+        "--browser",
+        action="store_true",
+        help="sign in through a browser and paste the address back, instead of entering a code at Amazon",
+    )
     return parser
 
 
@@ -278,6 +289,7 @@ def main(argv: list[str] | None = None) -> None:
             name=args.name,
             monitor_existing=not args.no_download_existing,
             account_id=args.account,
+            browser=args.browser,
         )
     else:
         run_command()

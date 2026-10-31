@@ -9,7 +9,7 @@ bending to the other. Anything that maps straight from a dataclass uses
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -125,39 +125,59 @@ class MarketplaceOut(BaseModel):
 
 
 class LoginStart(BaseModel):
+    """
+    Start signing in to a marketplace. The account the login will produce is described
+    here, since with the default `code` method nothing else is posted: `name` and
+    `monitor_existing` (whether the library the account already holds is queued for
+    download or inserted unmonitored so the user picks) for a new account, or
+    `account_id` to give an existing account the new credentials instead, keeping its
+    library - the way back when a registration stops working - with
+    `deregister_previous` removing its old device from Amazon first, best effort.
+
+    `method` is `code` (show a code, the user enters it at Amazon on any device, the
+    service polls until confirmed) or `browser` (the user signs in at `url` in a browser
+    and posts the "page not found" address it lands on to step two).
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     country_code: str = Field(min_length=2)
+    method: Literal["code", "browser"] = "code"
+    name: str | None = Field(default=None, min_length=1)
+    monitor_existing: bool = True
+    account_id: int | None = None
+    deregister_previous: bool = True
 
 
-class LoginStarted(BaseModel):
-    """Step one: open `url` in a browser, then post the address it lands on to step two."""
+class LoginOut(BaseModel):
+    """
+    A login in flight or finished. `status` is `pending` until the user has done their
+    part, then `confirmed` with the `account`, or `expired` (start again) or `failed`
+    with the `error`. The `code` method carries `code` and `verification_url`; the
+    `browser` method carries `url`.
+    """
 
     login_id: str
-    url: str
-    # ISO 8601 UTC
+    method: Literal["code", "browser"]
+    status: Literal["pending", "confirmed", "expired", "failed"]
+    # ISO 8601 UTC; after this the login cannot succeed
     expires_at: str
+    code: str | None = None
+    verification_url: str | None = None
+    url: str | None = None
+    account: AccountOut | None = None
+    error: str | None = None
 
 
 class LoginComplete(BaseModel):
     """
-    Step two. `response_url` is the "page not found" address the browser lands on after
-    signing in; `monitor_existing` is whether the library the account already holds is
-    queued for download or inserted unmonitored so the user picks.
-
-    With `account_id`, the new credentials replace those of an existing account instead
-    of creating one - the way back when a registration stops working - and `name` and
-    `monitor_existing` are ignored. `deregister_previous` removes the old device from
-    Amazon first, best effort.
+    Step two of a browser login: `response_url` is the "page not found" address the
+    browser lands on after signing in.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     response_url: str = Field(min_length=1)
-    name: str | None = Field(default=None, min_length=1)
-    monitor_existing: bool = True
-    account_id: int | None = None
-    deregister_previous: bool = True
 
 
 class SeriesEntry(BaseModel):
