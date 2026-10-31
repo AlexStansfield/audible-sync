@@ -1533,3 +1533,107 @@ def test_download_books_a_lost_claim_still_uses_a_slot(tmp_path, monkeypatch):
 
     assert marked == []
     assert stats.attempted == 1
+
+
+# --- the circuit breaker ----------------------------------------------------------------
+
+
+def _refusing(monkeypatch, books, *, refuse):
+    """A pipeline where the books in `refuse` are refused a licence and the rest download."""
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    original = downloader.Downloader.download_book
+
+    def maybe_refuse(self, book, temp_dir):
+        if book.asin in refuse:
+            raise LicenseError("Denied")
+        return original(self, book, temp_dir)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", maybe_refuse)
+    return marked
+
+
+def test_download_books_gives_up_after_a_streak_of_refusals(tmp_path, monkeypatch, caplog):
+    """
+    The day Audible stopped licensing a device profile every book was refused; without
+    this a run would have sent a licence request for all 288 queued titles.
+    """
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    books = [make_book(f"R{n}", f"Refused {n}") for n in range(6)] + [make_book("OK2", "Fine")]
+    marked = _refusing(monkeypatch, books, refuse={b.asin for b in books[:6]})
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=3),
+    )
+
+    assert stats == DownloadStats(attempted=0, succeeded=0, failed=0, unavailable=3, cancelled=False, aborted=True)
+    assert marked == []
+    assert "Giving up on this run: 3 books in a row" in caplog.text
+
+
+def test_a_success_resets_the_streak(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    books = [
+        make_book("R1"),
+        make_book("R2"),
+        make_book("OK2", "Fine"),
+        make_book("R3"),
+        make_book("R4"),
+        make_book("OK3", "Later"),
+    ]
+    marked = _refusing(monkeypatch, books, refuse={"R1", "R2", "R3", "R4"})
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=3),
+    )
+
+    assert [m[0] for m in marked] == ["OK2", "OK3"]
+    assert stats.aborted is False
+    assert stats.unavailable == 4
+
+
+def test_failures_count_towards_the_streak_too(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [make_book("BAD1", "Breaks"), make_book("R1"), make_book("OK2", "Fine")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    original = downloader.Downloader.download_book
+    monkeypatch.setattr(
+        downloader.Downloader,
+        "download_book",
+        lambda self, book, temp_dir: (
+            (_ for _ in ()).throw(LicenseError("Denied")) if book.asin == "R1" else original(self, book, temp_dir)
+        ),
+    )
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=2),
+    )
+
+    # BAD1 fails (the fake raises for it), R1 is refused: two in a row, OK2 never tried
+    assert stats.aborted is True
+    assert (stats.failed, stats.unavailable, stats.succeeded) == (1, 1, 0)
+    assert marked == []
+
+
+def test_no_breaker_when_the_setting_is_unset(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    books = [make_book(f"R{n}") for n in range(8)] + [make_book("OK2", "Fine")]
+    marked = _refusing(monkeypatch, books, refuse={b.asin for b in books[:8]})
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(
+            download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=None
+        ),
+    )
+
+    assert [m[0] for m in marked] == ["OK2"]
+    assert stats.aborted is False

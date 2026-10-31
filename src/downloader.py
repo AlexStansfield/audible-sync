@@ -77,6 +77,9 @@ class DownloadStats(NamedTuple):
     # Whether the loop was stopped early by a cancel. Defaulted so the counts alone
     # still read as before; `run_pipeline` records the run as cancelled from it.
     cancelled: bool = False
+    # Whether the loop gave up after `max_consecutive_failures` refusals or failures in
+    # a row; `run_pipeline` records the run as aborted from it
+    aborted: bool = False
 
 
 def get_http_client() -> httpx.Client:
@@ -828,6 +831,13 @@ def download_books(
     the head of the queue (found live, 2026-10-31: Audible retiring old titles to
     streaming only) does not stop the books behind them from downloading.
 
+    `settings.max_consecutive_failures` is the circuit breaker: once that many books in
+    a row have been refused a licence or have failed, with no success between, the run
+    stops and reports `aborted`. A streak like that is the account or Audible, not the
+    books - the day Audible stopped licensing a device profile, every book was refused -
+    and walking the rest of the queue would only repeat the refusal for every title.
+    None never stops.
+
     `progress` is where byte progress for each transfer is reported; see `src.progress`.
 
     Returns the counts the run record is written from. `attempted` is how many slots
@@ -852,9 +862,22 @@ def download_books(
     failed = []
     unavailable = []
     cancelled = False
+    aborted = False
+    # Refusals and failures since the last success
+    streak = 0
+    breaker = settings.max_consecutive_failures
 
     for index, book in enumerate(waiting_download):
         if attempted >= cap:
+            break
+        if breaker is not None and streak >= breaker:
+            logger.error(
+                "Giving up on this run: %d books in a row were refused or failed, which points at the account "
+                "or Audible rather than the books; %d still in the queue",
+                streak,
+                total_to_download - index,
+            )
+            aborted = True
             break
         asin = book.asin
         title = book.title
@@ -883,6 +906,7 @@ def download_books(
             _process_book(downloader, book, temp_dir, settings)
             succeeded += 1
             attempted += 1
+            streak = 0
         except (Unauthorized, NoRefreshToken, AuthFlowError):
             # The credentials are the problem, not this book. Hand the claim back with
             # its attempt count untouched, or a token that expires often would
@@ -912,6 +936,7 @@ def download_books(
             )
             mark_book_unavailable(book.id, str(error))
             unavailable.append((asin, title))
+            streak += 1
             # No slot used: nothing was downloaded, and the next book in the queue
             # deserves the go this one could not have
         except Exception as error:
@@ -921,6 +946,7 @@ def download_books(
                 logger.warning("Giving up on %s (%s) after %d attempts", title, asin, settings.max_attempts)
             failed.append((asin, title))
             attempted += 1
+            streak += 1
         finally:
             # Cleanup temporary download folder whether we succeeded or not
             if temp_dir.exists():
@@ -941,4 +967,5 @@ def download_books(
         failed=len(failed),
         unavailable=len(unavailable),
         cancelled=cancelled,
+        aborted=aborted,
     )

@@ -51,6 +51,8 @@ def _outcome(stats: DownloadStats) -> SyncOutcome:
     """How a run that got through both halves is recorded."""
     if stats.cancelled:
         return SyncOutcome.CANCELLED
+    if stats.aborted:
+        return SyncOutcome.ABORTED
     return SyncOutcome.SUCCESS if stats.failed == 0 else SyncOutcome.PARTIAL
 
 
@@ -180,6 +182,11 @@ def run_account(
             books_added=books_added,
             books_downloaded=stats.succeeded,
             books_failed=stats.failed,
+            error=(
+                f"Gave up after {settings.max_consecutive_failures} books in a row were refused or failed"
+                if stats.aborted
+                else None
+            ),
         )
     finally:
         # The row is closed on every path above, so what is sent is the final record

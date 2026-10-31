@@ -139,6 +139,7 @@ def test_run_pipeline_records_a_successful_run(tmp_path, monkeypatch):
         "books_added": 3,
         "books_downloaded": 2,
         "books_failed": 0,
+        "error": None,
     }
 
 
@@ -467,3 +468,17 @@ def test_login_command_refuses_an_unknown_account_before_the_browser_step(monkey
 
     with pytest.raises(SystemExit, match="No account with id 9"):
         main(["login", "--marketplace", "uk", "--account", "9"])
+
+
+def test_run_pipeline_records_aborted_with_the_reason_when_the_breaker_trips(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, stats=DownloadStats(0, 0, 2, 3, aborted=True))
+
+    run_pipeline(
+        make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", max_consecutive_failures=5)
+    )
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] == SyncOutcome.ABORTED
+    assert recorded["error"] == "Gave up after 5 books in a row were refused or failed"
+    assert recorded["books_failed"] == 2

@@ -281,6 +281,7 @@ class SettingsOut(BaseModel):
     sync_interval_minutes: int
     max_download: int | None
     max_attempts: int
+    max_consecutive_failures: int | None
     auto_monitor_new: bool
     download_folder: str
     audiobook_folder: str
@@ -313,6 +314,7 @@ class SettingsUpdate(BaseModel):
     sync_interval_minutes: int | None = None
     max_download: int | None = None
     max_attempts: int | None = None
+    max_consecutive_failures: int | None = None
     auto_monitor_new: bool | None = None
     download_folder: str | None = Field(default=None, min_length=1)
     audiobook_folder: str | None = Field(default=None, min_length=1)

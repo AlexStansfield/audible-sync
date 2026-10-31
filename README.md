@@ -47,7 +47,8 @@ Every path setting may be absolute or relative. A relative path is resolved agai
 ### `sync`
 
  - `max-download`: how many books to download and decrypt on each run (per account), leave unset to get everything waiting. A title Audible refuses to license does not use up a slot
- - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`. A book Audible will not license is failed on the first try, since it cannot succeed later
+ - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`
+ - `max-consecutive-failures`: how many books in a row may be refused a licence or fail before a run gives up on the rest of the queue, default `5`; leave empty to never give up. A streak like that means the account or Audible is the problem, not the books - the run is recorded as `aborted` with the reason, and the next run tries again
  - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
  - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The next run is the previous run's start plus the interval, whatever became of that run; a service that was down past its slot runs as soon as it starts. The one-shot CLI ignores both
  - `auto-monitor-new`: whether a purchase seen for the first time is queued for download, default `true`

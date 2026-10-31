@@ -887,10 +887,10 @@ def downloaded_file_paths(*, account_id: int | None = None) -> list[str]:
 # functions below are only meaningful together, and only `latest_successful_sync_start`
 # is read by the pipeline itself.
 
-# A run whose sync finished is a valid cursor even if its downloads did not, so all three
-# count: a cancel is only honoured after the sync (see `SyncOutcome`). A run still
+# A run whose sync finished is a valid cursor even if its downloads did not, so all four
+# count: a cancel or an abort only happens after the sync (see `SyncOutcome`). A run still
 # `running`, or one that failed before reading the library, does not.
-_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED)
+_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED, SyncOutcome.ABORTED)
 
 
 def start_sync_run(account_id: int | None = None) -> int:

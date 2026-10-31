@@ -964,6 +964,13 @@ def test_a_cancelled_run_is_a_cursor(db, monkeypatch):
     assert database.latest_successful_sync_start() == "2026-09-12T10:00:00+00:00"
 
 
+def test_an_aborted_run_is_a_cursor(db, monkeypatch):
+    """The breaker trips during the downloads, after the library was read through."""
+    _finished_run(SyncOutcome.ABORTED, "2026-09-12T10:00:00+00:00", monkeypatch)
+
+    assert database.latest_successful_sync_start() == "2026-09-12T10:00:00+00:00"
+
+
 # --- accounts -----------------------------------------------------------------------
 
 
