@@ -47,6 +47,9 @@ def _default_auth_file() -> Path:
 
 
 DEFAULT_MAX_ATTEMPTS = 3
+# How many books in a row may be refused or fail before a run gives up on the rest of
+# the queue. Low on purpose: a streak that long is the account or Audible, not the books.
+DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
 DEFAULT_SYNC_INTERVAL_MINUTES = 6 * 60
 # Below this a run would still be going when the next one was due, and every tick
 # would cost Audible a library request for nothing.
@@ -74,6 +77,18 @@ def validate_max_attempts(max_attempts: int) -> None:
     """
     if max_attempts < 1:
         raise ValueError(f"sync max-attempts must be 1 or more, got {max_attempts}")
+
+
+def validate_max_consecutive_failures(limit: int | None) -> None:
+    """
+    Check the circuit breaker up front.
+
+    Raises:
+        ValueError: if the limit is set but not a positive number. Unset means a run
+            never gives up on the queue, which is what the setting replaces
+    """
+    if limit is not None and limit < 1:
+        raise ValueError(f"sync max-consecutive-failures must be 1 or more, got {limit}")
 
 
 def validate_sync_interval(minutes: int) -> None:
@@ -119,6 +134,8 @@ class Settings:
     # Plain `int`, not `int | None`: unlike `max_download` there is no "unlimited"
     # reading here, because retrying forever is the bug this cap exists to fix.
     max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    # A run stops once this many books in a row were refused or failed; None never stops
+    max_consecutive_failures: int | None = DEFAULT_MAX_CONSECUTIVE_FAILURES
     # Whether a purchase seen for the first time joins the download queue
     auto_monitor_new: bool = True
     # Not a runtime setting: this is where an existing audible-cli login is imported from
@@ -144,6 +161,7 @@ class Settings:
         validate_encoding(self.encoding_format, self.bitrate)
         validate_max_download(self.max_download)
         validate_max_attempts(self.max_attempts)
+        validate_max_consecutive_failures(self.max_consecutive_failures)
         validate_sync_interval(self.sync_interval_minutes)
         validate_webhook_url(self.webhook_url)
 
@@ -177,6 +195,8 @@ class Settings:
             sync_interval_minutes=config.getint("sync", "interval-minutes", fallback=DEFAULT_SYNC_INTERVAL_MINUTES),
             max_download=config.getint("sync", "max-download", fallback=None),
             max_attempts=config.getint("sync", "max-attempts", fallback=DEFAULT_MAX_ATTEMPTS),
+            # An empty value means "never give up", the same "unset" as the other optionals
+            max_consecutive_failures=_optional_int(config, "sync", "max-consecutive-failures"),
             auto_monitor_new=config.getboolean("sync", "auto-monitor-new", fallback=True),
             auth_file=resolve_path(auth_file) if auth_file else _default_auth_file(),
             download_folder=resolve_path(config.get("folders", "downloads", fallback=DEFAULT_DOWNLOAD_FOLDER)),
@@ -245,6 +265,14 @@ class Settings:
         self.audiobook_folder.mkdir(parents=True, exist_ok=True)
 
 
+def _optional_int(config: configparser.ConfigParser, section: str, key: str) -> int | None:
+    """An optional whole number whose default is the dataclass's and whose empty value is None."""
+    if not config.has_option(section, key):
+        return DEFAULT_MAX_CONSECUTIVE_FAILURES
+    text = config.get(section, key).strip()
+    return int(text) if text else None
+
+
 # The settings the table holds and the API may change. `auth_file` is the one field left
 # out: it is where an existing login is imported from, not something a run reads.
 DB_SETTING_KEYS: tuple[str, ...] = tuple(f.name for f in fields(Settings) if f.name != "auth_file")
@@ -294,6 +322,7 @@ _PARSERS: dict[str, Callable[[str, str], Any]] = {
     "sync_interval_minutes": _parse_int,
     "max_download": _optional(_parse_int),
     "max_attempts": _parse_int,
+    "max_consecutive_failures": _optional(_parse_int),
     "auto_monitor_new": _parse_bool,
     "download_folder": _parse_path,
     "audiobook_folder": _parse_path,

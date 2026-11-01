@@ -1,14 +1,20 @@
 import logging
+import threading
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
 from src import api as api_module
+from src import audible_login as login_module
 from src.api import create_app, read_version
+from src.audible_login import PendingLogins
+from src.logbuffer import RingBufferHandler
 from src.model import SyncOutcome
 from src.runstate import RunStage, RunState
 from src.settings import Settings
+from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
 
 TOKEN = "s3cret"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -66,12 +72,28 @@ def api(db):
     """An app on a fresh database, with its fakes reachable for assertions."""
     scheduler = FakeScheduler()
     state = RunState()
-    app = create_app(scheduler=scheduler, state=state, api_token=TOKEN, version="test")
+    # Amazon's auth endpoints are faked; a code login's polling thread barely sleeps, and
+    # sleeps on `stop` so the teardown can end a login a test left pending
+    amazon = FakeAmazon()
+    stop = threading.Event()
+    logins = PendingLogins(http=amazon.client(), sleep=lambda seconds: stop.wait(min(seconds, 0.01)))
+    log_buffer = RingBufferHandler(capacity=50)
+    app = create_app(
+        scheduler=scheduler, state=state, api_token=TOKEN, version="test", logins=logins, log_buffer=log_buffer
+    )
     # No context manager: the lifespan (and so the scheduler) is exercised on its own
     client = TestClient(app)
     client.scheduler = scheduler
     client.state = state
-    return client
+    client.logins = logins
+    client.amazon = amazon
+    client.log_buffer = log_buffer
+    yield client
+    # End any poll still waiting: Amazon now refuses, the sleep returns at once
+    amazon.polls, amazon.default = [], REJECTED
+    stop.set()
+    for thread in list(logins._threads.values()):
+        thread.join(timeout=5)
 
 
 # --- auth ------------------------------------------------------------------------
@@ -506,3 +528,637 @@ def test_list_runs_can_be_limited_to_one_account(api):
 
     assert [r["account_id"] for r in body["items"]] == [other]
     assert body["total"] == 1
+
+
+# --- login ---------------------------------------------------------------------------
+
+
+def test_marketplaces(api):
+    body = api.get("/api/marketplaces", headers=AUTH).json()
+
+    assert {"country_code": "uk", "domain": "co.uk", "name": "United Kingdom"} in body
+    assert len(body) >= 10
+
+
+def _start(api, **body):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", **body})
+    assert response.status_code == 202, response.text
+    return response.json()
+
+
+def _confirmed(api, login_id):
+    """Wait for the polling thread, then read the login back."""
+    api.logins.join(login_id, timeout=5)
+    response = api.get(f"/api/accounts/login/{login_id}", headers=AUTH)
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_login_with_a_code_starts_pending_with_the_code_to_enter(api):
+    api.amazon.polls = [PENDING]  # then pending for ever; the fixture ends it
+
+    body = _start(api)
+
+    assert body["method"] == "code"
+    assert body["status"] == "pending"
+    assert body["code"] == "ABCDE"
+    assert body["verification_url"] == "https://www.amazon.co.uk/code"
+    assert body["url"] is None
+    assert body["account"] is None
+    assert body["error"] is None
+    assert body["expires_at"].endswith("+00:00")
+    # Amazon was asked for the code pair for the marketplace
+    assert api.amazon.requests[0].url.host == "api.amazon.co.uk"
+    # ...and the status can be polled
+    status = api.get(f"/api/accounts/login/{body['login_id']}", headers=AUTH)
+    assert status.status_code == 200
+    assert status.json()["status"] == "pending"
+
+
+def test_login_with_a_code_becomes_the_account_once_confirmed(api):
+    api.amazon.polls = [PENDING, registered_response()]
+
+    started = _start(api, monitor_existing=False)
+    body = _confirmed(api, started["login_id"])
+
+    assert body["status"] == "confirmed"
+    assert body["error"] is None
+    account = body["account"]
+    assert (account["name"], account["country_code"], account["monitor_existing"], account["needs_login"]) == (
+        "Alex (UK)",
+        "uk",
+        False,
+        False,
+    )
+    assert database.get_account(account["id"]).auth["access_token"] == "Atna|access"
+    assert [a.id for a in database.get_accounts()] == [account["id"]]
+
+
+def test_login_with_a_code_takes_a_name(api):
+    api.amazon.polls = [registered_response()]
+
+    body = _confirmed(api, _start(api, name="Main")["login_id"])
+
+    assert body["account"]["name"] == "Main"
+    assert body["account"]["monitor_existing"] is True
+
+
+def test_login_with_a_code_amazon_refuses_is_failed(api):
+    api.amazon.polls = [REJECTED]
+
+    body = _confirmed(api, _start(api)["login_id"])
+
+    assert body["status"] == "failed"
+    assert "refused the device registration" in body["error"]
+    assert body["account"] is None
+    assert database.get_accounts() == []
+
+
+def test_login_when_amazon_will_not_issue_a_code(api):
+    api.amazon.code_pair = REJECTED
+
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"})
+
+    assert response.status_code == 502
+    assert "refused to create a device code" in response.json()["detail"]
+
+
+def test_login_when_amazon_cannot_be_reached(api):
+    api.amazon.code_pair = httpx.ConnectError("no route")
+
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"})
+
+    assert response.status_code == 502
+    assert "Could not reach Amazon" in response.json()["detail"]
+
+
+def test_login_rejects_an_unknown_marketplace(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "xx"})
+
+    assert response.status_code == 422
+    assert "unknown marketplace" in response.json()["detail"]
+    assert api.amazon.requests == []
+
+
+def test_login_rejects_an_unknown_method(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", "method": "carrier pigeon"})
+
+    assert response.status_code == 422
+
+
+def test_login_status_of_an_unknown_login(api):
+    response = api.get("/api/accounts/login/nope", headers=AUTH)
+
+    assert response.status_code == 404
+    assert "start again" in response.json()["detail"]
+
+
+def test_login_with_a_code_can_replace_an_existing_accounts_credentials(api, monkeypatch):
+    """The recovery for a registration Audible stopped licensing: the library stays attached."""
+    api.amazon.polls = [registered_response()]
+    account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
+    _shelve(account_id, make_book("B001"))
+    replaced = []
+    monkeypatch.setattr(
+        api_module,
+        "replace_account_auth",
+        lambda account, auth, *, deregister_previous: (
+            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
+        ),
+    )
+
+    started = _start(api, account_id=account_id, deregister_previous=False)
+    body = _confirmed(api, started["login_id"])
+
+    assert body["status"] == "confirmed"
+    assert body["account"]["id"] == account_id
+    assert replaced == [(account_id, False)]
+    assert database.get_account(account_id).auth["access_token"] == "Atna|access"
+    assert len(database.get_accounts()) == 1
+    assert database.get_books(account_id=account_id)[0].asin == "B001"
+
+
+def test_login_for_an_unknown_account_is_a_404_before_amazon_is_asked(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", "account_id": 99})
+
+    assert response.status_code == 404
+    assert "No account with id 99" in response.json()["detail"]
+    assert api.amazon.requests == []
+
+
+# the browser method
+
+
+LANDING = "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=X"
+
+
+def _fake_complete(monkeypatch, *, raises=None):
+    from audible import Authenticator
+
+    from tests.test_accounts import AUTH_BLOB
+
+    calls = []
+
+    def fake(pending, response_url):
+        calls.append((pending.country_code, response_url))
+        if raises is not None:
+            raise raises
+        return Authenticator.from_dict(dict(AUTH_BLOB))
+
+    monkeypatch.setattr(login_module, "complete_login", fake)
+    return calls
+
+
+def test_browser_login_step_one_returns_the_sign_in_url(api):
+    body = _start(api, method="browser")
+
+    assert body["method"] == "browser"
+    assert body["status"] == "pending"
+    assert body["url"].startswith("https://www.amazon.co.uk/ap/signin?")
+    assert body["code"] is None
+    assert body["verification_url"] is None
+    assert body["expires_at"].endswith("+00:00")
+    # Nothing goes to Amazon until the address is pasted
+    assert api.amazon.requests == []
+    assert api.get(f"/api/accounts/login/{body['login_id']}", headers=AUTH).json()["status"] == "pending"
+
+
+def test_browser_login_step_two_creates_the_account(api, monkeypatch):
+    calls = _fake_complete(monkeypatch)
+    login_id = _start(api, method="browser", monitor_existing=False)["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "confirmed"
+    account = body["account"]
+    assert (account["name"], account["country_code"], account["monitor_existing"], account["needs_login"]) == (
+        "Alex (UK)",
+        "uk",
+        False,
+        False,
+    )
+    assert calls == [("uk", LANDING)]
+    assert database.get_account(account["id"]).auth["access_token"] == "Atna|access"
+    # The status endpoint agrees; a second paste is refused
+    assert api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "confirmed"
+    assert api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "x"}).status_code == 404
+
+
+def test_browser_login_step_two_takes_the_name_given_at_the_start(api, monkeypatch):
+    _fake_complete(monkeypatch)
+    login_id = _start(api, method="browser", name="Main")["login_id"]
+
+    body = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING}).json()
+
+    assert body["account"]["name"] == "Main"
+
+
+def test_browser_login_step_two_for_an_unknown_or_expired_login(api):
+    response = api.post("/api/accounts/login/nope", headers=AUTH, json={"response_url": "u"})
+
+    assert response.status_code == 404
+    assert "start again" in response.json()["detail"]
+
+
+def test_browser_login_step_two_with_a_url_that_carries_no_code_keeps_the_login_open(api, monkeypatch):
+    _fake_complete(monkeypatch, raises=ValueError("that URL carries no authorization code"))
+    login_id = _start(api, method="browser")["login_id"]
+
+    response = api.post(
+        f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "https://www.amazon.co.uk/"}
+    )
+
+    assert response.status_code == 400
+    assert "no authorization code" in response.json()["detail"]
+    assert database.get_accounts() == []
+    assert api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "pending"
+
+
+def test_browser_login_step_two_when_amazon_rejects_the_code(api, monkeypatch, caplog):
+    _fake_complete(monkeypatch, raises=Exception({"error": "InvalidValue"}))
+    login_id = _start(api, method="browser")["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 502
+    assert "Amazon rejected the login" in response.json()["detail"]
+    assert "InvalidValue" in caplog.text
+    body = api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()
+    assert body["status"] == "failed"
+    assert "InvalidValue" in body["error"]
+
+
+def test_browser_login_step_two_refuses_a_code_login(api):
+    api.amazon.polls = [registered_response()]
+    login_id = _start(api)["login_id"]
+    api.logins.join(login_id, timeout=5)
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u"})
+
+    assert response.status_code == 404
+
+
+def test_browser_login_step_two_rejects_account_fields(api):
+    """They belong to step one now, for both methods."""
+    login_id = _start(api, method="browser")["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u", "name": "Main"})
+
+    assert response.status_code == 422
+
+
+def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeypatch):
+    _fake_complete(monkeypatch)
+    account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
+    replaced = []
+    monkeypatch.setattr(
+        api_module,
+        "replace_account_auth",
+        lambda account, auth, *, deregister_previous: (
+            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
+        ),
+    )
+    login_id = _start(api, method="browser", account_id=account_id)["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 201
+    assert response.json()["account"]["id"] == account_id
+    assert replaced == [(account_id, True)]
+    assert len(database.get_accounts()) == 1
+
+
+# --- books ---------------------------------------------------------------------------
+
+from src.model import BookStatus  # noqa: E402
+from tests.conftest import make_book  # noqa: E402
+
+
+def _shelve(account_id, *books, **kwargs):
+    database.update_books(account_id, list(books), **kwargs)
+    return [database.get_book_by_asin(b.asin, account_id=account_id) for b in books]
+
+
+def test_list_books_pages_and_filters(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    _shelve(
+        account_id,
+        make_book("B001", "Dune", authors=["Frank Herbert"]),
+        make_book("B002", "Foundation", date_added="2025-01-01T00:00:00Z"),
+    )
+    _shelve(other, make_book("B003", "Dune Messiah", authors=["Frank Herbert"]), monitor_new=False)
+
+    body = api.get("/api/books", headers=AUTH, params={"page_size": 2}).json()
+    assert [b["asin"] for b in body["items"]] == ["B002", "B001"]
+    assert (body["total"], body["page"], body["page_size"]) == (3, 1, 2)
+
+    body = api.get("/api/books", headers=AUTH, params={"q": "dune", "sort": "title", "order": "asc"}).json()
+    assert [b["title"] for b in body["items"]] == ["Dune", "Dune Messiah"]
+
+    body = api.get("/api/books", headers=AUTH, params={"account_id": other, "monitored": "false"}).json()
+    assert [b["asin"] for b in body["items"]] == ["B003"]
+    assert body["items"][0]["monitored"] is False
+
+    body = api.get("/api/books", headers=AUTH, params={"status": "waiting_download", "page": 2, "page_size": 2}).json()
+    assert len(body["items"]) == 1
+
+
+@pytest.mark.parametrize(
+    "params", [{"sort": "colour"}, {"order": "sideways"}, {"page": 0}, {"page_size": 201}, {"status": "lost"}]
+)
+def test_list_books_rejects_bad_parameters(api, params):
+    assert api.get("/api/books", headers=AUTH, params=params).status_code == 422
+
+
+def test_get_book_carries_the_series_it_files_under(api):
+    account_id = _account()
+    (book,) = _shelve(
+        account_id,
+        make_book(
+            "B001",
+            "Dune",
+            series=[
+                {"title": "The Dune Sequence", "sequence": "12", "series_asin": "S2"},
+                {"title": "Dune", "sequence": "1", "series_asin": "S1"},
+            ],
+        ),
+    )
+
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert body["primary_series"] == {"title": "Dune", "sequence": "1", "series_asin": "S1"}
+    # The list is stored as given; the primary one is worked out, not first
+    assert [s["title"] for s in body["series"]] == ["The Dune Sequence", "Dune"]
+    assert body["id"] == book.id
+    assert body["account_id"] == account_id
+    assert body["status"] == "waiting_download"
+    assert body["file_path"] is None
+    assert api.get("/api/books/999", headers=AUTH).status_code == 404
+
+
+def test_patch_book_monitored(api):
+    (book,) = _shelve(_account(), make_book("B001"))
+
+    body = api.patch(f"/api/books/{book.id}", headers=AUTH, json={"monitored": False}).json()
+
+    assert body["monitored"] is False
+    assert database.get_book(book.id).monitored is False
+    assert api.patch(f"/api/books/{book.id}", headers=AUTH, json={"status": "failed"}).status_code == 422
+    assert api.patch("/api/books/999", headers=AUTH, json={"monitored": True}).status_code == 404
+
+
+def _downloaded(api, tmp_path, status=BookStatus.DOWNLOADED):
+    """A downloaded book whose files exist under the configured library folder."""
+    library_folder = tmp_path / "audiobooks"
+    api.put(
+        "/api/settings",
+        headers=AUTH,
+        json={"audiobook_folder": str(library_folder), "download_folder": str(tmp_path / "dl")},
+    )
+    (book,) = _shelve(_account(), make_book("B001"))
+    folder = library_folder / "Author One" / "Title"
+    folder.mkdir(parents=True)
+    audio, cover = folder / "Title.m4b", folder / "Title_cover.jpg"
+    audio.write_bytes(b"a")
+    cover.write_bytes(b"\xff\xd8cover")
+    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio), cover_path=str(cover))
+    if status is not BookStatus.DOWNLOADED:
+        database.claim_book_for_download(book.id) if status is BookStatus.DOWNLOADING else None
+    return database.get_book(book.id), audio, cover
+
+
+def test_delete_files_removes_them_and_unmonitors(api, tmp_path):
+    book, audio, cover = _downloaded(api, tmp_path)
+
+    response = api.post(f"/api/books/{book.id}/delete-files", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted", "removed": [str(audio), str(cover)]}
+    assert not audio.exists() and not cover.exists()
+    after = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+    assert (after["status"], after["monitored"], after["file_path"]) == ("waiting_download", False, None)
+
+
+def test_redownload_removes_the_files_and_queues(api, tmp_path):
+    book, audio, _ = _downloaded(api, tmp_path)
+
+    response = api.post(f"/api/books/{book.id}/redownload", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert not audio.exists()
+    after = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+    assert (after["status"], after["monitored"], after["attempts"]) == ("waiting_download", True, 0)
+
+
+@pytest.mark.parametrize("action", ["delete-files", "redownload", "retry"])
+def test_file_actions_conflict_while_a_run_holds_the_book(api, tmp_path, action):
+    (book,) = _shelve(_account(), make_book("B001"))
+    database.claim_book_for_download(book.id)
+
+    response = api.post(f"/api/books/{book.id}/{action}", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "cancel the run first" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("action", ["delete-files", "redownload", "retry", "refresh"])
+def test_book_actions_404_for_an_unknown_book(api, action):
+    assert api.post(f"/api/books/999/{action}", headers=AUTH).status_code == 404
+
+
+def test_retry_queues_a_failed_book(api):
+    (book,) = _shelve(_account(), make_book("B001"))
+    database.claim_book_for_download(book.id)
+    database.mark_book_failed(book.id, "boom", max_attempts=1)
+
+    response = api.post(f"/api/books/{book.id}/retry", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "queued", "removed": []}
+    after = database.get_book(book.id)
+    assert (after.status, after.attempts, after.last_error) == (BookStatus.WAITING_DOWNLOAD, 0, None)
+
+
+def test_retry_refuses_a_downloaded_book(api, tmp_path):
+    book, _, _ = _downloaded(api, tmp_path)
+
+    response = api.post(f"/api/books/{book.id}/retry", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "use redownload" in response.json()["detail"]
+
+
+def test_refresh_re_reads_the_book(api, monkeypatch):
+    (book,) = _shelve(_account(), make_book("B001", "Old"))
+    monkeypatch.setattr(
+        api_module.library,
+        "refresh",
+        lambda b: database.update_books(b.account_id, [make_book("B001", "New")]) or database.get_book(b.id),
+    )
+
+    body = api.post(f"/api/books/{book.id}/refresh", headers=AUTH).json()
+
+    assert body["title"] == "New"
+
+
+def test_refresh_reports_audible_trouble_as_a_502(api, monkeypatch):
+    (book,) = _shelve(_account(), make_book("B001"))
+
+    def down(b):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr(api_module.library, "refresh", down)
+
+    response = api.post(f"/api/books/{book.id}/refresh", headers=AUTH)
+
+    assert response.status_code == 502
+    assert "timeout" in response.json()["detail"]
+
+
+def test_refresh_refuses_a_book_whose_account_needs_a_login(api):
+    account_id = database.add_account("Pending", "uk", auth=None)
+    (book,) = _shelve(account_id, make_book("B001"))
+
+    response = api.post(f"/api/books/{book.id}/refresh", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "no credentials" in response.json()["detail"]
+
+
+def test_cover_serves_the_file_once_downloaded(api, tmp_path):
+    book, _, cover = _downloaded(api, tmp_path)
+
+    response = api.get(f"/api/books/{book.id}/cover", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.content == cover.read_bytes()
+
+
+def test_cover_redirects_to_audible_before_that(api):
+    (book,) = _shelve(_account(), make_book("B001", cover_url="https://m.media-amazon.com/x.jpg"))
+
+    response = api.get(f"/api/books/{book.id}/cover", headers=AUTH, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://m.media-amazon.com/x.jpg"
+
+
+def test_cover_404_when_there_is_none(api):
+    (book,) = _shelve(_account(), make_book("B001", cover_url=""))
+
+    assert api.get(f"/api/books/{book.id}/cover", headers=AUTH).status_code == 404
+
+
+# --- extras ----------------------------------------------------------------------------
+
+
+def test_logs_returns_the_buffered_lines(api):
+    log = logging.getLogger("tests.api.extras")
+    log.setLevel(logging.INFO)
+    log.addHandler(api.log_buffer)
+    try:
+        log.info("hello")
+        log.warning("careful")
+    finally:
+        log.removeHandler(api.log_buffer)
+
+    body = api.get("/api/logs", headers=AUTH).json()
+    assert [(e["level"], e["message"]) for e in body["items"]][-2:] == [("INFO", "hello"), ("WARNING", "careful")]
+
+    body = api.get("/api/logs", headers=AUTH, params={"level": "WARNING", "limit": 1}).json()
+    assert [e["message"] for e in body["items"]] == ["careful"]
+
+
+@pytest.mark.parametrize("params", [{"level": "LOUD"}, {"limit": 0}, {"limit": 1001}])
+def test_logs_rejects_bad_parameters(api, params):
+    assert api.get("/api/logs", headers=AUTH, params=params).status_code == 422
+
+
+def test_logs_is_empty_without_a_buffer(db):
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN)
+
+    assert TestClient(app).get("/api/logs", headers=AUTH).json() == {"items": []}
+
+
+def test_stats(api, tmp_path, monkeypatch):
+    account_id = _account()
+    other = _account("Other", "us")
+    (book,) = _shelve(account_id, make_book("B001"))
+    _shelve(other, make_book("B002"), make_book("B003"), monitor_new=False)
+    audio = tmp_path / "a.m4b"
+    audio.write_bytes(b"x" * 1234)
+    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio))
+    database.mark_book_downloaded(
+        database.get_book_by_asin("B002", account_id=other).id, "m4b", file_path=str(tmp_path / "gone.m4b")
+    )
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
+    database.finish_sync_run(database.start_sync_run(account_id), outcome="success")
+
+    body = api.get("/api/stats", headers=AUTH).json()
+
+    assert body["books"]["total"] == 3
+    assert body["books"]["by_status"]["downloaded"] == 2
+    assert (body["books"]["monitored"], body["books"]["unmonitored"]) == (1, 2)
+    assert body["bytes_on_disk"] == 1234  # the file that has gone counts for nothing
+    assert body["next_run_at"] == "2026-09-12T18:00:00+00:00"
+    assert body["last_run"]["outcome"] == "success"
+    mine, theirs = body["accounts"]
+    assert mine["account"]["name"] == "Alex (UK)"
+    assert mine["books"]["total"] == 1
+    assert mine["bytes_on_disk"] == 1234
+    assert mine["last_run"]["account_id"] == account_id
+    assert theirs["books"]["unmonitored"] == 2
+    assert theirs["last_run"] is None
+    assert "auth" not in mine["account"]
+
+
+def test_stats_on_an_empty_database(api):
+    body = api.get("/api/stats", headers=AUTH).json()
+
+    assert body["accounts"] == []
+    assert body["books"]["total"] == 0
+    assert body["last_run"] is None
+
+
+def test_webhook_test_sends_to_the_configured_url(api, monkeypatch):
+    sent = []
+    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append((url, payload["event"])))
+    api.put("/api/settings", headers=AUTH, json={"webhook_url": "https://hooks/configured"})
+
+    response = api.post("/api/settings/webhook/test", headers=AUTH, json={})
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "sent"}
+    assert sent == [("https://hooks/configured", "test")]
+
+
+def test_webhook_test_can_try_a_url_before_saving_it(api, monkeypatch):
+    sent = []
+    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append(url))
+
+    api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/try"})
+
+    assert sent == ["https://hooks/try"]
+
+
+def test_webhook_test_without_a_url(api):
+    response = api.post("/api/settings/webhook/test", headers=AUTH, json={})
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No webhook URL configured"}
+
+
+def test_webhook_test_reports_a_failure(api, monkeypatch):
+    def down(url, payload):
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(api_module, "send_webhook", down)
+
+    response = api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/x"})
+
+    assert response.status_code == 502
+    assert "connection refused" in response.json()["detail"]

@@ -16,15 +16,23 @@ The purpose of this app is to allow the user more control over how they consumer
 
 ## Initial Setup
 
-You will need to have an existing audible authentication json file. 
+Add your Audible account by signing in to Amazon with a code, the way the Audible apps do. The app never sees your Amazon password: it asks Amazon for a five-letter code and shows it to you, you open `https://www.amazon.co.uk/code` (your marketplace's) on any device - a phone is fine - sign in if asked, and enter the code; the app notices within a few seconds and stores the credentials in the database. The code is good for ten minutes.
 
-Logging in through the app itself is next on the list; until then you need to create the file by other means.
+From the command line:
 
-The easiest way is to use [audible-cli](https://github.com/mkb79/audible-cli). Take a look at the [Getting Started](https://github.com/mkb79/audible-cli?tab=readme-ov-file#getting-started) instruction on using the `quickstart` command. By default this should create a `.audible` folder in your home with an `audible.json` file inside. It's this file that is needed by this app.
+```
+python -m src.main login --marketplace uk
+```
 
-If you decide not to store the file at the default location you can update the `audible-auth-file` setting in the `config.ini` to point to the file location.
+Or through the API (see below): `POST /api/accounts/login` gives the code, `GET /api/accounts/login/{login_id}` reports `confirmed` once you have entered it. `GET /api/marketplaces` lists the marketplaces (`uk`, `us`, `de`, `fr`, `ca`, `it`, `au`, `in`, `jp`, `es`, `br`).
 
-On the first start the file is imported into the database as an **account** and is not read again: from then on accounts are managed through the API. The same person can have several - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. A second auth file is added with `POST /api/accounts/import`. A book the account already owned when it was added is downloaded or not according to the account's `monitor_existing` choice; purchases after that follow the `auto-monitor-new` setting.
+If your Audible account predates Amazon sign-in and the code is refused, add `--browser` (or `"method": "browser"`): you sign in to Amazon in your own browser at the address the app prints, land on a **"page not found"** page whose address carries a one-time code, and paste that address back (`POST /api/accounts/login/{login_id}`).
+
+The same person can have several accounts - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. When an account is added you choose whether the books it already owns are queued for download (`monitor_existing`, the default) or left unmonitored so you pick them later; `--no-download-existing` on the command line. Purchases after that follow the `auto-monitor-new` setting.
+
+### Already have an audible-cli auth file?
+
+If you have an `audible.json` from [audible-cli](https://github.com/mkb79/audible-cli) at the default `~/.audible/audible.json` (or at `audible-auth-file` in `config.ini`), the first start imports it as an account and does not read it again; from then on accounts are managed through the API. Another file is added with `POST /api/accounts/import`.
 
 ## Config
 
@@ -40,8 +48,9 @@ Every path setting may be absolute or relative. A relative path is resolved agai
 
 ### `sync`
 
- - `max-download`: total number of books to download and decrypt on each app run, leave unset to get everything waiting to be downloaded
- - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`. A book Audible will not license is failed on the first try, since it cannot succeed later
+ - `max-download`: how many books to download and decrypt on each run (per account), leave unset to get everything waiting. A title Audible refuses to license does not use up a slot
+ - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`
+ - `max-consecutive-failures`: how many books in a row may be refused a licence or fail before a run gives up on the rest of the queue, default `5`; leave empty to never give up. A streak like that means the account or Audible is the problem, not the books - the run is recorded as `aborted` with the reason, and the next run tries again
  - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
  - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The next run is the previous run's start plus the interval, whatever became of that run; a service that was down past its slot runs as soon as it starts. The one-shot CLI ignores both
  - `auto-monitor-new`: whether a purchase seen for the first time is queued for download, default `true`
@@ -90,7 +99,7 @@ Both formats get the same metadata, cover art and chapters. In M4B files the ser
 
 ### `notifications`
 
- - `webhook-url`: optional `http(s)` URL the background service posts a JSON summary to after each sync run. Unset by default
+ - `webhook-url`: optional `http(s)` URL that receives a JSON `POST` after every run of every account - `{"event": "sync.finished", "run": {...the run row...}, "account": {"id", "name", "country_code"}}` - for example to make Audiobookshelf rescan. A receiver that is down is logged and ignored; the run is never held up. `POST /api/settings/webhook/test` sends a sample event. Unset by default
 
 ## Running
 
@@ -119,7 +128,7 @@ The first run starts as soon as the service does, then every `interval-minutes` 
 For a single sync-and-exit instead of the service:
 
 ```
-docker compose run --rm audible-sync uv run python -m src.main
+docker compose run --rm audible-sync uv run --no-sync python -m src.main
 ```
 
 ### Running the App with Python (No Docker)
@@ -184,6 +193,14 @@ or a single sync-and-exit:
 python -m src.main
 ```
 
+or add an account:
+
+```
+python -m src.main login --marketplace uk [--name "Main"] [--no-download-existing] [--account ID] [--browser]
+```
+
+`--account ID` signs in again for an existing account - its library and download history are kept - which is what to do if Audible starts answering every download with "License not granted to customer": Audible stopped licensing devices registered with the older app profile in October 2026, and a fresh sign-in registers one it accepts.
+
 The service reads these environment variables:
 
 | Variable | Default | Meaning |
@@ -213,8 +230,23 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `PATCH /api/accounts/{id}` | Rename or enable/disable an account; a disabled account is skipped by the sync |
 | `DELETE /api/accounts/{id}?deregister=true` | Remove an account with its library rows and run history; files on disk stay. `deregister` also removes the device from Amazon's device list first (best effort) |
 | `POST /api/accounts/import` | `{"path", "name"?, "monitor_existing"?}`: create an account from an auth file the service can read |
+| `GET /api/books?account_id=&status=&monitored=&q=&sort=&order=&page=&page_size=` | The library, paged (`items`, `total`, `page`, `page_size`). `q` matches title, author or series; `sort` is `date_added` (default), `title`, `author`, `release_date` or `downloaded_at` |
+| `GET /api/books/{id}` | One book, with `primary_series` (the series it is filed under) worked out |
+| `PATCH /api/books/{id}` | `{"monitored": bool}`: whether the book is wanted. An unmonitored book is never queued |
+| `POST /api/books/{id}/delete-files` | Remove the audio, PDF, cover and annotations (and folders left empty) and unmonitor the book, so it stays deleted |
+| `POST /api/books/{id}/redownload` | Remove the files and queue the book afresh, attempts reset |
+| `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
+| `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
+| `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
+| `POST /api/settings/webhook/test` | `{"url"?}`: send a sample event to `url`, or to the configured webhook; `502` with the reason if it fails |
+| `GET /api/logs?limit=&level=` | The newest log lines (up to 1000 are kept), oldest first, at or above `level` |
+| `GET /api/stats` | For a dashboard: per account and in total, books by status, monitored/unmonitored, bytes on disk, the last run, and when the next one is due |
+| `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |
+| `POST /api/accounts/login` | `{"country_code", "method"?, "name"?, "monitor_existing"?, "account_id"?, "deregister_previous"?}`: start signing in; `202` with the login. With the default `method` `code` it carries the `code` to enter at `verification_url` on any device, and the service polls Amazon until you have; with `browser` it carries the `url` to sign in at. `name` and `monitor_existing` describe the account to create; `account_id` instead replaces an existing account's credentials, keeping its library - the way back when Audible stops licensing a registration - with `deregister_previous` removing its old device from Amazon first. `422` for an unknown marketplace, `404` for an unknown account, `502` when Amazon will not issue a code |
+| `GET /api/accounts/login/{login_id}` | How the login is going: `status` is `pending`, then `confirmed` with the `account`, or `expired` (start again) or `failed` with the `error`. A finished login stays readable for 15 minutes, then `404` |
+| `POST /api/accounts/login/{login_id}` | `{"response_url"}`: step two of a `browser` login, the address of the "page not found" page the browser lands on after signing in. `201` with the confirmed login; `404` if it expired or was already completed (start again), `400` if the address carries no code (paste again), `502` if Amazon rejected it |
 
-Timestamps are ISO 8601 in UTC.
+Timestamps are ISO 8601 in UTC. The file actions refuse (`409`) a book a run is downloading; cancel the run first.
 
 ## Todo
 

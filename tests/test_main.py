@@ -4,6 +4,7 @@ import threading
 import pytest
 
 from src import main as main_module
+from src.audible_login import LoginFailed
 from src.downloader import DownloadStats
 from src.main import configure_logging, main, run_pipeline
 from src.model import Account, SyncOutcome
@@ -74,6 +75,12 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
     monkeypatch.setattr(main_module, "sync_library", fake_sync)
     monkeypatch.setattr(main_module, "download_books", fake_download)
     monkeypatch.setattr(main_module, "start_sync_run", lambda account_id: calls.setdefault("run_id", 7))
+    monkeypatch.setattr(main_module, "get_sync_run", lambda run_id: f"run-{run_id}")
+    monkeypatch.setattr(
+        main_module,
+        "notify_run_finished",
+        lambda url, run, account: calls.setdefault("notified", []).append((url, run, account.id)),
+    )
     monkeypatch.setattr(
         main_module,
         "finish_sync_run",
@@ -133,6 +140,7 @@ def test_run_pipeline_records_a_successful_run(tmp_path, monkeypatch):
         "books_added": 3,
         "books_downloaded": 2,
         "books_failed": 0,
+        "error": None,
     }
 
 
@@ -200,7 +208,7 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     monkeypatch.setattr(main_module, "ensure_account_from_auth_file", lambda path: order.append(("import", path)))
     monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
 
-    main()
+    main([])
 
     assert order[:5] == ["init_db", "seed", "settings", ("logging", True), ("import", settings.auth_file)]
     step, passed_settings, progress = order[5]
@@ -331,3 +339,175 @@ def test_run_account_writes_refreshed_credentials_back_even_when_the_run_fails(t
         run_pipeline(_settings(tmp_path))
 
     assert calls["persisted"] == ["auth-1"]
+
+
+# --- the command line ----------------------------------------------------------------
+
+
+def _patch_prepare(monkeypatch, order):
+    settings = make_settings()
+    monkeypatch.setattr(main_module, "init_db", lambda: order.append("init_db"))
+    monkeypatch.setattr(main_module, "seed_settings_from_ini", lambda: order.append("seed"))
+    monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: settings))
+    monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append("logging"))
+    monkeypatch.setattr(main_module, "ensure_account_from_auth_file", lambda path: order.append("import"))
+    return settings
+
+
+def test_run_is_the_default_command(monkeypatch):
+    order = []
+    settings = _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s)))
+
+    main(["run"])
+    main([])
+
+    assert order.count(("pipeline", settings)) == 2
+
+
+def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):
+    order = []
+    _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(
+        main_module, "login_with_code", lambda marketplace: order.append(("login", marketplace)) or "auth"
+    )
+    monkeypatch.setattr(
+        main_module, "login_interactively", lambda marketplace: pytest.fail("the code flow is the default")
+    )
+    added = []
+
+    def fake_add(auth, *, name, monitor_existing):
+        added.append((auth, name, monitor_existing))
+        return 3
+
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", fake_add)
+    monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: pytest.fail("login must not sync"))
+
+    main(["login", "--marketplace", "uk", "--name", "Main", "--no-download-existing"])
+
+    # The database and settings come first, like every command, then the login
+    assert order[:4] == ["init_db", "seed", "logging", "import"]
+    assert order[4] == ("login", "uk")
+    assert added == [("auth", "Main", False)]
+    assert "Account 3 added" in capsys.readouterr().out
+
+
+def test_login_command_defaults(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    added = []
+    monkeypatch.setattr(
+        main_module,
+        "add_account_from_authenticator",
+        lambda auth, *, name, monitor_existing: added.append((name, monitor_existing)) or 1,
+    )
+
+    main(["login", "--marketplace", "us"])
+
+    assert added == [(None, True)]
+
+
+def test_login_command_with_browser_uses_the_browser_flow(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: pytest.fail("asked for the browser"))
+    monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: f"browser-auth-{marketplace}")
+    added = []
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda auth, **kw: added.append(auth) or 1)
+
+    main(["login", "--marketplace", "us", "--browser"])
+
+    assert added == ["browser-auth-us"]
+
+
+def test_login_command_reports_a_failed_login(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+
+    def expired(marketplace):
+        raise LoginFailed("the code expired before it was confirmed; start again")
+
+    monkeypatch.setattr(main_module, "login_with_code", expired)
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda *a, **kw: pytest.fail("must not add"))
+
+    with pytest.raises(SystemExit, match="Login failed: the code expired"):
+        main(["login", "--marketplace", "uk"])
+
+
+def test_login_command_refuses_an_unknown_marketplace(monkeypatch, capsys):
+    with pytest.raises(SystemExit):
+        main(["login", "--marketplace", "xx"])
+
+    assert "invalid choice" in capsys.readouterr().err
+
+
+# --- the webhook -------------------------------------------------------------------
+
+
+def test_run_account_sends_the_webhook_with_the_closed_run(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(
+        make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", webhook_url="https://hooks/x")
+    )
+
+    assert calls["notified"] == [("https://hooks/x", "run-7", 1)]
+
+
+def test_run_account_sends_the_webhook_when_the_run_fails_too(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("down"))
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(
+            make_settings(
+                download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", webhook_url="https://hooks/x"
+            )
+        )
+
+    assert calls["notified"] == [("https://hooks/x", "run-7", 1)]
+
+
+def test_run_account_sends_no_webhook_without_a_url(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(_settings(tmp_path))
+
+    assert "notified" not in calls
+
+
+def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+    replaced = []
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: replaced.append((account.id, auth)))
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda *a, **kw: pytest.fail("must not add"))
+
+    main(["login", "--marketplace", "uk", "--account", "3"])
+
+    assert replaced == [(3, "auth")]
+    assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+
+
+def test_login_command_refuses_an_unknown_account_before_amazon_is_asked(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: None)
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: pytest.fail("must not start a login"))
+
+    with pytest.raises(SystemExit, match="No account with id 9"):
+        main(["login", "--marketplace", "uk", "--account", "9"])
+
+
+def test_run_pipeline_records_aborted_with_the_reason_when_the_breaker_trips(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, stats=DownloadStats(0, 0, 2, 3, aborted=True))
+
+    run_pipeline(
+        make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", max_consecutive_failures=5)
+    )
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] == SyncOutcome.ABORTED
+    assert recorded["error"] == "Gave up after 5 books in a row were refused or failed"
+    assert recorded["books_failed"] == 2

@@ -340,7 +340,7 @@ def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, c
 
     def fake_mark(book_id, **kw):
         marked.append((asins[book_id], kw["encoding_format"]))
-        accessories.append({k: v for k, v in kw.items() if k.endswith("_path")})
+        accessories.append({k: v for k, v in kw.items() if k.endswith("_path") and k != "file_path"})
 
     monkeypatch.setattr(downloader, "mark_book_downloaded", fake_mark)
 
@@ -1006,7 +1006,8 @@ def test_download_books_counts_a_parked_book_separately_from_a_failure(tmp_path,
         object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks")
     )
 
-    assert stats == DownloadStats(attempted=1, succeeded=0, failed=0, unavailable=1)
+    # A refused licence uses no slot: nothing was downloaded
+    assert stats == DownloadStats(attempted=0, succeeded=0, failed=0, unavailable=1)
 
 
 def test_download_books_respects_max_download_in_the_attempted_count(tmp_path, monkeypatch):
@@ -1393,7 +1394,8 @@ def test_download_books_hands_the_book_back_when_cancelled_mid_download(tmp_path
     # The book in hand goes back with its attempt untouched; the next is never claimed
     assert claimed == ["A1"]
     assert released == ["A1"]
-    assert stats == DownloadStats(attempted=2, succeeded=0, failed=0, unavailable=0, cancelled=True)
+    # The book the run was stopped on used its slot; the one never reached did not
+    assert stats == DownloadStats(attempted=1, succeeded=0, failed=0, unavailable=0, cancelled=True)
     assert "handing it back to the queue" in caplog.text
 
 
@@ -1463,3 +1465,175 @@ def test_download_books_asks_the_queue_for_one_accounts_books(tmp_path, monkeypa
     downloader.download_books(object(), make_settings(download_folder=tmp_path / "dl"), account_id=7)
 
     assert seen == {"account_id": 7}
+
+
+def test_download_books_records_where_the_audio_was_filed(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    library = tmp_path / "audiobooks"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [make_book("OK2", "Two")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    filed = {}
+    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda book_id, **kw: filed.update(kw))
+
+    downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
+
+    assert filed["file_path"] == str(library / "Author One" / "Two" / "Two.m4b")
+    assert Path(filed["file_path"]).exists()
+
+
+def test_download_books_lets_a_refused_licence_pass_its_slot_to_the_next_book(tmp_path, monkeypatch):
+    """
+    Found live (2026-10-31): the oldest books in the queue were all titles Audible had
+    retired to streaming only. With max-download = 2 they took both slots on every run
+    and nothing behind them ever downloaded.
+    """
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [
+        make_book("GONE1", "Retired"),
+        make_book("GONE2", "Also retired"),
+        make_book("OK2", "Fine"),
+        make_book("OK3", "Later"),
+    ]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    original = downloader.Downloader.download_book
+
+    def refuse_retired(self, book, temp_dir):
+        if book.asin.startswith("GONE"):
+            raise LicenseError("Denied")
+        return original(self, book, temp_dir)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", refuse_retired)
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_download=1)
+    )
+
+    # Both refusals cost nothing; the one slot went to the first book that could download
+    assert marked == [("OK2", "m4b")]
+    assert stats == DownloadStats(attempted=1, succeeded=1, failed=0, unavailable=2)
+
+
+def test_download_books_a_lost_claim_still_uses_a_slot(tmp_path, monkeypatch):
+    """Another run has the book, so it is being worked on: that counts against the cap."""
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [make_book("BUSY", "Taken"), make_book("OK2", "Mine")]
+    asins = _asins(books)
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda book_id, **kw: asins[book_id] != "BUSY")
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_download=1)
+    )
+
+    assert marked == []
+    assert stats.attempted == 1
+
+
+# --- the circuit breaker ----------------------------------------------------------------
+
+
+def _refusing(monkeypatch, books, *, refuse):
+    """A pipeline where the books in `refuse` are refused a licence and the rest download."""
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    original = downloader.Downloader.download_book
+
+    def maybe_refuse(self, book, temp_dir):
+        if book.asin in refuse:
+            raise LicenseError("Denied")
+        return original(self, book, temp_dir)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", maybe_refuse)
+    return marked
+
+
+def test_download_books_gives_up_after_a_streak_of_refusals(tmp_path, monkeypatch, caplog):
+    """
+    The day Audible stopped licensing a device profile every book was refused; without
+    this a run would have sent a licence request for all 288 queued titles.
+    """
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    books = [make_book(f"R{n}", f"Refused {n}") for n in range(6)] + [make_book("OK2", "Fine")]
+    marked = _refusing(monkeypatch, books, refuse={b.asin for b in books[:6]})
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=3),
+    )
+
+    assert stats == DownloadStats(attempted=0, succeeded=0, failed=0, unavailable=3, cancelled=False, aborted=True)
+    assert marked == []
+    assert "Giving up on this run: 3 books in a row" in caplog.text
+
+
+def test_a_success_resets_the_streak(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    books = [
+        make_book("R1"),
+        make_book("R2"),
+        make_book("OK2", "Fine"),
+        make_book("R3"),
+        make_book("R4"),
+        make_book("OK3", "Later"),
+    ]
+    marked = _refusing(monkeypatch, books, refuse={"R1", "R2", "R3", "R4"})
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=3),
+    )
+
+    assert [m[0] for m in marked] == ["OK2", "OK3"]
+    assert stats.aborted is False
+    assert stats.unavailable == 4
+
+
+def test_failures_count_towards_the_streak_too(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    books = [make_book("BAD1", "Breaks"), make_book("R1"), make_book("OK2", "Fine")]
+    _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
+    original = downloader.Downloader.download_book
+    monkeypatch.setattr(
+        downloader.Downloader,
+        "download_book",
+        lambda self, book, temp_dir: (
+            (_ for _ in ()).throw(LicenseError("Denied")) if book.asin == "R1" else original(self, book, temp_dir)
+        ),
+    )
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=2),
+    )
+
+    # BAD1 fails (the fake raises for it), R1 is refused: two in a row, OK2 never tried
+    assert stats.aborted is True
+    assert (stats.failed, stats.unavailable, stats.succeeded) == (1, 1, 0)
+    assert marked == []
+
+
+def test_no_breaker_when_the_setting_is_unset(tmp_path, monkeypatch):
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    books = [make_book(f"R{n}") for n in range(8)] + [make_book("OK2", "Fine")]
+    marked = _refusing(monkeypatch, books, refuse={b.asin for b in books[:8]})
+
+    stats = downloader.download_books(
+        object(),
+        make_settings(
+            download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_consecutive_failures=None
+        ),
+    )
+
+    assert [m[0] for m in marked] == ["OK2"]
+    assert stats.aborted is False

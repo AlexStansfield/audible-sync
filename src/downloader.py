@@ -77,6 +77,9 @@ class DownloadStats(NamedTuple):
     # Whether the loop was stopped early by a cancel. Defaulted so the counts alone
     # still read as before; `run_pipeline` records the run as cancelled from it.
     cancelled: bool = False
+    # Whether the loop gave up after `max_consecutive_failures` refusals or failures in
+    # a row; `run_pipeline` records the run as aborted from it
+    aborted: bool = False
 
 
 def get_http_client() -> httpx.Client:
@@ -779,8 +782,8 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
         final_paths[column] = str(final_path)
         logger.info("%s moved to %s", column.removesuffix("_path").capitalize(), final_path)
 
-    # Record the accessory paths and the completed status in one statement
-    mark_book_downloaded(book.id, encoding_format=settings.encoding_format, **final_paths)
+    # Record where everything went and the completed status in one statement
+    mark_book_downloaded(book.id, encoding_format=settings.encoding_format, file_path=str(to_path), **final_paths)
 
 
 def download_books(
@@ -821,52 +824,80 @@ def download_books(
     that control where each book is filed (see src.naming for the placeholder
     syntax), the output format - m4b (stream copy) or oga (Opus at the
     configured bitrate) - `max_attempts`, and `max_download`, the optional cap on how
-    many books a single run processes. A book lost to another run still costs a slot in
-    that cap: it is a limit on work attempted, not a quota to be filled.
+    many books a single run takes on. The queue is walked until that many books have
+    been *taken on*: a book that is downloaded, that fails, that is lost to another
+    run's claim or that the run is stopped on. A licence Audible refuses costs no slot
+    - it is one cheap POST and nothing was downloaded - so a row of refused titles at
+    the head of the queue (found live, 2026-10-31: Audible retiring old titles to
+    streaming only) does not stop the books behind them from downloading.
+
+    `settings.max_consecutive_failures` is the circuit breaker: once that many books in
+    a row have been refused a licence or have failed, with no success between, the run
+    stops and reports `aborted`. A streak like that is the account or Audible, not the
+    books - the day Audible stopped licensing a device profile, every book was refused -
+    and walking the rest of the queue would only repeat the refusal for every title.
+    None never stops.
 
     `progress` is where byte progress for each transfer is reported; see `src.progress`.
 
-    Returns the counts the run record is written from. `attempted` is how many books
-    this call took a slot for, including any lost to another run's claim.
+    Returns the counts the run record is written from. `attempted` is how many slots
+    were used, which is also what `state` reports as `books_done` against the cap.
     """
     waiting_download = get_books_to_download(account_id=account_id)
     total_to_download = len(waiting_download)
     max_download = settings.max_download
-    number_to_download = total_to_download if max_download is None else min(max_download, total_to_download)
+    cap = total_to_download if max_download is None else min(max_download, total_to_download)
 
     logger.info(
-        "Downloading %d books of %d in the download queue as %s",
-        number_to_download,
+        "Downloading up to %d books of %d in the download queue as %s",
+        cap,
         total_to_download,
         settings.encoding_format,
     )
 
-    loop = waiting_download[:number_to_download]
     downloader = Downloader(audible, progress=progress, cancel=cancel)
     state = state or RunState()
+    attempted = 0
     succeeded = 0
     failed = []
     unavailable = []
     cancelled = False
+    aborted = False
+    # Refusals and failures since the last success
+    streak = 0
+    breaker = settings.max_consecutive_failures
 
-    for index, book in enumerate(loop):
+    for index, book in enumerate(waiting_download):
+        if attempted >= cap:
+            break
+        if breaker is not None and streak >= breaker:
+            logger.error(
+                "Giving up on this run: %d books in a row were refused or failed, which points at the account "
+                "or Audible rather than the books; %d still in the queue",
+                streak,
+                total_to_download - index,
+            )
+            aborted = True
+            break
         asin = book.asin
         title = book.title
 
         # Checked before the claim, so a book the run never got to is left exactly as
         # it was for the next run
         if cancel is not None and cancel.is_set():
-            logger.info("Sync cancelled with %d books still in the queue", len(loop) - index)
+            logger.info("Sync cancelled with %d books still in the queue", total_to_download - index)
             cancelled = True
             break
 
-        state.set_book(book, done=index, total=len(loop))
+        state.set_book(book, done=attempted, total=cap)
 
         # Claimed one at a time rather than as a batch: a run that stops half way, or is
         # killed, then leaves behind only the book it was actually working on, and only
         # the books really tried spend an attempt.
         if not claim_book_for_download(book.id):
+            # Another run has it, so it is being worked on: that is a slot used
             logger.info("Skipping %s (%s): another run is already downloading it", title, asin)
+            attempted += 1
             continue
 
         temp_dir = temp_book_folder(settings.download_folder, asin, title)
@@ -874,6 +905,8 @@ def download_books(
         try:
             _process_book(downloader, book, temp_dir, settings)
             succeeded += 1
+            attempted += 1
+            streak = 0
         except (Unauthorized, NoRefreshToken, AuthFlowError):
             # The credentials are the problem, not this book. Hand the claim back with
             # its attempt count untouched, or a token that expires often would
@@ -881,6 +914,7 @@ def download_books(
             logger.exception("Audible rejected our credentials, stopping before %s (%s)", title, asin)
             release_book(book.id)
             failed.append((asin, title))
+            attempted += 1
             break
         except SyncCancelled:
             # Nothing is wrong with the book; whoever stopped the run gets it back in the
@@ -888,28 +922,37 @@ def download_books(
             logger.info("Cancelled while downloading %s (%s), handing it back to the queue", title, asin)
             release_book(book.id)
             cancelled = True
+            attempted += 1
             break
         except LicenseError as error:
-            # Audible will not license this book today. That is usually a Plus title
-            # withdrawn after it was added to the library, which Audible does offer
-            # again, so the book is parked rather than failed: it leaves the queue, and
-            # the next sync that sees it consumable puts it back. The denial costs one
-            # cheap POST and happens before any of the book is downloaded.
-            logger.warning("Audible will not license %s (%s) right now, parking it: %s", title, asin, error)
+            # Audible will not license this book for download although the sync saw it
+            # as consumable - a title retired to streaming only, or rights changing
+            # between the sync and now. The book is parked rather than failed: it leaves
+            # the queue and stays out until it is retried through the API, so it cannot
+            # take a download slot on every run. The denial costs one cheap POST and
+            # happens before any of the book is downloaded.
+            logger.warning(
+                "Audible will not license %s (%s) for download, parking it until retried: %s", title, asin, error
+            )
             mark_book_unavailable(book.id, str(error))
             unavailable.append((asin, title))
+            streak += 1
+            # No slot used: nothing was downloaded, and the next book in the queue
+            # deserves the go this one could not have
         except Exception as error:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
             status = mark_book_failed(book.id, f"{type(error).__name__}: {error}", max_attempts=settings.max_attempts)
             if status is BookStatus.FAILED:
                 logger.warning("Giving up on %s (%s) after %d attempts", title, asin, settings.max_attempts)
             failed.append((asin, title))
+            attempted += 1
+            streak += 1
         finally:
             # Cleanup temporary download folder whether we succeeded or not
             if temp_dir.exists():
                 shutil.rmtree(temp_dir, ignore_errors=True)
 
-    state.set_book(None, done=succeeded + len(failed) + len(unavailable), total=len(loop))
+    state.set_book(None, done=attempted, total=cap)
     logger.info("Completed downloads: %d succeeded, %d failed", succeeded, len(failed))
     for asin, title in failed:
         logger.warning("Not downloaded: %s (%s)", title, asin)
@@ -919,9 +962,10 @@ def download_books(
             logger.info("Unavailable: %s (%s)", title, asin)
 
     return DownloadStats(
-        attempted=number_to_download,
+        attempted=attempted,
         succeeded=succeeded,
         failed=len(failed),
         unavailable=len(unavailable),
         cancelled=cancelled,
+        aborted=aborted,
     )

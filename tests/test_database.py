@@ -49,6 +49,7 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "cover_url",
         "status",
         "monitored",
+        "file_path",
         "pdf_path",
         "cover_path",
         "annotations_path",
@@ -670,23 +671,53 @@ def test_mark_book_unavailable_parks_a_book_without_failing_it(db):
 
     book = database.get_book_by_asin("B001")
     assert book.status is BookStatus.UNAVAILABLE
-    assert book.is_consumable is False
+    # The API's view is left alone: it said consumable, Audible refused anyway
+    assert book.is_consumable is True
     assert "Denied" in book.last_error
     # The attempt really happened, but nothing terminal is decided from it here
     assert book.attempts == 1
     assert database.get_books_to_download() == []
 
 
-def test_a_parked_book_comes_back_on_the_next_sync(db):
-    """The full round trip: denied at download time, then restored by a later sync."""
+def test_a_licence_denied_book_stays_parked_through_the_next_sync(db):
+    """
+    Found live (2026-10-31): Audible refused the download licence for two titles it
+    reported consumable. Restoring them on every sync queued them to be refused again,
+    and with `max-download = 2` nothing else ever downloaded.
+    """
     database.update_books(ACCOUNT, [make_book("B001")])
     database.claim_book_for_download(_id("B001"))
     database.mark_book_unavailable(_id("B001"), "Denied")
 
     database.update_books(ACCOUNT, [make_book("B001", is_consumable=True)])
 
+    assert database.get_book_by_asin("B001").status is BookStatus.UNAVAILABLE
+    assert database.get_books_to_download() == []
+    # Nothing for a re-read to discover, so the sync does not re-read the library for it
+    assert database.needs_consumability_refresh(ACCOUNT) is False
+
+
+def test_a_licence_denied_book_comes_back_when_retried(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    database.claim_book_for_download(_id("B001"))
+    database.mark_book_unavailable(_id("B001"), "Denied")
+
+    assert database.reset_for_download(_id("B001"), monitored=True) is True
+
+    assert [b.asin for b in database.get_books_to_download()] == ["B001"]
+
+
+def test_a_withdrawn_book_comes_back_on_the_next_sync(db):
+    """The full round trip for a Plus title: withdrawn at sync time, then offered again."""
+    database.update_books(ACCOUNT, [make_book("B001", is_consumable=False)])
+    assert database.get_book_by_asin("B001").status is BookStatus.UNAVAILABLE
+    assert database.needs_consumability_refresh(ACCOUNT) is True
+
+    database.update_books(ACCOUNT, [make_book("B001", is_consumable=True)])
+
     assert database.get_book_by_asin("B001").status is BookStatus.WAITING_DOWNLOAD
     assert [b.asin for b in database.get_books_to_download()] == ["B001"]
+    assert database.needs_consumability_refresh(ACCOUNT) is False
 
 
 def test_needs_consumability_refresh_is_false_for_a_fully_read_library(db):
@@ -929,6 +960,13 @@ def test_a_cancelled_run_is_a_cursor(db, monkeypatch):
     _finished_run(SyncOutcome.SUCCESS, "2026-09-11T10:00:00+00:00", monkeypatch)
     _finished_run(SyncOutcome.CANCELLED, "2026-09-12T10:00:00+00:00", monkeypatch)
     _finished_run(SyncOutcome.FAILED, "2026-09-13T10:00:00+00:00", monkeypatch)
+
+    assert database.latest_successful_sync_start() == "2026-09-12T10:00:00+00:00"
+
+
+def test_an_aborted_run_is_a_cursor(db, monkeypatch):
+    """The breaker trips during the downloads, after the library was read through."""
+    _finished_run(SyncOutcome.ABORTED, "2026-09-12T10:00:00+00:00", monkeypatch)
 
     assert database.latest_successful_sync_start() == "2026-09-12T10:00:00+00:00"
 
@@ -1209,3 +1247,180 @@ def test_migration_enforces_one_row_per_account_and_asin(tmp_path, monkeypatch):
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("INSERT INTO library (account_id, asin) VALUES (?, 'B001')", (account.id,))
     conn.close()
+
+
+# --- book management -----------------------------------------------------------------
+
+
+def test_mark_book_downloaded_records_where_the_audio_went(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+
+    database.mark_book_downloaded(_id("B001"), "m4b", file_path="/lib/A/T/T.m4b")
+
+    assert database.get_book_by_asin("B001").file_path == "/lib/A/T/T.m4b"
+
+
+def test_migrate_schema_adds_file_path(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DB_FILE", str(_pre_accounts_database(tmp_path)))
+    database.init_db()
+
+    assert database.get_books()[0].file_path is None
+
+
+def test_clear_book_files_forgets_every_path_and_the_download(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    database.mark_book_downloaded(
+        _id("B001"), "oga", file_path="/a", pdf_path="/p", cover_path="/c", annotations_path="/n"
+    )
+
+    database.clear_book_files(_id("B001"))
+
+    book = database.get_book_by_asin("B001")
+    assert (book.file_path, book.pdf_path, book.cover_path, book.annotations_path) == (None, None, None, None)
+    assert (book.encoding_format, book.downloaded_at) == (None, None)
+    # The status is left to reset_for_download; this only forgets the files
+    assert book.status is BookStatus.DOWNLOADED
+
+
+def test_set_monitored(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+
+    assert database.set_monitored(_id("B001"), False) is True
+    assert database.get_book_by_asin("B001").monitored is False
+    assert database.set_monitored(999, True) is False
+
+
+@pytest.mark.parametrize("status", [BookStatus.DOWNLOADED, BookStatus.FAILED, BookStatus.UNAVAILABLE])
+def test_reset_for_download_puts_a_book_back_at_the_start(db, status):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    _set("B001", status=status, attempts=3, last_error="boom", monitored=0)
+
+    assert database.reset_for_download(_id("B001"), monitored=True) is True
+
+    book = database.get_book_by_asin("B001")
+    assert (book.status, book.attempts, book.last_error, book.monitored) == (BookStatus.WAITING_DOWNLOAD, 0, None, True)
+
+
+def test_reset_for_download_can_leave_the_book_unwanted(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+
+    database.reset_for_download(_id("B001"), monitored=False)
+
+    assert database.get_book_by_asin("B001").monitored is False
+
+
+def test_reset_for_download_refuses_a_book_a_run_holds(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    _set("B001", status=BookStatus.DOWNLOADING, attempts=1)
+
+    assert database.reset_for_download(_id("B001"), monitored=True) is False
+    assert database.get_book_by_asin("B001").status is BookStatus.DOWNLOADING
+    assert database.reset_for_download(999, monitored=True) is False
+
+
+def _shelf(db):
+    other = database.add_account("Other", "us", auth=None)
+    database.update_books(
+        ACCOUNT,
+        [
+            make_book("B001", "Dune", authors=["Frank Herbert"], date_added="2024-01-01T00:00:00Z"),
+            make_book(
+                "B002",
+                "Ringworld",
+                authors=["Larry Niven"],
+                series=[{"title": "Known Space", "sequence": "1"}],
+                date_added="2024-02-01T00:00:00Z",
+            ),
+            make_book("B003", "Foundation", authors=["Isaac Asimov"], date_added="2024-03-01T00:00:00Z"),
+        ],
+    )
+    database.update_books(
+        other,
+        [make_book("B004", "Dune Messiah", authors=["Frank Herbert"], date_added="2024-04-01T00:00:00Z")],
+        monitor_new=False,
+    )
+    _set("B003", status=BookStatus.DOWNLOADED, downloaded_at="2026-01-01T00:00:00+00:00")
+    return other
+
+
+def test_list_books_pages_newest_first_by_default(db):
+    _shelf(db)
+
+    items, total = database.list_books(limit=2)
+    assert [b.asin for b in items] == ["B004", "B003"]
+    assert total == 4
+
+    items, _ = database.list_books(limit=2, offset=2)
+    assert [b.asin for b in items] == ["B002", "B001"]
+
+
+def test_list_books_filters(db):
+    other = _shelf(db)
+
+    assert [b.asin for b in database.list_books(account_id=other)[0]] == ["B004"]
+    assert [b.asin for b in database.list_books(status=BookStatus.DOWNLOADED)[0]] == ["B003"]
+    assert [b.asin for b in database.list_books(monitored=False)[0]] == ["B004"]
+    assert database.list_books(account_id=ACCOUNT, status=BookStatus.DOWNLOADED, monitored=True)[1] == 1
+
+
+def test_list_books_searches_title_author_and_series(db):
+    _shelf(db)
+
+    assert {b.asin for b in database.list_books(q="dune")[0]} == {"B001", "B004"}
+    assert [b.asin for b in database.list_books(q="asimov")[0]] == ["B003"]
+    assert [b.asin for b in database.list_books(q="known space")[0]] == ["B002"]
+    assert database.list_books(q="nothing here")[1] == 0
+
+
+def test_list_books_sorts(db):
+    _shelf(db)
+
+    assert [b.asin for b in database.list_books(sort="title", descending=False)[0]] == ["B001", "B004", "B003", "B002"]
+    assert [b.asin for b in database.list_books(sort="author", descending=False)[0]][:2] == ["B001", "B004"]
+    # Books never downloaded sort together at one end
+    assert database.list_books(sort="downloaded_at")[0][0].asin == "B003"
+
+
+def test_list_books_rejects_an_unknown_sort(db):
+    with pytest.raises(ValueError, match="sort must be one of"):
+        database.list_books(sort="colour")
+
+
+# --- stats -----------------------------------------------------------------------------
+
+
+def test_library_stats_counts_every_status_and_whether_wanted(db):
+    other = _shelf(db)
+
+    stats = database.library_stats()
+    assert stats["by_status"] == {
+        "waiting_download": 3,
+        "downloading": 0,
+        "downloaded": 1,
+        "unavailable": 0,
+        "failed": 0,
+    }
+    assert (stats["monitored"], stats["unmonitored"], stats["total"]) == (3, 1, 4)
+
+    assert database.library_stats(account_id=other) == {
+        "by_status": {"waiting_download": 1, "downloading": 0, "downloaded": 0, "unavailable": 0, "failed": 0},
+        "monitored": 0,
+        "unmonitored": 1,
+        "total": 1,
+    }
+
+
+def test_library_stats_on_an_empty_library(db):
+    stats = database.library_stats()
+
+    assert stats["total"] == 0
+    assert set(stats["by_status"]) == {s.value for s in BookStatus}
+
+
+def test_downloaded_file_paths(db):
+    other = _shelf(db)
+    database.mark_book_downloaded(_id("B003"), "m4b", file_path="/lib/a.m4b")
+    database.mark_book_downloaded(database.get_book_by_asin("B004", account_id=other).id, "m4b", file_path="/lib/b.m4b")
+
+    assert sorted(database.downloaded_file_paths()) == ["/lib/a.m4b", "/lib/b.m4b"]
+    assert database.downloaded_file_paths(account_id=other) == ["/lib/b.m4b"]

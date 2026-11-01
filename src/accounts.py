@@ -84,6 +84,34 @@ def add_account_from_authenticator(
     )
 
 
+def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> None:
+    """
+    Give an existing account new credentials, keeping its id and so its library.
+
+    This is the recovery when a registration stops working - Audible began refusing
+    download licences to devices registered with the library's old profile in October
+    2026 - without deleting the account and losing which books are downloaded. The
+    previous device is deregistered with Amazon first, best effort: it is the one that
+    stopped working, so it may well not be able to, and the new credentials are stored
+    either way.
+    """
+    if deregister_previous and account.auth is not None:
+        try:
+            authenticator_for(account).deregister_device()
+            logger.info("Deregistered the previous device of %r", account)
+        except Exception:
+            logger.warning(
+                "Could not deregister the previous device of %r; replacing it anyway", account, exc_info=True
+            )
+    update_account(
+        account.id,
+        country_code=auth.locale.country_code if auth.locale else None,
+        customer_name=customer_name_of(auth),
+    )
+    save_account_auth(account.id, auth_to_dict(auth))
+    logger.info("Replaced the credentials of %r", account)
+
+
 def import_auth_file(path: str | Path, *, name: str | None = None, monitor_existing: bool = True) -> int:
     """
     Create an account from an `audible-cli` style auth file and return its id.

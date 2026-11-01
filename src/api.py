@@ -15,41 +15,67 @@ has one error format to handle.
 import logging
 import secrets
 import tomllib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Literal
 
+import httpx
+from audible import Authenticator
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from src.accounts import authenticator_for, import_auth_file
+from src import library
+from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file, replace_account_auth
+from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
 from src.database import (
+    BOOK_SORT_COLUMNS,
     count_sync_runs,
     delete_account,
+    downloaded_file_paths,
     get_account,
     get_accounts,
+    get_book,
     get_sync_run,
     get_sync_runs,
+    library_stats,
+    list_books,
     save_settings,
+    set_monitored,
     update_account,
 )
+from src.logbuffer import RingBufferHandler
+from src.model import Account, BookStatus
+from src.notify import send_webhook
 from src.paths import REPO_ROOT
 from src.runstate import RunState
 from src.scheduler import Scheduler
 from src.schemas import (
     AccountImport,
     AccountOut,
+    AccountStats,
     AccountUpdate,
+    BookAction,
+    BookList,
+    BookOut,
+    BookUpdate,
     Health,
+    LoginComplete,
+    LoginOut,
+    LoginStart,
+    LogList,
+    MarketplaceOut,
     Message,
     SettingsOut,
     SettingsUpdate,
+    Stats,
     Status,
     SyncRunList,
     SyncRunOut,
+    WebhookTest,
 )
 from src.settings import Settings
 
@@ -84,6 +110,8 @@ def create_app(
     api_token: str,
     cors_origins: list[str] | None = None,
     version: str | None = None,
+    logins: PendingLogins | None = None,
+    log_buffer: RingBufferHandler | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -95,7 +123,11 @@ def create_app(
         api_token: The bearer token every request except the health check must carry
         cors_origins: Origins allowed to call from a browser, e.g. the UI's dev server
         version: Reported by the health check; defaults to `pyproject.toml`'s
+        logins: The store of logins started and not yet completed; defaults to a fresh one
+        log_buffer: The handler holding recent log lines for `GET /api/logs`; without one
+            the endpoint answers with nothing
     """
+    logins = logins or PendingLogins()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -189,6 +221,50 @@ def create_app(
         scheduler.wake()
         return SettingsOut.model_validate(settings)
 
+    @router.post("/settings/webhook/test", response_model=Message)
+    def test_webhook(body: WebhookTest) -> Message:
+        """Send a sample event to `url`, or the configured webhook; 502 if it fails."""
+        url = body.url or Settings.from_db().webhook_url
+        if not url:
+            raise HTTPException(status_code=400, detail="No webhook URL configured")
+        try:
+            send_webhook(url, {"event": "test", "message": "Audible Sync webhook test"})
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"Webhook failed: {error}") from None
+        return Message(status="sent")
+
+    @router.get("/logs", response_model=LogList)
+    def get_logs(
+        limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+        level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None,
+    ) -> LogList:
+        """The newest log lines, oldest first, at or above `level`."""
+        return LogList(items=log_buffer.records(limit=limit, level=level) if log_buffer else [])
+
+    @router.get("/stats", response_model=Stats)
+    def get_stats() -> Stats:
+        """The numbers a dashboard opens with: per account and in total."""
+        settings = Settings.from_db()
+        per_account = []
+        for account in get_accounts():
+            last = get_sync_runs(limit=1, account_id=account.id)
+            per_account.append(
+                AccountStats(
+                    account=account,
+                    books=library_stats(account_id=account.id),
+                    bytes_on_disk=_bytes_on_disk(downloaded_file_paths(account_id=account.id)),
+                    last_run=last[0] if last else None,
+                )
+            )
+        last = get_sync_runs(limit=1)
+        return Stats(
+            accounts=per_account,
+            books=library_stats(),
+            bytes_on_disk=sum(a.bytes_on_disk for a in per_account),
+            last_run=last[0] if last else None,
+            next_run_at=scheduler.status(settings)["next_run_at"],
+        )
+
     @router.get("/accounts", response_model=list[AccountOut])
     def list_accounts() -> list[AccountOut]:
         return get_accounts()
@@ -222,6 +298,87 @@ def create_app(
         delete_account(account_id)
         return Message(status="deleted")
 
+    @router.get("/marketplaces", response_model=list[MarketplaceOut])
+    def list_marketplaces() -> list[MarketplaceOut]:
+        return list(MARKETPLACES)
+
+    def _finisher(body: LoginStart, existing: Account | None) -> Callable[[Authenticator], int]:
+        """What a confirmed login does with its credentials: a new account, or new credentials for one."""
+
+        def finish(auth: Authenticator) -> int:
+            if existing is not None:
+                replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
+                return existing.id
+            return add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
+
+        return finish
+
+    def _login_out(login: BrowserLogin | CodeLogin) -> LoginOut:
+        account = get_account(login.account_id) if login.account_id is not None else None
+        return LoginOut(
+            login_id=login.id,
+            method=login.method,
+            status=login.status,
+            expires_at=login.expires_at.isoformat(),
+            code=login.code if isinstance(login, CodeLogin) else None,
+            verification_url=login.verification_url if isinstance(login, CodeLogin) else None,
+            url=login.url if isinstance(login, BrowserLogin) else None,
+            account=AccountOut.model_validate(account) if account is not None else None,
+            error=login.error,
+        )
+
+    @router.post("/accounts/login", response_model=LoginOut, status_code=202)
+    def start_account_login(body: LoginStart) -> LoginOut:
+        """
+        Start signing in to a marketplace.
+
+        With the default `code` method the answer carries the `code` to enter at
+        `verification_url`, on any device; the service polls Amazon and the login turns
+        `confirmed` (with the account) on `GET /api/accounts/login/{login_id}` once the
+        user has entered it. With `browser`, open `url`, sign in, and post the "page not
+        found" address to `POST /api/accounts/login/{login_id}`. 422 for an unknown
+        marketplace, 404 for an unknown `account_id`, 502 when Amazon will not issue a code.
+        """
+        existing = _account_or_404(body.account_id) if body.account_id is not None else None
+        finish = _finisher(body, existing)
+        if body.method == "browser":
+            return _login_out(logins.start(body.country_code, finish))  # ValueError -> 422
+        try:
+            login = logins.start_code(body.country_code, finish)
+        except LoginFailed as error:
+            raise HTTPException(status_code=502, detail=str(error)) from None
+        except httpx.HTTPError as error:
+            raise HTTPException(status_code=502, detail=f"Could not reach Amazon: {error}") from None
+        return _login_out(login)
+
+    @router.get("/accounts/login/{login_id}", response_model=LoginOut)
+    def login_status(login_id: str) -> LoginOut:
+        """How a login is going; 404 once it has been forgotten (a while after it ended)."""
+        login = logins.get(login_id)
+        if login is None:
+            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
+        return _login_out(login)
+
+    @router.post("/accounts/login/{login_id}", response_model=LoginOut, status_code=201)
+    def complete_account_login(login_id: str, body: LoginComplete) -> LoginOut:
+        """
+        Step two of a browser login: the pasted address becomes the account.
+
+        404 for a login that is unknown, expired or already finished (start again), 400
+        for an address that carries no authorization code (the login stays open for the
+        right one), 502 when Amazon rejects the code.
+        """
+        try:
+            login = logins.complete(login_id, body.response_url)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again") from None
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except Exception as error:
+            logger.warning("Amazon rejected the login %s", login_id, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
+        return _login_out(login)
+
     @router.post("/accounts/import", response_model=AccountOut, status_code=201)
     def import_account(body: AccountImport) -> AccountOut:
         """Create an account from an auth file on the server, e.g. one audible-cli wrote."""
@@ -235,9 +392,116 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"could not read {body.path}: {error}") from None
         return get_account(account_id)
 
+    @router.get("/books", response_model=BookList)
+    def get_books(
+        account_id: int | None = None,
+        status: BookStatus | None = None,
+        monitored: bool | None = None,
+        q: Annotated[str | None, Query(max_length=200)] = None,
+        sort: Literal["date_added", "title", "author", "release_date", "downloaded_at"] = "date_added",
+        order: Literal["asc", "desc"] = "desc",
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    ) -> BookList:
+        assert sort in BOOK_SORT_COLUMNS  # the Literal above is the same set; keep them in step
+        items, total = list_books(
+            account_id=account_id,
+            status=status,
+            monitored=monitored,
+            q=q,
+            sort=sort,
+            descending=order == "desc",
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return BookList(items=items, total=total, page=page, page_size=page_size)
+
+    @router.get("/books/{book_id}", response_model=BookOut)
+    def get_one_book(book_id: int) -> BookOut:
+        return _book_or_404(book_id)
+
+    @router.patch("/books/{book_id}", response_model=BookOut)
+    def patch_book(book_id: int, update: BookUpdate) -> BookOut:
+        _book_or_404(book_id)
+        set_monitored(book_id, update.monitored)
+        return get_book(book_id)
+
+    @router.post("/books/{book_id}/delete-files", response_model=BookAction)
+    def delete_book_files(book_id: int) -> BookAction:
+        """Remove the files and unmonitor the book, so it stays deleted."""
+        book = _book_or_404(book_id)
+        removed = _busy_to_409(library.delete_download, book, Settings.from_db())
+        return BookAction(status="deleted", removed=[str(p) for p in removed])
+
+    @router.post("/books/{book_id}/redownload", response_model=BookAction)
+    def redownload_book(book_id: int) -> BookAction:
+        """Remove the files and queue the book afresh, attempts reset."""
+        book = _book_or_404(book_id)
+        removed = _busy_to_409(library.redownload, book, Settings.from_db())
+        return BookAction(status="queued", removed=[str(p) for p in removed])
+
+    @router.post("/books/{book_id}/retry", response_model=BookAction)
+    def retry_book(book_id: int) -> BookAction:
+        """Queue a failed or parked book again without touching any files it has."""
+        book = _book_or_404(book_id)
+        try:
+            library.retry(book)
+        except library.BookBusy as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        return BookAction(status="queued")
+
+    @router.post("/books/{book_id}/refresh", response_model=BookOut)
+    def refresh_book(book_id: int) -> BookOut:
+        """Re-read the book from Audible."""
+        book = _book_or_404(book_id)
+        try:
+            return library.refresh(book)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except Exception as error:
+            logger.warning("Could not refresh %s from Audible", book.asin, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Audible did not answer: {error}") from None
+
+    @router.get("/books/{book_id}/cover")
+    def book_cover(book_id: int):
+        """The cover: the file once downloaded, Audible's URL before that."""
+        book = _book_or_404(book_id)
+        if book.cover_path and Path(book.cover_path).is_file():
+            return FileResponse(book.cover_path)
+        if book.cover_url:
+            return RedirectResponse(book.cover_url, status_code=302)
+        raise HTTPException(status_code=404, detail="No cover for this book")
+
     app.include_router(open_router)
     app.include_router(router)
     return app
+
+
+def _book_or_404(book_id: int):
+    book = get_book(book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"No book with id {book_id}")
+    return book
+
+
+def _busy_to_409(action, book, settings):
+    try:
+        return action(book, settings)
+    except library.BookBusy as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
+
+
+def _bytes_on_disk(paths: list[str]) -> int:
+    """Sum of the file sizes, ignoring any file that has gone."""
+    total = 0
+    for path in paths:
+        try:
+            total += Path(path).stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _account_or_404(account_id: int):

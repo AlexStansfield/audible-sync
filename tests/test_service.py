@@ -1,8 +1,11 @@
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
 from src import service
+from src.logbuffer import RingBufferHandler
 from src.service import ServiceConfig, resolve_api_token
 from src.settings import Settings
 
@@ -69,3 +72,26 @@ def test_build_wires_a_working_app(db, monkeypatch, tmp_path):
     assert client.get("/api/health").status_code == 200
     assert client.get("/api/status").status_code == 401
     assert client.get("/api/status", headers={"Authorization": "Bearer tok"}).status_code == 200
+
+
+def test_build_installs_the_log_buffer_on_the_root_logger(db, monkeypatch):
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+    root = logging.getLogger()
+    before = list(root.handlers)
+
+    app = service.build(ServiceConfig(api_token="tok"))
+    try:
+        added = [h for h in root.handlers if h not in before]
+        assert len(added) == 1
+        assert isinstance(added[0], RingBufferHandler)
+        probe = logging.getLogger("tests.service")
+        probe.setLevel(logging.INFO)
+        probe.info("through the root")
+        client = TestClient(app)
+        body = client.get("/api/logs", headers={"Authorization": "Bearer tok"}).json()
+        assert any(e["message"] == "through the root" for e in body["items"])
+    finally:
+        for handler in root.handlers:
+            if handler not in before:
+                root.removeHandler(handler)

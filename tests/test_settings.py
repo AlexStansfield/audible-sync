@@ -39,6 +39,7 @@ enabled = false
 interval-minutes = 90
 max-download = 5
 max-attempts = 4
+max-consecutive-failures = 8
 auto-monitor-new = false
 audible-auth-file = /keys/audible.json
 
@@ -67,6 +68,7 @@ def test_from_ini_reads_every_setting(tmp_path):
     assert settings.sync_interval_minutes == 90
     assert settings.max_download == 5
     assert settings.max_attempts == 4
+    assert settings.max_consecutive_failures == 8
     assert settings.auto_monitor_new is False
     assert settings.auth_file == Path("/keys/audible.json")
     assert settings.download_folder == Path("/var/tmp/downloads")
@@ -189,6 +191,7 @@ def test_from_ini_resolves_a_relative_config_path(tmp_path):
         ("[sync]\nmax-attempts = 0\n", "max-attempts must be 1 or more"),
         ("[sync]\nmax-attempts = -1\n", "max-attempts must be 1 or more"),
         ("[sync]\ninterval-minutes = 4\n", "interval-minutes must be 5 or more"),
+        ("[sync]\nmax-consecutive-failures = 0\n", "max-consecutive-failures must be 1 or more"),
         ("[notifications]\nwebhook-url = ftp://hooks\n", "webhook-url must start with http"),
     ],
 )
@@ -281,6 +284,7 @@ _CHANGED = {
     "sync_interval_minutes": 45,
     "max_download": 7,
     "max_attempts": 5,
+    "max_consecutive_failures": 9,
     "auto_monitor_new": False,
     "download_folder": Path("/var/tmp/dl"),
     "audiobook_folder": Path("/mnt/books"),
@@ -331,12 +335,22 @@ def test_from_db_on_an_empty_table_is_the_defaults(db):
 
 
 def test_from_db_reads_an_empty_value_as_unset(db):
-    database.save_settings({"max_download": "", "webhook_url": ""})
+    database.save_settings({"max_download": "", "webhook_url": "", "max_consecutive_failures": ""})
 
     settings = Settings.from_db()
 
     assert settings.max_download is None
     assert settings.webhook_url is None
+    assert settings.max_consecutive_failures is None
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [("[sync]\nmax-consecutive-failures = 3\n", 3), ("[sync]\nmax-consecutive-failures =\n", None), ("[sync]\n", 5)],
+)
+def test_max_consecutive_failures(tmp_path, body, expected):
+    """Set, deliberately unset (never give up), or defaulted."""
+    assert Settings.from_ini(write_config(tmp_path, body)).max_consecutive_failures == expected
 
 
 def test_from_db_accepts_the_ini_spellings_of_a_flag(db):

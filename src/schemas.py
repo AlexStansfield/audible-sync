@@ -9,11 +9,11 @@ bending to the other. Anything that maps straight from a dataclass uses
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.model import SyncOutcome
+from src.model import BookStatus, SyncOutcome
 from src.runstate import RunStage
 
 
@@ -116,6 +116,174 @@ class AccountImport(BaseModel):
     monitor_existing: bool = True
 
 
+class MarketplaceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    country_code: str
+    domain: str
+    name: str
+
+
+class LoginStart(BaseModel):
+    """
+    Start signing in to a marketplace. The account the login will produce is described
+    here, since with the default `code` method nothing else is posted: `name` and
+    `monitor_existing` (whether the library the account already holds is queued for
+    download or inserted unmonitored so the user picks) for a new account, or
+    `account_id` to give an existing account the new credentials instead, keeping its
+    library - the way back when a registration stops working - with
+    `deregister_previous` removing its old device from Amazon first, best effort.
+
+    `method` is `code` (show a code, the user enters it at Amazon on any device, the
+    service polls until confirmed) or `browser` (the user signs in at `url` in a browser
+    and posts the "page not found" address it lands on to step two).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    country_code: str = Field(min_length=2)
+    method: Literal["code", "browser"] = "code"
+    name: str | None = Field(default=None, min_length=1)
+    monitor_existing: bool = True
+    account_id: int | None = None
+    deregister_previous: bool = True
+
+
+class LoginOut(BaseModel):
+    """
+    A login in flight or finished. `status` is `pending` until the user has done their
+    part, then `confirmed` with the `account`, or `expired` (start again) or `failed`
+    with the `error`. The `code` method carries `code` and `verification_url`; the
+    `browser` method carries `url`.
+    """
+
+    login_id: str
+    method: Literal["code", "browser"]
+    status: Literal["pending", "confirmed", "expired", "failed"]
+    # ISO 8601 UTC; after this the login cannot succeed
+    expires_at: str
+    code: str | None = None
+    verification_url: str | None = None
+    url: str | None = None
+    account: AccountOut | None = None
+    error: str | None = None
+
+
+class LoginComplete(BaseModel):
+    """
+    Step two of a browser login: `response_url` is the "page not found" address the
+    browser lands on after signing in.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    response_url: str = Field(min_length=1)
+
+
+class SeriesEntry(BaseModel):
+    title: str | None
+    sequence: str | None
+    series_asin: str | None = None
+
+
+class BookOut(BaseModel):
+    """A book as the API shows it, with the series it files under worked out."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    account_id: int
+    asin: str
+    title: str
+    subtitle: str
+    authors: list[str]
+    narrators: list[str]
+    series: list[SeriesEntry]
+    # The one series the book is filed and tagged under (see `Book.primary_series`)
+    primary_series: SeriesEntry | None
+    genres: list[str]
+    length: int
+    is_finished: bool
+    percent_complete: float
+    date_added: str | None
+    release_date: str | None
+    cover_url: str
+    has_pdf: bool
+    is_consumable: bool
+    status: BookStatus | None
+    monitored: bool
+    attempts: int
+    last_error: str | None
+    last_attempt_at: str | None
+    file_path: str | None
+    pdf_path: str | None
+    cover_path: str | None
+    annotations_path: str | None
+    encoding_format: str | None
+    downloaded_at: str | None
+
+
+class BookList(BaseModel):
+    items: list[BookOut]
+    total: int
+    page: int
+    page_size: int
+
+
+class BookUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    monitored: bool
+
+
+class BookAction(BaseModel):
+    """What a per-book action did."""
+
+    status: str
+    removed: list[str] = []
+
+
+class LogEntry(BaseModel):
+    time: str
+    level: str
+    logger: str
+    message: str
+
+
+class LogList(BaseModel):
+    items: list[LogEntry]
+
+
+class WebhookTest(BaseModel):
+    """Try a webhook; `url` defaults to the configured one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str | None = None
+
+
+class BookCounts(BaseModel):
+    by_status: dict[str, int]
+    monitored: int
+    unmonitored: int
+    total: int
+
+
+class AccountStats(BaseModel):
+    account: AccountOut
+    books: BookCounts
+    bytes_on_disk: int
+    last_run: SyncRunOut | None
+
+
+class Stats(BaseModel):
+    accounts: list[AccountStats]
+    books: BookCounts
+    bytes_on_disk: int
+    last_run: SyncRunOut | None
+    next_run_at: str | None
+
+
 class Status(BaseModel):
     scheduler: SchedulerStatus
     current_run: RunSnapshot | None
@@ -133,6 +301,7 @@ class SettingsOut(BaseModel):
     sync_interval_minutes: int
     max_download: int | None
     max_attempts: int
+    max_consecutive_failures: int | None
     auto_monitor_new: bool
     download_folder: str
     audiobook_folder: str
@@ -165,6 +334,7 @@ class SettingsUpdate(BaseModel):
     sync_interval_minutes: int | None = None
     max_download: int | None = None
     max_attempts: int | None = None
+    max_consecutive_failures: int | None = None
     auto_monitor_new: bool | None = None
     download_folder: str | None = Field(default=None, min_length=1)
     audiobook_folder: str | None = Field(default=None, min_length=1)
