@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import audible
 
@@ -87,9 +88,16 @@ def _prepare_book(item: dict) -> Book:
 
 
 class Audible:
-    def __init__(self, auth_file: str):
-        self.auth = audible.Authenticator.from_file(filename=auth_file)
+    """One marketplace's API, bound to the authenticator (and so the locale) it is given."""
+
+    def __init__(self, auth: audible.Authenticator):
+        self.auth = auth
         self.client = audible.Client(self.auth, timeout=_API_TIMEOUT)
+
+    @classmethod
+    def from_file(cls, auth_file: str | Path) -> "Audible":
+        """The client for an `audible-cli` style auth file."""
+        return cls(audible.Authenticator.from_file(filename=auth_file))
 
     def get_library(self, purchased_after: str | None = None) -> list[Book]:
         """

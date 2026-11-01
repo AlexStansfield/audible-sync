@@ -74,7 +74,7 @@ List of tasks to complete by phases
 - [x] Initialise settings on initial run
 - [x] Convert to an API service: background scheduler, status, manual sync trigger and cancel, run history and settings endpoints, bearer token, Docker image runs the service
 - [x] Monitor download progress (the run in flight is polled through `GET /api/status`)
-- [ ] Add support for multiple audible subscriptions
+- [x] Add support for multiple audible subscriptions: one account per marketplace login, credentials in the database, per-account library, cursor and run history, account endpoints
 - [ ] Login and save credentials
 - [ ] Delete a book
 - [ ] Set book as monitored/unmonitored to remove from sync

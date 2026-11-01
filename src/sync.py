@@ -9,6 +9,7 @@ from src.database import (
     needs_consumability_refresh,
     update_books,
 )
+from src.model import Account
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +38,10 @@ def _api_timestamp(moment: datetime) -> str:
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _sync_cursor() -> str | None:
+def _sync_cursor(account_id: int) -> str | None:
     """
-    The `purchased_after` value for this run, or None to fetch the whole library.
+    The `purchased_after` value for this run of one account, or None to fetch the
+    whole library.
 
     Preferred source is when the last run that read the library through started, which
     is a real record of "last synced". Falls back to the newest `date_added` in the
@@ -47,40 +49,48 @@ def _sync_cursor() -> str | None:
     predates the `sync_runs` table behaves exactly as it did until it has recorded its
     first run. With neither, there is nothing to be incremental about.
     """
-    started_at = latest_successful_sync_start()
+    started_at = latest_successful_sync_start(account_id)
     if started_at is not None:
         return _api_timestamp(datetime.fromisoformat(started_at) - CURSOR_OVERLAP)
 
     # Already in Audible's own format: it came from Audible in the first place.
-    return latest_date_added()
+    return latest_date_added(account_id)
 
 
-def sync_library(audible: Audible) -> SyncResult:
+def sync_library(audible: Audible, account: Account, *, auto_monitor_new: bool = True) -> SyncResult:
     """
-    Fetch new books from Audible into the library table.
+    Fetch new books from Audible into one account's library.
 
     The first run fetches everything; later runs fetch only what was purchased since
     the previous run started (see `_sync_cursor`).
+
+    Whether a book inserted by this run is wanted depends on which fetch found it. The
+    first, full fetch is the account's back catalogue, and the choice made when the
+    account was added (`account.monitor_existing`) applies; anything an incremental
+    fetch finds is a new purchase and follows `auto_monitor_new`. A book already in
+    the library keeps whatever the user set.
 
     Returns how many books the incremental fetch read and how many of them were new.
     The availability refresh pass below counts towards neither: it re-reads the whole
     library, so folding it in would report the library size as this run's work.
     """
-    purchased_after = _sync_cursor()
+    purchased_after = _sync_cursor(account.id)
     if purchased_after is None:
-        logger.info("Fetching all books")
+        logger.info("Fetching all books for %s", account.name)
+        monitor_new = account.monitor_existing
     else:
-        logger.info("Fetching books purchased since %s", purchased_after)
+        logger.info("Fetching books purchased since %s for %s", purchased_after, account.name)
+        monitor_new = auto_monitor_new
 
     library = audible.get_library(purchased_after)
-    books_added = update_books(library)
+    books_added = update_books(account.id, library, monitor_new=monitor_new)
 
-    if purchased_after is not None and needs_consumability_refresh():
+    if purchased_after is not None and needs_consumability_refresh(account.id):
         # An incremental fetch never re-reads a book already in the library, so on its
         # own it can never notice that Audible has offered a withdrawn Plus title again
         # (or withdrawn one that was fine). Re-reading the whole library is one extra
         # request per 1000 titles and only happens while something is actually parked.
         logger.info("Re-reading the full library to refresh availability")
-        update_books(audible.get_library(None))
+        update_books(account.id, audible.get_library(None), monitor_new=monitor_new)
 
     return SyncResult(books_seen=len(library), books_added=books_added)

@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
+from src import api as api_module
 from src.api import create_app, read_version
 from src.model import SyncOutcome
 from src.runstate import RunStage, RunState
@@ -112,6 +113,7 @@ def test_status_when_idle_on_a_fresh_database(api):
         },
         "current_run": None,
         "last_run": None,
+        "accounts": [],
     }
 
 
@@ -205,6 +207,7 @@ def test_get_run(api, monkeypatch):
 
     assert body == {
         "id": run_id,
+        "account_id": None,
         "started_at": "2026-09-01T10:00:00+00:00",
         "finished_at": "2026-09-01T10:00:00+00:00",
         "outcome": "success",
@@ -330,3 +333,176 @@ def test_cors_is_off_unless_configured(api):
     response = api.get("/api/health", headers={"Origin": "http://ui:5173"})
 
     assert "access-control-allow-origin" not in response.headers
+
+
+# --- accounts --------------------------------------------------------------------
+
+
+def _account(name="Alex (UK)", country_code="uk", *, auth=None, **kwargs):
+    if auth is None:
+        auth = {"locale_code": country_code, "access_token": "Atna|token"}
+    return database.add_account(name, country_code, auth=auth, customer_name="Alex", **kwargs)
+
+
+def test_list_accounts_never_shows_the_credentials(api, monkeypatch):
+    monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
+    first = _account()
+    pending = database.add_account("Pending", "us", auth=None)
+
+    response = api.get("/api/accounts", headers=AUTH)
+
+    assert response.json() == [
+        {
+            "id": first,
+            "name": "Alex (UK)",
+            "country_code": "uk",
+            "customer_name": "Alex",
+            "enabled": True,
+            "monitor_existing": True,
+            "needs_login": False,
+            "created_at": "2026-09-12T10:00:00+00:00",
+            "last_synced_at": None,
+        },
+        {
+            "id": pending,
+            "name": "Pending",
+            "country_code": "us",
+            "customer_name": None,
+            "enabled": True,
+            "monitor_existing": True,
+            "needs_login": True,
+            "created_at": "2026-09-12T10:00:00+00:00",
+            "last_synced_at": None,
+        },
+    ]
+    assert "Atna|token" not in response.text
+
+
+def test_status_lists_the_accounts(api):
+    _account()
+
+    body = api.get("/api/status", headers=AUTH).json()
+
+    assert [a["name"] for a in body["accounts"]] == ["Alex (UK)"]
+
+
+def test_get_account(api):
+    account_id = _account()
+
+    assert api.get(f"/api/accounts/{account_id}", headers=AUTH).json()["name"] == "Alex (UK)"
+    response = api.get("/api/accounts/99", headers=AUTH)
+    assert response.status_code == 404
+    assert response.json() == {"detail": "No account with id 99"}
+
+
+def test_patch_account_changes_only_what_is_sent(api):
+    account_id = _account()
+
+    body = api.patch(f"/api/accounts/{account_id}", headers=AUTH, json={"enabled": False}).json()
+
+    assert (body["name"], body["enabled"]) == ("Alex (UK)", False)
+    assert database.get_account(account_id).enabled is False
+    assert api.patch("/api/accounts/99", headers=AUTH, json={"enabled": False}).status_code == 404
+
+
+@pytest.mark.parametrize("body", [{"name": ""}, {"country_code": "us"}, {"auth": {}}])
+def test_patch_account_rejects_what_cannot_be_changed(api, body):
+    account_id = _account()
+
+    assert api.patch(f"/api/accounts/{account_id}", headers=AUTH, json=body).status_code == 422
+
+
+def test_delete_account_removes_it_and_its_rows(api):
+    account_id = _account()
+
+    response = api.delete(f"/api/accounts/{account_id}", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted"}
+    assert database.get_account(account_id) is None
+    assert api.delete(f"/api/accounts/{account_id}", headers=AUTH).status_code == 404
+
+
+def test_delete_account_can_deregister_the_device_first(api, monkeypatch):
+    account_id = _account()
+    calls = []
+
+    class FakeAuthenticator:
+        def deregister_device(self):
+            calls.append("deregistered")
+
+    monkeypatch.setattr(api_module, "authenticator_for", lambda account: FakeAuthenticator())
+
+    api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"})
+
+    assert calls == ["deregistered"]
+    assert database.get_account(account_id) is None
+
+
+def test_delete_account_still_removes_it_when_deregistering_fails(api, monkeypatch, caplog):
+    """A login that no longer works cannot deregister itself; the user still wants it gone."""
+    account_id = _account()
+
+    class FakeAuthenticator:
+        def deregister_device(self):
+            raise RuntimeError("token expired")
+
+    monkeypatch.setattr(api_module, "authenticator_for", lambda account: FakeAuthenticator())
+
+    response = api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"})
+
+    assert response.status_code == 200
+    assert database.get_account(account_id) is None
+    assert "Could not deregister" in caplog.text
+
+
+def test_delete_account_does_not_try_to_deregister_one_without_credentials(api, monkeypatch):
+    account_id = database.add_account("Pending", "us", auth=None)
+    monkeypatch.setattr(api_module, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
+
+    assert api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"}).status_code == 200
+
+
+def test_import_account_from_an_auth_file(api, monkeypatch):
+    def fake_import(path, *, name, monitor_existing):
+        assert path == "/keys/audible.json"
+        return _account(name or "Alex (UK)", monitor_existing=monitor_existing)
+
+    monkeypatch.setattr(api_module, "import_auth_file", fake_import)
+
+    response = api.post(
+        "/api/accounts/import", headers=AUTH, json={"path": "/keys/audible.json", "monitor_existing": False}
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert (body["name"], body["monitor_existing"], body["needs_login"]) == ("Alex (UK)", False, False)
+
+
+def test_import_account_reports_a_missing_file(api, tmp_path):
+    response = api.post("/api/accounts/import", headers=AUTH, json={"path": str(tmp_path / "nope.json")})
+
+    assert response.status_code == 400
+    assert "auth file not found" in response.json()["detail"]
+
+
+def test_import_account_reports_a_file_it_cannot_read(api, tmp_path):
+    path = tmp_path / "bad.json"
+    path.write_text("not json")
+
+    response = api.post("/api/accounts/import", headers=AUTH, json={"path": str(path)})
+
+    assert response.status_code == 400
+    assert "could not read" in response.json()["detail"]
+
+
+def test_list_runs_can_be_limited_to_one_account(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    database.start_sync_run(account_id)
+    database.start_sync_run(other)
+
+    body = api.get("/api/sync/runs", headers=AUTH, params={"account_id": other}).json()
+
+    assert [r["account_id"] for r in body["items"]] == [other]
+    assert body["total"] == 1

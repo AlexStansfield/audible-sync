@@ -25,11 +25,24 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from src.database import count_sync_runs, get_sync_run, get_sync_runs, save_settings
+from src.accounts import authenticator_for, import_auth_file
+from src.database import (
+    count_sync_runs,
+    delete_account,
+    get_account,
+    get_accounts,
+    get_sync_run,
+    get_sync_runs,
+    save_settings,
+    update_account,
+)
 from src.paths import REPO_ROOT
 from src.runstate import RunState
 from src.scheduler import Scheduler
 from src.schemas import (
+    AccountImport,
+    AccountOut,
+    AccountUpdate,
     Health,
     Message,
     SettingsOut,
@@ -127,6 +140,7 @@ def create_app(
             scheduler=scheduler.status(settings),
             current_run=state.snapshot(),
             last_run=last[0] if last else None,
+            accounts=get_accounts(),
         )
 
     @router.post("/sync", response_model=Message, status_code=202)
@@ -145,8 +159,12 @@ def create_app(
     def list_runs(
         limit: Annotated[int, Query(ge=1, le=200)] = 20,
         offset: Annotated[int, Query(ge=0)] = 0,
+        account_id: int | None = None,
     ) -> SyncRunList:
-        return SyncRunList(items=get_sync_runs(limit=limit, offset=offset), total=count_sync_runs())
+        return SyncRunList(
+            items=get_sync_runs(limit=limit, offset=offset, account_id=account_id),
+            total=count_sync_runs(account_id=account_id),
+        )
 
     @router.get("/sync/runs/{run_id}", response_model=SyncRunOut)
     def get_run(run_id: int) -> SyncRunOut:
@@ -171,6 +189,59 @@ def create_app(
         scheduler.wake()
         return SettingsOut.model_validate(settings)
 
+    @router.get("/accounts", response_model=list[AccountOut])
+    def list_accounts() -> list[AccountOut]:
+        return get_accounts()
+
+    @router.get("/accounts/{account_id}", response_model=AccountOut)
+    def get_one_account(account_id: int) -> AccountOut:
+        return _account_or_404(account_id)
+
+    @router.patch("/accounts/{account_id}", response_model=AccountOut)
+    def patch_account(account_id: int, update: AccountUpdate) -> AccountOut:
+        _account_or_404(account_id)
+        update_account(account_id, **update.model_dump(exclude_unset=True))
+        return get_account(account_id)
+
+    @router.delete("/accounts/{account_id}", response_model=Message)
+    def remove_account(account_id: int, deregister: bool = False) -> Message:
+        """
+        Remove an account, its library rows and its run history; files on disk stay.
+
+        With `deregister`, the device this login registered with Amazon is deregistered
+        first, so it does not linger on the account's device list. That is best effort:
+        a login that no longer works cannot deregister itself, and the account is
+        removed either way.
+        """
+        account = _account_or_404(account_id)
+        if deregister and not account.needs_login:
+            try:
+                authenticator_for(account).deregister_device()
+            except Exception:
+                logger.warning("Could not deregister %r with Amazon; removing it anyway", account, exc_info=True)
+        delete_account(account_id)
+        return Message(status="deleted")
+
+    @router.post("/accounts/import", response_model=AccountOut, status_code=201)
+    def import_account(body: AccountImport) -> AccountOut:
+        """Create an account from an auth file on the server, e.g. one audible-cli wrote."""
+        try:
+            account_id = import_auth_file(body.path, name=body.name, monitor_existing=body.monitor_existing)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from None
+        except Exception as error:
+            # Anything the audible library rejects: encrypted, not JSON, missing fields
+            logger.warning("Could not import %s", body.path, exc_info=True)
+            raise HTTPException(status_code=400, detail=f"could not read {body.path}: {error}") from None
+        return get_account(account_id)
+
     app.include_router(open_router)
     app.include_router(router)
     return app
+
+
+def _account_or_404(account_id: int):
+    account = get_account(account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}")
+    return account

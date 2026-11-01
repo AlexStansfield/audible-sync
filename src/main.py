@@ -1,10 +1,11 @@
 import logging
 import threading
 
+from src.accounts import authenticator_for, ensure_account_from_auth_file, persist_auth_if_changed
 from src.audible_client import Audible
-from src.database import finish_sync_run, init_db, start_sync_run
+from src.database import finish_sync_run, get_accounts, init_db, mark_account_synced, start_sync_run
 from src.downloader import DownloadStats, download_books
-from src.model import SyncOutcome
+from src.model import Account, SyncOutcome
 from src.progress import Progress, TqdmProgress
 from src.runstate import RunStage, RunState
 from src.settings import Settings, seed_settings_from_ini
@@ -43,15 +44,16 @@ def run_pipeline(
     cancel: threading.Event | None = None,
 ) -> None:
     """
-    Sync the library and download everything waiting, in one pass.
+    Sync every account's library and download everything waiting, in one pass.
 
     Importable and free of logging side effects, so the service or scheduler can run
     the same pipeline without reconfiguring its own logger.
 
-    The whole pass is recorded as one `sync_runs` row, which is both the run history a
-    UI reads and the cursor the next sync starts from. The row is opened before Audible
-    is touched and closed on every exit, so a run that raises is recorded rather than
-    leaving a row that looks in flight forever.
+    Accounts are taken in turn, each as its own `sync_runs` row (see `run_account`).
+    One account failing does not stop the others: its run is recorded and the loop
+    moves on, and the first error is raised again once every account has had its turn,
+    so a one-shot CLI run still exits non-zero. An account that is disabled or has no
+    credentials is skipped with a warning.
 
     Args:
         settings: Validated settings (see `Settings.from_db`)
@@ -59,33 +61,86 @@ def run_pipeline(
             Defaults to reporting nothing, which is what a headless host wants
         state: Where the stage, current book and queue position are reported (see
             `src.runstate`). Defaults to one nobody reads
-        cancel: Event that stops the run once set. Only honoured during the download
-            half: the sync is seconds and the downloads are hours, and a run that has
-            read the library through still counts as a cursor (see `SyncOutcome`)
+        cancel: Event that stops the run once set; checked between accounts and,
+            within an account, only during the download half (see `run_account`)
     """
     settings.create_folders()
     init_db()
 
     state = state or RunState()
-    run_id = start_sync_run()
+    accounts = get_accounts()
+    if not accounts:
+        logger.warning("No Audible accounts: nothing to sync until one is added")
+        return
+
+    first_error: Exception | None = None
+    for account in accounts:
+        if cancel is not None and cancel.is_set():
+            logger.info("Sync cancelled before %s", account.name)
+            break
+        if not account.enabled:
+            logger.info("Skipping %s: disabled", account.name)
+            continue
+        if account.needs_login:
+            logger.warning("Skipping %s: it has no credentials, log in to it first", account.name)
+            continue
+
+        try:
+            run_account(account, settings, progress=progress, state=state, cancel=cancel)
+        except Exception as error:
+            logger.exception("Run failed for %s", account.name)
+            first_error = first_error or error
+
+    if first_error is not None:
+        raise first_error
+
+
+def run_account(
+    account: Account,
+    settings: Settings,
+    progress: Progress | None = None,
+    *,
+    state: RunState | None = None,
+    cancel: threading.Event | None = None,
+) -> None:
+    """
+    One account's pass: sync its library, then download what it has waiting.
+
+    The pass is recorded as one `sync_runs` row, which is both the run history a UI
+    reads and the cursor the account's next sync starts from. The row is opened before
+    Audible is touched and closed on every exit, so a run that raises is recorded
+    rather than leaving a row that looks in flight forever. Credentials the run
+    refreshed are written back afterwards.
+
+    `cancel` is only honoured during the download half: the sync is seconds and the
+    downloads are hours, and a run that has read the library through still counts as
+    a cursor (see `SyncOutcome`).
+    """
+    state = state or RunState()
+    run_id = start_sync_run(account.id)
     state.begin(run_id)
+    state.set_account({"id": account.id, "name": account.name, "country_code": account.country_code})
     # Held outside the try so a run that raises still records what it managed. `synced`
     # is whether the library was read through: a failure after that point must not hold
     # the cursor back, or every later run would re-read from an ever older cursor.
     synced = False
     books_seen = books_added = 0
+    audible: Audible | None = None
 
     try:
         try:
-            audible = Audible(str(settings.auth_file))
+            audible = Audible(authenticator_for(account))
 
             state.set_stage(RunStage.SYNCING)
-            books_seen, books_added = sync_library(audible)
+            books_seen, books_added = sync_library(audible, account, auto_monitor_new=settings.auto_monitor_new)
             synced = True
-            logger.info("%d books synced to database", books_added)
+            mark_account_synced(account.id)
+            logger.info("%d books synced to database for %s", books_added, account.name)
 
             state.set_stage(RunStage.DOWNLOADING)
-            stats = download_books(audible, settings, progress=progress, state=state, cancel=cancel)
+            stats = download_books(
+                audible, settings, progress=progress, account_id=account.id, state=state, cancel=cancel
+            )
         except Exception as error:
             finish_sync_run(
                 run_id,
@@ -95,6 +150,10 @@ def run_pipeline(
                 error=f"{type(error).__name__}: {error}",
             )
             raise
+        finally:
+            # Whatever happened, a token the run refreshed is worth keeping
+            if audible is not None:
+                persist_auth_if_changed(account, audible.auth)
 
         finish_sync_run(
             run_id,
@@ -120,6 +179,8 @@ def main() -> None:
     # bitrate now fails before the folders are created rather than after.
     settings = Settings.from_db()
     configure_logging(settings.debug)
+    # An installation from before there were accounts has its auth file made into one
+    ensure_account_from_auth_file(settings.auth_file)
     # The progress bar is a terminal concern, injected here for the same reason logging
     # is configured here: a host process running the pipeline gets neither by surprise.
     run_pipeline(settings, progress=TqdmProgress())

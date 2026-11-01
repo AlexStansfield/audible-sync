@@ -303,6 +303,16 @@ def _library_books():
     ]
 
 
+def _asins(books):
+    """
+    Row id to ASIN, for fakes standing in for the database.
+
+    The state machine is keyed by row id, but a test reads better asserting on ASINs,
+    so the fakes translate back on the way in.
+    """
+    return {book.id: book.asin for book in books}
+
+
 def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, claimed=None, failures=None):
     """
     Stub everything that would hit the network, ffmpeg or the database.
@@ -310,25 +320,26 @@ def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, c
     The database functions are patched as attributes of `downloader`, which is where
     `download_books` looks them up; miss one and the test writes to the real library.
     """
-    monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
+    asins = _asins(books)
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
 
-    def fake_claim(asin, **kwargs):
+    def fake_claim(book_id, **kwargs):
         if claimed is not None:
-            claimed.append(asin)
+            claimed.append(asins[book_id])
         return True
 
-    def fake_fail(asin, error, *, max_attempts, terminal=False):
+    def fake_fail(book_id, error, *, max_attempts, terminal=False):
         if failures is not None:
-            failures.append((asin, error, terminal, max_attempts))
+            failures.append((asins[book_id], error, terminal, max_attempts))
         return BookStatus.FAILED if terminal else BookStatus.WAITING_DOWNLOAD
 
     monkeypatch.setattr(downloader, "claim_book_for_download", fake_claim)
     monkeypatch.setattr(downloader, "mark_book_failed", fake_fail)
-    monkeypatch.setattr(downloader, "release_book", lambda asin: None)
-    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: None)
+    monkeypatch.setattr(downloader, "release_book", lambda book_id: None)
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda book_id, error: None)
 
-    def fake_mark(asin, **kw):
-        marked.append((asin, kw["encoding_format"]))
+    def fake_mark(book_id, **kw):
+        marked.append((asins[book_id], kw["encoding_format"]))
         accessories.append({k: v for k, v in kw.items() if k.endswith("_path")})
 
     monkeypatch.setattr(downloader, "mark_book_downloaded", fake_mark)
@@ -399,13 +410,16 @@ def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkey
     caplog.set_level(logging.INFO)
     books = [make_book("NOLIC", "Unlicensed")]
     parked = []
-    monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
     monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
     monkeypatch.setattr(
         downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
     )
-    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: parked.append((asin, error)))
+    asins = _asins(books)
+    monkeypatch.setattr(
+        downloader, "mark_book_unavailable", lambda book_id, error: parked.append((asins[book_id], error))
+    )
 
     def refuse(self, book, temp_dir):
         raise LicenseError("Audible did not grant a license for NOLIC (status Denied): not in catalogue")
@@ -598,13 +612,14 @@ def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch
     caplog.set_level(logging.INFO)
     books = [make_book("A1", "First"), make_book("A2", "Second")]
     released = []
-    monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
     monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
     monkeypatch.setattr(
         downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("credentials are not the book's fault")
     )
-    monkeypatch.setattr(downloader, "release_book", released.append)
+    asins = _asins(books)
+    monkeypatch.setattr(downloader, "release_book", lambda book_id: released.append(asins[book_id]))
 
     attempts = []
 
@@ -724,8 +739,9 @@ def test_download_books_skips_a_book_another_run_is_already_downloading(tmp_path
     downloads.mkdir()
     marked, accessories, decrypt_calls, failures = [], [], [], []
     books = [make_book("BUSY", "Taken"), make_book("OK2", "Mine")]
+    asins = _asins(books)
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, failures=failures)
-    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: asin != "BUSY")
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda book_id, **kw: asins[book_id] != "BUSY")
 
     downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
@@ -760,7 +776,7 @@ def test_download_books_logs_when_it_gives_up_on_a_book(tmp_path, monkeypatch, c
     downloads.mkdir()
     marked, accessories, decrypt_calls = [], [], []
     _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
-    monkeypatch.setattr(downloader, "mark_book_failed", lambda asin, error, **kw: downloader.BookStatus.FAILED)
+    monkeypatch.setattr(downloader, "mark_book_failed", lambda book_id, error, **kw: downloader.BookStatus.FAILED)
 
     settings = make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_attempts=3)
     downloader.download_books(object(), settings)
@@ -788,8 +804,9 @@ def test_download_books_parks_an_unlicensable_book_without_burning_attempts(tmp_
     downloads.mkdir()
     marked, accessories, decrypt_calls, parked = [], [], [], []
     books = [make_book("GONE", "Withdrawn"), make_book("OK2", "Fine")]
+    asins = _asins(books)
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
-    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda asin, error: parked.append(asin))
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda book_id, error: parked.append(asins[book_id]))
     monkeypatch.setattr(
         downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
     )
@@ -1347,9 +1364,12 @@ def test_stream_to_file_ignores_a_cancel_event_that_is_not_set(tmp_path):
 
 
 def _cancel_patches(monkeypatch, books, claimed, released):
-    monkeypatch.setattr(downloader, "get_books_to_download", lambda: books)
-    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: claimed.append(asin) or True)
-    monkeypatch.setattr(downloader, "release_book", released.append)
+    asins = _asins(books)
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
+    monkeypatch.setattr(
+        downloader, "claim_book_for_download", lambda book_id, **kw: claimed.append(asins[book_id]) or True
+    )
+    monkeypatch.setattr(downloader, "release_book", lambda book_id: released.append(asins[book_id]))
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
     monkeypatch.setattr(downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a cancel is not a failure"))
 
@@ -1394,7 +1414,7 @@ def test_download_books_claims_nothing_once_cancelled(tmp_path, monkeypatch):
 
 
 def test_download_books_hands_the_downloader_the_cancel_event(tmp_path, monkeypatch):
-    monkeypatch.setattr(downloader, "get_books_to_download", list)
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: [])
     seen = {}
 
     class SpyDownloader(downloader.Downloader):
@@ -1433,3 +1453,13 @@ def test_download_books_reports_the_book_in_hand_to_the_run_state(tmp_path, monk
     # Once the loop is over there is no book in hand, and the queue reads as done
     assert state.snapshot()["book"] is None
     assert state.snapshot()["books_done"] == 2
+
+
+def test_download_books_asks_the_queue_for_one_accounts_books(tmp_path, monkeypatch):
+    """The client is one marketplace's, so the queue must be that account's."""
+    seen = {}
+    monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: seen.update(kw) or [])
+
+    downloader.download_books(object(), make_settings(download_folder=tmp_path / "dl"), account_id=7)
+
+    assert seen == {"account_id": 7}
