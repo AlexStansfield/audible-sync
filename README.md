@@ -112,11 +112,13 @@ Then start the service:
 docker compose up -d
 ```
 
-It listens on port 8080. Every API call except the health check needs a bearer token: set `AUDIBLE_SYNC_API_TOKEN` in the environment (or a `.env` file next to `compose.yml`) to choose one, or leave it unset and the service generates one on its first start, keeps it, and prints it in the log:
+It listens on port 8080. Every API call except the health check needs a bearer token: set `AUDIBLE_SYNC_API_TOKEN` in the environment (or a `.env` file next to `compose.yml`) to choose one, or leave it unset and the service generates one on its first start, keeps it, and prints it in the log **that once** - later starts log only its last four characters, so a log shared in a bug report does not give away the API:
 
 ```
 docker compose logs audible-sync | grep "API token"
 ```
+
+Lost it? Set `AUDIBLE_SYNC_API_TOKEN` to a token of your choosing and restart; it takes precedence over the stored one.
 
 The Audible credentials and the API token are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
 
@@ -204,7 +206,7 @@ The service reads these environment variables:
 |----------|---------|---------|
 | `AUDIBLE_SYNC_HOST` | `0.0.0.0` | Interface to listen on |
 | `AUDIBLE_SYNC_PORT` | `8080` | Port |
-| `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged on the first start if unset |
+| `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged (once) on the first start if unset |
 | `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server |
 | `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |
 | `AUDIBLE_SYNC_SECRET_KEY` | key file | The key the stored credentials and API token are encrypted with: 44 characters of URL-safe base64, as `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` prints. Unset, the key file is used |
@@ -247,7 +249,7 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 
 Timestamps are ISO 8601 in UTC. The file actions refuse (`409`) a book a run is downloading; cancel the run first.
 
-A ready-made request collection lives in [`opencollection/`](opencollection/), one request per endpoint in the [OpenCollection](https://www.opencollection.com/) format: open the folder as a collection in [Bruno](https://www.usebruno.com) (or any client that reads the format), pick the `local` environment and set its `apiToken` secret to the token the service logs at start. Every request inherits the token except the health check.
+A ready-made request collection lives in [`opencollection/`](opencollection/), one request per endpoint in the [OpenCollection](https://www.opencollection.com/) format: open the folder as a collection in [Bruno](https://www.usebruno.com) (or any client that reads the format), pick the `local` environment and set its `apiToken` secret to the token the service logged on its first start (or the one you set). Every request inherits the token except the health check.
 
 ## Todo
 
