@@ -29,7 +29,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from src import library
-from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file, replace_account_auth
+from src.accounts import add_account_from_authenticator, authenticator_for, replace_account_auth
 from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
@@ -55,7 +55,6 @@ from src.paths import REPO_ROOT
 from src.runstate import RunState
 from src.scheduler import Scheduler
 from src.schemas import (
-    AccountImport,
     AccountOut,
     AccountStats,
     AccountUpdate,
@@ -381,19 +380,6 @@ def create_app(
             logger.warning("Amazon rejected the login %s", login_id, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
         return _login_out(login)
-
-    @router.post("/accounts/import", response_model=AccountOut, status_code=201)
-    def import_account(body: AccountImport) -> AccountOut:
-        """Create an account from an auth file on the server, e.g. one audible-cli wrote."""
-        try:
-            account_id = import_auth_file(body.path, name=body.name, monitor_existing=body.monitor_existing)
-        except FileNotFoundError as error:
-            raise HTTPException(status_code=400, detail=str(error)) from None
-        except Exception as error:
-            # Anything the audible library rejects: encrypted, not JSON, missing fields
-            logger.warning("Could not import %s", body.path, exc_info=True)
-            raise HTTPException(status_code=400, detail=f"could not read {body.path}: {error}") from None
-        return get_account(account_id)
 
     @router.get("/books", response_model=BookList)
     def get_books(

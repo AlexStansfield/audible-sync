@@ -211,10 +211,9 @@ def _migrate_library_to_accounts(conn: sqlite3.Connection) -> None:
     The old table was keyed by `asin` alone; the new one has a surrogate `id` and is
     unique on `(account_id, asin)`. SQLite cannot change a primary key in place, so the
     rows are copied into a fresh table under a single account. That account is created
-    here with no credentials if none exists - this module cannot read the auth file
-    (that is settings' business, and settings imports this module), so
-    `accounts.ensure_account_from_auth_file` fills it in from the configured file on the
-    next start. Until then it reads as needing a login rather than blocking the start.
+    here with no credentials if none exists, and reads as needing a login rather than
+    blocking the start; a login with its `account_id` (`accounts.replace_account_auth`)
+    fills it in under the same id, so the books stay attached.
     """
     cursor = conn.cursor()
     cursor.execute("PRAGMA table_info(library)")

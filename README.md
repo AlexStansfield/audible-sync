@@ -30,10 +30,6 @@ If your Audible account predates Amazon sign-in and the code is refused, add `--
 
 The same person can have several accounts - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. When an account is added you choose whether the books it already owns are queued for download (`monitor_existing`, the default) or left unmonitored so you pick them later; `--no-download-existing` on the command line. Purchases after that follow the `auto-monitor-new` setting.
 
-### Already have an audible-cli auth file?
-
-If you have an `audible.json` from [audible-cli](https://github.com/mkb79/audible-cli) at the default `~/.audible/audible.json` (or at `audible-auth-file` in `config.ini`), the first start imports it as an account and does not read it again; from then on accounts are managed through the API. Another file is added with `POST /api/accounts/import`.
-
 ## Config
 
 The `config/config.ini` file has the following sections and options.
@@ -51,7 +47,6 @@ Every path setting may be absolute or relative. A relative path is resolved agai
  - `max-download`: how many books to download and decrypt on each run (per account), leave unset to get everything waiting. A title Audible refuses to license does not use up a slot
  - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`
  - `max-consecutive-failures`: how many books in a row may be refused a licence or fail before a run gives up on the rest of the queue, default `5`; leave empty to never give up. A streak like that means the account or Audible is the problem, not the books - the run is recorded as `aborted` with the reason, and the next run tries again
- - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
  - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The next run is the previous run's start plus the interval, whatever became of that run; a service that was down past its slot runs as soon as it starts. The one-shot CLI ignores both
  - `auto-monitor-new`: whether a purchase seen for the first time is queued for download, default `true`
 
@@ -233,7 +228,6 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `GET /api/accounts/{id}` | One account |
 | `PATCH /api/accounts/{id}` | Rename or enable/disable an account; a disabled account is skipped by the sync |
 | `DELETE /api/accounts/{id}?deregister=true` | Remove an account with its library rows and run history; files on disk stay. `deregister` also removes the device from Amazon's device list first (best effort) |
-| `POST /api/accounts/import` | `{"path", "name"?, "monitor_existing"?}`: create an account from an auth file the service can read |
 | `GET /api/books?account_id=&status=&monitored=&q=&sort=&order=&page=&page_size=` | The library, paged (`items`, `total`, `page`, `page_size`). `q` matches title, author or series; `sort` is `date_added` (default), `title`, `author`, `release_date` or `downloaded_at` |
 | `GET /api/books/{id}` | One book, with `primary_series` (the series it is filed under) worked out |
 | `PATCH /api/books/{id}` | `{"monitored": bool}`: whether the book is wanted. An unmonitored book is never queued |

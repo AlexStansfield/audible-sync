@@ -30,7 +30,6 @@ from dataclasses import dataclass
 import uvicorn
 
 from src import crypto
-from src.accounts import ensure_account_from_auth_file
 from src.api import create_app
 from src.crypto import load_secret_key
 from src.database import API_TOKEN_SETTING, encrypt_stored_secrets, get_settings, init_db, save_settings
@@ -116,12 +115,10 @@ def build(config: ServiceConfig):
     # Everything logged from here on is also readable through GET /api/logs
     log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
     logging.getLogger().addHandler(log_buffer)
-    # An installation from before there were accounts has its auth file made into one
-    # The secret key before anything that stores or reads credentials: the import
-    # below writes them, and the API token lives encrypted in the settings table
+    # The secret key before anything that stores or reads credentials: the API token
+    # lives encrypted in the settings table
     crypto.configure(load_secret_key())
     encrypt_stored_secrets()
-    ensure_account_from_auth_file(settings.auth_file)
 
     api_token = resolve_api_token(config.api_token)
     logger.info("API token: %s", api_token)

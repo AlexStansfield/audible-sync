@@ -7,19 +7,19 @@ account's credentials round-trip without a file. This module is the only thing t
 encodes or decodes them; `src.database` just keeps the text.
 
 An account with no credentials (`auth` NULL) is allowed on purpose. The migration that
-introduced accounts creates one when it has to rebuild a pre-accounts library and no
-auth file is to hand, and a login can later be invalidated; either way the pipeline
-skips it and the API reports it as needing a login, rather than the whole service
-refusing to start.
+introduced accounts creates one when it has to rebuild a pre-accounts library, and a
+login can later be invalidated; either way the pipeline skips it and the API reports
+it as needing a login, rather than the whole service refusing to start. The way in is
+always a login (`src.audible_login`): a new account, or `replace_account_auth` for one
+that has none or whose registration stopped working.
 """
 
 import logging
-from pathlib import Path
 from typing import Any
 
 from audible import Authenticator
 
-from src.database import add_account, get_accounts, requeue_unavailable, save_account_auth, update_account
+from src.database import add_account, requeue_unavailable, save_account_auth, update_account
 from src.model import Account
 
 logger = logging.getLogger(__name__)
@@ -116,57 +116,3 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     requeued = requeue_unavailable(account.id)
     if requeued:
         logger.info("Queued %d parked book(s) of %r again for the new device", requeued, account)
-
-
-def import_auth_file(path: str | Path, *, name: str | None = None, monitor_existing: bool = True) -> int:
-    """
-    Create an account from an `audible-cli` style auth file and return its id.
-
-    Raises:
-        FileNotFoundError: if there is no such file
-    """
-    path = Path(path)
-    if not path.is_file():
-        raise FileNotFoundError(f"auth file not found: {path}")
-    auth = Authenticator.from_file(path)
-    return add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
-
-
-def ensure_account_from_auth_file(path: str | Path) -> bool:
-    """
-    Bring an existing installation across: give the configured auth file an account.
-
-    Two cases, both once only. A database with no accounts at all and a file at `path`
-    gets its first account from the file. A database whose only account has no
-    credentials - the placeholder the library migration creates - has that account
-    filled in from the file, keeping its id, so the library rows already pointing at it
-    stay attached. Anything else is left alone: once there is a working account, the
-    file is no longer the source of truth and the API is.
-
-    Returns:
-        Whether an account was created or filled in
-    """
-    path = Path(path)
-    accounts = get_accounts()
-
-    if not accounts:
-        if not path.is_file():
-            return False
-        account_id = import_auth_file(path)
-        logger.info("Imported %s as account %d", path, account_id)
-        return True
-
-    if len(accounts) == 1 and accounts[0].needs_login and path.is_file():
-        auth = Authenticator.from_file(path)
-        account = accounts[0]
-        update_account(
-            account.id,
-            name=display_name(auth),
-            country_code=auth.locale.country_code if auth.locale else None,
-            customer_name=customer_name_of(auth),
-        )
-        save_account_auth(account.id, auth_to_dict(auth))
-        logger.info("Imported %s into account %d", path, account.id)
-        return True
-
-    return False

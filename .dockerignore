@@ -39,7 +39,6 @@ data/
 audiobooks/
 venv/
 test/
-audible.json
 
 # The API collection is for a desktop client, not the image
 opencollection/

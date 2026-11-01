@@ -259,7 +259,6 @@ def test_get_settings_returns_every_runtime_setting_typed(api):
     assert body["max_download"] is None
     assert body["download_folder"] == str(defaults.download_folder)
     assert body["sync_interval_minutes"] == 360
-    assert "auth_file" not in body
     assert set(body) == set(Settings().to_db_values())
 
 
@@ -483,39 +482,6 @@ def test_delete_account_does_not_try_to_deregister_one_without_credentials(api, 
     monkeypatch.setattr(api_module, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
 
     assert api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"}).status_code == 200
-
-
-def test_import_account_from_an_auth_file(api, monkeypatch):
-    def fake_import(path, *, name, monitor_existing):
-        assert path == "/keys/audible.json"
-        return _account(name or "Alex (UK)", monitor_existing=monitor_existing)
-
-    monkeypatch.setattr(api_module, "import_auth_file", fake_import)
-
-    response = api.post(
-        "/api/accounts/import", headers=AUTH, json={"path": "/keys/audible.json", "monitor_existing": False}
-    )
-
-    assert response.status_code == 201
-    body = response.json()
-    assert (body["name"], body["monitor_existing"], body["needs_login"]) == ("Alex (UK)", False, False)
-
-
-def test_import_account_reports_a_missing_file(api, tmp_path):
-    response = api.post("/api/accounts/import", headers=AUTH, json={"path": str(tmp_path / "nope.json")})
-
-    assert response.status_code == 400
-    assert "auth file not found" in response.json()["detail"]
-
-
-def test_import_account_reports_a_file_it_cannot_read(api, tmp_path):
-    path = tmp_path / "bad.json"
-    path.write_text("not json")
-
-    response = api.post("/api/accounts/import", headers=AUTH, json={"path": str(path)})
-
-    assert response.status_code == 400
-    assert "could not read" in response.json()["detail"]
 
 
 def test_list_runs_can_be_limited_to_one_account(api):

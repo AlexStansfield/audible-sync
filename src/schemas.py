@@ -106,16 +106,6 @@ class AccountUpdate(BaseModel):
     enabled: bool | None = None
 
 
-class AccountImport(BaseModel):
-    """Import an `audible-cli` style auth file the service can read."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    path: str = Field(min_length=1)
-    name: str | None = Field(default=None, min_length=1)
-    monitor_existing: bool = True
-
-
 class MarketplaceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
