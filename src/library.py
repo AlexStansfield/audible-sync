@@ -11,7 +11,7 @@ way back to the start.
 import logging
 from pathlib import Path
 
-from src.accounts import authenticator_for
+from src.accounts import authenticator_for, persist_auth_if_changed
 from src.audible_client import Audible
 from src.database import clear_book_files, get_account, get_book, reset_for_download, update_books
 from src.encoding import output_extension, read_embedded_asin
@@ -150,10 +150,19 @@ def refresh(book: Book) -> Book:
     Re-read one book from Audible and store what came back.
 
     The one network call in this module. Raises whatever the Audible client raises.
+    A token the call refreshed is stored afterwards, as a run does, so the next call
+    does not have to refresh it again.
     """
     account = get_account(book.account_id)
     if account is None or account.needs_login:
         raise ValueError(f"account {book.account_id} has no credentials")
-    fresh = Audible(authenticator_for(account)).get_book(book.asin)
+    audible = Audible(authenticator_for(account))
+    try:
+        fresh = audible.get_book(book.asin)
+    finally:
+        try:
+            persist_auth_if_changed(account, audible.auth)
+        except Exception:
+            logger.exception("Could not store the refreshed credentials of %r", account)
     update_books(account.id, [fresh])
     return get_book(book.id)

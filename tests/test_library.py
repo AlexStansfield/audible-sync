@@ -269,6 +269,7 @@ def test_refresh_re_reads_the_book_from_its_account(db, tmp_path, monkeypatch):
     class FakeAudible:
         def __init__(self, auth):
             seen["auth"] = auth
+            self.auth = auth
 
         def get_book(self, asin):
             seen["asin"] = asin
@@ -276,15 +277,44 @@ def test_refresh_re_reads_the_book_from_its_account(db, tmp_path, monkeypatch):
 
     monkeypatch.setattr(library, "Audible", FakeAudible)
     monkeypatch.setattr(library, "authenticator_for", lambda account: f"auth-{account.id}")
+    monkeypatch.setattr(
+        library, "persist_auth_if_changed", lambda account, auth: seen.__setitem__("persisted", (account.id, auth))
+    )
 
     fresh = refresh(book)
 
-    assert seen == {"auth": f"auth-{ACCOUNT_ID}", "asin": book.asin}
+    assert seen == {
+        "auth": f"auth-{ACCOUNT_ID}",
+        "asin": book.asin,
+        # A token the call refreshed is kept, as a run keeps it
+        "persisted": (ACCOUNT_ID, f"auth-{ACCOUNT_ID}"),
+    }
     assert fresh.id == book.id
     assert fresh.title == "Renamed"
     # The refresh is the sync's upsert: the download state is untouched
     assert fresh.status is BookStatus.DOWNLOADED
     assert fresh.file_path == book.file_path
+
+
+def test_refresh_keeps_a_refreshed_token_even_when_audible_then_fails(db, tmp_path, monkeypatch):
+    book, _ = _stored(tmp_path)
+    persisted = []
+
+    class FakeAudible:
+        def __init__(self, auth):
+            self.auth = auth
+
+        def get_book(self, asin):
+            raise RuntimeError("audible down")
+
+    monkeypatch.setattr(library, "Audible", FakeAudible)
+    monkeypatch.setattr(library, "authenticator_for", lambda account: "auth")
+    monkeypatch.setattr(library, "persist_auth_if_changed", lambda account, auth: persisted.append(auth))
+
+    with pytest.raises(RuntimeError, match="audible down"):
+        refresh(book)
+
+    assert persisted == ["auth"]
 
 
 def test_refresh_refuses_a_book_whose_account_cannot_log_in(db, tmp_path):
