@@ -1,7 +1,6 @@
 opencollection: "1.0.0"
 info:
   name: Audible Sync API
-  version: "0.1.0"
 request:
   auth:
     type: bearer
