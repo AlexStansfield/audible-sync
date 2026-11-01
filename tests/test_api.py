@@ -621,3 +621,226 @@ def test_login_step_two_when_amazon_rejects_the_code(api, monkeypatch, caplog):
     assert response.status_code == 502
     assert "Amazon rejected the login" in response.json()["detail"]
     assert "InvalidValue" in caplog.text
+
+
+# --- books ---------------------------------------------------------------------------
+
+from src.model import BookStatus  # noqa: E402
+from tests.conftest import make_book  # noqa: E402
+
+
+def _shelve(account_id, *books, **kwargs):
+    database.update_books(account_id, list(books), **kwargs)
+    return [database.get_book_by_asin(b.asin, account_id=account_id) for b in books]
+
+
+def test_list_books_pages_and_filters(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    _shelve(
+        account_id,
+        make_book("B001", "Dune", authors=["Frank Herbert"]),
+        make_book("B002", "Foundation", date_added="2025-01-01T00:00:00Z"),
+    )
+    _shelve(other, make_book("B003", "Dune Messiah", authors=["Frank Herbert"]), monitor_new=False)
+
+    body = api.get("/api/books", headers=AUTH, params={"page_size": 2}).json()
+    assert [b["asin"] for b in body["items"]] == ["B002", "B001"]
+    assert (body["total"], body["page"], body["page_size"]) == (3, 1, 2)
+
+    body = api.get("/api/books", headers=AUTH, params={"q": "dune", "sort": "title", "order": "asc"}).json()
+    assert [b["title"] for b in body["items"]] == ["Dune", "Dune Messiah"]
+
+    body = api.get("/api/books", headers=AUTH, params={"account_id": other, "monitored": "false"}).json()
+    assert [b["asin"] for b in body["items"]] == ["B003"]
+    assert body["items"][0]["monitored"] is False
+
+    body = api.get("/api/books", headers=AUTH, params={"status": "waiting_download", "page": 2, "page_size": 2}).json()
+    assert len(body["items"]) == 1
+
+
+@pytest.mark.parametrize(
+    "params", [{"sort": "colour"}, {"order": "sideways"}, {"page": 0}, {"page_size": 201}, {"status": "lost"}]
+)
+def test_list_books_rejects_bad_parameters(api, params):
+    assert api.get("/api/books", headers=AUTH, params=params).status_code == 422
+
+
+def test_get_book_carries_the_series_it_files_under(api):
+    account_id = _account()
+    (book,) = _shelve(
+        account_id,
+        make_book(
+            "B001",
+            "Dune",
+            series=[
+                {"title": "The Dune Sequence", "sequence": "12", "series_asin": "S2"},
+                {"title": "Dune", "sequence": "1", "series_asin": "S1"},
+            ],
+        ),
+    )
+
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert body["primary_series"] == {"title": "Dune", "sequence": "1", "series_asin": "S1"}
+    # The list is stored as given; the primary one is worked out, not first
+    assert [s["title"] for s in body["series"]] == ["The Dune Sequence", "Dune"]
+    assert body["id"] == book.id
+    assert body["account_id"] == account_id
+    assert body["status"] == "waiting_download"
+    assert body["file_path"] is None
+    assert api.get("/api/books/999", headers=AUTH).status_code == 404
+
+
+def test_patch_book_monitored(api):
+    (book,) = _shelve(_account(), make_book("B001"))
+
+    body = api.patch(f"/api/books/{book.id}", headers=AUTH, json={"monitored": False}).json()
+
+    assert body["monitored"] is False
+    assert database.get_book(book.id).monitored is False
+    assert api.patch(f"/api/books/{book.id}", headers=AUTH, json={"status": "failed"}).status_code == 422
+    assert api.patch("/api/books/999", headers=AUTH, json={"monitored": True}).status_code == 404
+
+
+def _downloaded(api, tmp_path, status=BookStatus.DOWNLOADED):
+    """A downloaded book whose files exist under the configured library folder."""
+    library_folder = tmp_path / "audiobooks"
+    api.put(
+        "/api/settings",
+        headers=AUTH,
+        json={"audiobook_folder": str(library_folder), "download_folder": str(tmp_path / "dl")},
+    )
+    (book,) = _shelve(_account(), make_book("B001"))
+    folder = library_folder / "Author One" / "Title"
+    folder.mkdir(parents=True)
+    audio, cover = folder / "Title.m4b", folder / "Title_cover.jpg"
+    audio.write_bytes(b"a")
+    cover.write_bytes(b"\xff\xd8cover")
+    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio), cover_path=str(cover))
+    if status is not BookStatus.DOWNLOADED:
+        database.claim_book_for_download(book.id) if status is BookStatus.DOWNLOADING else None
+    return database.get_book(book.id), audio, cover
+
+
+def test_delete_files_removes_them_and_unmonitors(api, tmp_path):
+    book, audio, cover = _downloaded(api, tmp_path)
+
+    response = api.post(f"/api/books/{book.id}/delete-files", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted", "removed": [str(audio), str(cover)]}
+    assert not audio.exists() and not cover.exists()
+    after = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+    assert (after["status"], after["monitored"], after["file_path"]) == ("waiting_download", False, None)
+
+
+def test_redownload_removes_the_files_and_queues(api, tmp_path):
+    book, audio, _ = _downloaded(api, tmp_path)
+
+    response = api.post(f"/api/books/{book.id}/redownload", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "queued"
+    assert not audio.exists()
+    after = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+    assert (after["status"], after["monitored"], after["attempts"]) == ("waiting_download", True, 0)
+
+
+@pytest.mark.parametrize("action", ["delete-files", "redownload", "retry"])
+def test_file_actions_conflict_while_a_run_holds_the_book(api, tmp_path, action):
+    (book,) = _shelve(_account(), make_book("B001"))
+    database.claim_book_for_download(book.id)
+
+    response = api.post(f"/api/books/{book.id}/{action}", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "cancel the run first" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("action", ["delete-files", "redownload", "retry", "refresh"])
+def test_book_actions_404_for_an_unknown_book(api, action):
+    assert api.post(f"/api/books/999/{action}", headers=AUTH).status_code == 404
+
+
+def test_retry_queues_a_failed_book(api):
+    (book,) = _shelve(_account(), make_book("B001"))
+    database.claim_book_for_download(book.id)
+    database.mark_book_failed(book.id, "boom", max_attempts=1)
+
+    response = api.post(f"/api/books/{book.id}/retry", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "queued", "removed": []}
+    after = database.get_book(book.id)
+    assert (after.status, after.attempts, after.last_error) == (BookStatus.WAITING_DOWNLOAD, 0, None)
+
+
+def test_retry_refuses_a_downloaded_book(api, tmp_path):
+    book, _, _ = _downloaded(api, tmp_path)
+
+    response = api.post(f"/api/books/{book.id}/retry", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "use redownload" in response.json()["detail"]
+
+
+def test_refresh_re_reads_the_book(api, monkeypatch):
+    (book,) = _shelve(_account(), make_book("B001", "Old"))
+    monkeypatch.setattr(
+        api_module.library,
+        "refresh",
+        lambda b: database.update_books(b.account_id, [make_book("B001", "New")]) or database.get_book(b.id),
+    )
+
+    body = api.post(f"/api/books/{book.id}/refresh", headers=AUTH).json()
+
+    assert body["title"] == "New"
+
+
+def test_refresh_reports_audible_trouble_as_a_502(api, monkeypatch):
+    (book,) = _shelve(_account(), make_book("B001"))
+
+    def down(b):
+        raise RuntimeError("timeout")
+
+    monkeypatch.setattr(api_module.library, "refresh", down)
+
+    response = api.post(f"/api/books/{book.id}/refresh", headers=AUTH)
+
+    assert response.status_code == 502
+    assert "timeout" in response.json()["detail"]
+
+
+def test_refresh_refuses_a_book_whose_account_needs_a_login(api):
+    account_id = database.add_account("Pending", "uk", auth=None)
+    (book,) = _shelve(account_id, make_book("B001"))
+
+    response = api.post(f"/api/books/{book.id}/refresh", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "no credentials" in response.json()["detail"]
+
+
+def test_cover_serves_the_file_once_downloaded(api, tmp_path):
+    book, _, cover = _downloaded(api, tmp_path)
+
+    response = api.get(f"/api/books/{book.id}/cover", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.content == cover.read_bytes()
+
+
+def test_cover_redirects_to_audible_before_that(api):
+    (book,) = _shelve(_account(), make_book("B001", cover_url="https://m.media-amazon.com/x.jpg"))
+
+    response = api.get(f"/api/books/{book.id}/cover", headers=AUTH, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://m.media-amazon.com/x.jpg"
+
+
+def test_cover_404_when_there_is_none(api):
+    (book,) = _shelve(_account(), make_book("B001", cover_url=""))
+
+    assert api.get(f"/api/books/{book.id}/cover", headers=AUTH).status_code == 404

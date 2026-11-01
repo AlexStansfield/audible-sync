@@ -166,6 +166,7 @@ def _migrate_schema(conn):
         "last_error": "TEXT",
         "last_attempt_at": "TEXT",
         "monitored": "BOOLEAN NOT NULL DEFAULT 1",
+        "file_path": "TEXT",
     }
 
     for column, column_type in new_columns.items():
@@ -184,7 +185,7 @@ def _migrate_schema(conn):
 _LIBRARY_COLUMNS = (
     "asin", "title", "subtitle", "authors", "narrators", "series", "genres", "length",
     "is_finished", "percent_complete", "date_added", "release_date", "cover_url", "status",
-    "monitored", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
+    "monitored", "file_path", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
     "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at",
 )  # fmt: skip
 
@@ -258,6 +259,8 @@ def _library_ddl() -> str:
             status TEXT,
             -- Whether the book is wanted at all; an unmonitored book is never queued
             monitored BOOLEAN NOT NULL DEFAULT 1,
+            -- Where the finished audio was filed; the accessories follow
+            file_path TEXT,
             pdf_path TEXT,
             cover_path TEXT,
             annotations_path TEXT,
@@ -652,12 +655,13 @@ def mark_book_downloaded(
     book_id: int,
     encoding_format: str | None = None,
     *,
+    file_path: str | None = None,
     pdf_path: str | None = None,
     cover_path: str | None = None,
     annotations_path: str | None = None,
 ) -> None:
     """
-    Set the book to downloaded and record when, in which format, and where its
+    Set the book to downloaded and record when, in which format, and where it and its
     accessories were filed.
 
     The accessory paths are written in the same statement as the status so a book
@@ -676,12 +680,22 @@ def mark_book_downloaded(
                    last_error = NULL,
                    encoding_format = ?,
                    downloaded_at = ?,
+                   file_path = COALESCE(?, file_path),
                    pdf_path = COALESCE(?, pdf_path),
                    cover_path = COALESCE(?, cover_path),
                    annotations_path = COALESCE(?, annotations_path)
              WHERE id = ?
             """,
-            (BookStatus.DOWNLOADED, encoding_format, _utcnow(), pdf_path, cover_path, annotations_path, book_id),
+            (
+                BookStatus.DOWNLOADED,
+                encoding_format,
+                _utcnow(),
+                file_path,
+                pdf_path,
+                cover_path,
+                annotations_path,
+                book_id,
+            ),
         )
         conn.commit()
 
@@ -713,6 +727,115 @@ def update_book_accessories(
     with closing(_get_connection()) as conn:
         conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE id = ?", values)
         conn.commit()
+
+
+# --- book management ---------------------------------------------------------------
+# What the API's per-book actions change. The file deletion itself is `library.py`'s;
+# these record the outcome.
+
+
+def clear_book_files(book_id: int) -> None:
+    """Forget where a book was filed, after its files have been removed."""
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            """
+            UPDATE library
+               SET file_path = NULL, pdf_path = NULL, cover_path = NULL, annotations_path = NULL,
+                   encoding_format = NULL, downloaded_at = NULL
+             WHERE id = ?
+            """,
+            (book_id,),
+        )
+        conn.commit()
+
+
+def set_monitored(book_id: int, monitored: bool) -> bool:
+    """Whether the book is wanted. Returns False for an unknown book."""
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute("UPDATE library SET monitored = ? WHERE id = ?", (monitored, book_id))
+        conn.commit()
+    return cursor.rowcount == 1
+
+
+def reset_for_download(book_id: int, *, monitored: bool) -> bool:
+    """
+    Put a book back at the start of the state machine: `waiting_download`, no attempts,
+    no error, and wanted or not as asked.
+
+    Refuses a book that is `downloading` - a run holds it, and yanking the row from
+    under it would have the run's own bookkeeping overwrite this. Returns whether the
+    row changed, so the caller can tell "busy" from "no such book" by looking first.
+    """
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            """
+            UPDATE library
+               SET status = ?, attempts = 0, last_error = NULL, monitored = ?
+             WHERE id = ? AND status != ?
+            """,
+            (BookStatus.WAITING_DOWNLOAD, monitored, book_id, BookStatus.DOWNLOADING),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
+
+
+# The columns a listing may be sorted by, keyed by the name the API accepts. `author`
+# sorts on the JSON text of the list, which puts the first author first - good enough
+# for a shelf.
+BOOK_SORT_COLUMNS = {
+    "date_added": "date_added",
+    "title": "title",
+    "author": "authors",
+    "release_date": "release_date",
+    "downloaded_at": "downloaded_at",
+}
+
+
+def list_books(
+    *,
+    account_id: int | None = None,
+    status: BookStatus | str | None = None,
+    monitored: bool | None = None,
+    q: str | None = None,
+    sort: str = "date_added",
+    descending: bool = True,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Book], int]:
+    """
+    A page of the library and the total that matched, for the API.
+
+    `q` matches the title, any author or any series, case-insensitively for ASCII (a
+    `LIKE` over the JSON text is enough at the size of a personal library).
+
+    Raises:
+        ValueError: for a `sort` not in `BOOK_SORT_COLUMNS`
+    """
+    if sort not in BOOK_SORT_COLUMNS:
+        raise ValueError(f"sort must be one of {', '.join(BOOK_SORT_COLUMNS)}, got {sort!r}")
+
+    where = []
+    params: list = []
+    if account_id is not None:
+        where.append("account_id = ?")
+        params.append(account_id)
+    if status is not None:
+        where.append("status = ?")
+        params.append(status)
+    if monitored is not None:
+        where.append("monitored = ?")
+        params.append(monitored)
+    if q:
+        like = f"%{q}%"
+        where.append("(title LIKE ? OR authors LIKE ? OR series LIKE ?)")
+        params.extend([like, like, like])
+    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    order = f" ORDER BY {BOOK_SORT_COLUMNS[sort]} {'DESC' if descending else 'ASC'}, id"
+
+    with closing(_get_connection()) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM library{clause}", params).fetchone()[0]
+        rows = conn.execute(f"SELECT * FROM library{clause}{order} LIMIT ? OFFSET ?", (*params, limit, offset))
+        return [Book.from_row(row) for row in rows], total
 
 
 # --- sync_runs -------------------------------------------------------------------

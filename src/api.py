@@ -17,26 +17,33 @@ import secrets
 import tomllib
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from pathlib import Path
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
+from src import library
 from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file
 from src.audible_login import MARKETPLACES, PendingLogins, complete_login
 from src.database import (
+    BOOK_SORT_COLUMNS,
     count_sync_runs,
     delete_account,
     get_account,
     get_accounts,
+    get_book,
     get_sync_run,
     get_sync_runs,
+    list_books,
     save_settings,
+    set_monitored,
     update_account,
 )
+from src.model import BookStatus
 from src.paths import REPO_ROOT
 from src.runstate import RunState
 from src.scheduler import Scheduler
@@ -44,6 +51,10 @@ from src.schemas import (
     AccountImport,
     AccountOut,
     AccountUpdate,
+    BookAction,
+    BookList,
+    BookOut,
+    BookUpdate,
     Health,
     LoginComplete,
     LoginStart,
@@ -279,9 +290,105 @@ def create_app(
             raise HTTPException(status_code=400, detail=f"could not read {body.path}: {error}") from None
         return get_account(account_id)
 
+    @router.get("/books", response_model=BookList)
+    def get_books(
+        account_id: int | None = None,
+        status: BookStatus | None = None,
+        monitored: bool | None = None,
+        q: Annotated[str | None, Query(max_length=200)] = None,
+        sort: Literal["date_added", "title", "author", "release_date", "downloaded_at"] = "date_added",
+        order: Literal["asc", "desc"] = "desc",
+        page: Annotated[int, Query(ge=1)] = 1,
+        page_size: Annotated[int, Query(ge=1, le=200)] = 50,
+    ) -> BookList:
+        assert sort in BOOK_SORT_COLUMNS  # the Literal above is the same set; keep them in step
+        items, total = list_books(
+            account_id=account_id,
+            status=status,
+            monitored=monitored,
+            q=q,
+            sort=sort,
+            descending=order == "desc",
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return BookList(items=items, total=total, page=page, page_size=page_size)
+
+    @router.get("/books/{book_id}", response_model=BookOut)
+    def get_one_book(book_id: int) -> BookOut:
+        return _book_or_404(book_id)
+
+    @router.patch("/books/{book_id}", response_model=BookOut)
+    def patch_book(book_id: int, update: BookUpdate) -> BookOut:
+        _book_or_404(book_id)
+        set_monitored(book_id, update.monitored)
+        return get_book(book_id)
+
+    @router.post("/books/{book_id}/delete-files", response_model=BookAction)
+    def delete_book_files(book_id: int) -> BookAction:
+        """Remove the files and unmonitor the book, so it stays deleted."""
+        book = _book_or_404(book_id)
+        removed = _busy_to_409(library.delete_download, book, Settings.from_db())
+        return BookAction(status="deleted", removed=[str(p) for p in removed])
+
+    @router.post("/books/{book_id}/redownload", response_model=BookAction)
+    def redownload_book(book_id: int) -> BookAction:
+        """Remove the files and queue the book afresh, attempts reset."""
+        book = _book_or_404(book_id)
+        removed = _busy_to_409(library.redownload, book, Settings.from_db())
+        return BookAction(status="queued", removed=[str(p) for p in removed])
+
+    @router.post("/books/{book_id}/retry", response_model=BookAction)
+    def retry_book(book_id: int) -> BookAction:
+        """Queue a failed or parked book again without touching any files it has."""
+        book = _book_or_404(book_id)
+        try:
+            library.retry(book)
+        except library.BookBusy as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        return BookAction(status="queued")
+
+    @router.post("/books/{book_id}/refresh", response_model=BookOut)
+    def refresh_book(book_id: int) -> BookOut:
+        """Re-read the book from Audible."""
+        book = _book_or_404(book_id)
+        try:
+            return library.refresh(book)
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except Exception as error:
+            logger.warning("Could not refresh %s from Audible", book.asin, exc_info=True)
+            raise HTTPException(status_code=502, detail=f"Audible did not answer: {error}") from None
+
+    @router.get("/books/{book_id}/cover")
+    def book_cover(book_id: int):
+        """The cover: the file once downloaded, Audible's URL before that."""
+        book = _book_or_404(book_id)
+        if book.cover_path and Path(book.cover_path).is_file():
+            return FileResponse(book.cover_path)
+        if book.cover_url:
+            return RedirectResponse(book.cover_url, status_code=302)
+        raise HTTPException(status_code=404, detail="No cover for this book")
+
     app.include_router(open_router)
     app.include_router(router)
     return app
+
+
+def _book_or_404(book_id: int):
+    book = get_book(book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail=f"No book with id {book_id}")
+    return book
+
+
+def _busy_to_409(action, book, settings):
+    try:
+        return action(book, settings)
+    except library.BookBusy as error:
+        raise HTTPException(status_code=409, detail=str(error)) from None
 
 
 def _account_or_404(account_id: int):

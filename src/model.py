@@ -187,6 +187,9 @@ class Book:
     attempts: int = 0
     last_error: str | None = None
     last_attempt_at: str | None = None
+    # Where the finished audio was filed. NULL on a book downloaded before this was
+    # recorded; `library.audio_path_for` works those out from the naming templates
+    file_path: str | None = None
     pdf_path: str | None = None
     cover_path: str | None = None
     annotations_path: str | None = None
@@ -232,6 +235,7 @@ class Book:
             attempts=data.get("attempts") or 0,
             last_error=data.get("last_error"),
             last_attempt_at=data.get("last_attempt_at"),
+            file_path=data.get("file_path"),
             pdf_path=data.get("pdf_path"),
             cover_path=data.get("cover_path"),
             annotations_path=data.get("annotations_path"),
