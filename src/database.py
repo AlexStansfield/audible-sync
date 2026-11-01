@@ -511,15 +511,21 @@ def needs_consumability_refresh(account_id: int) -> bool:
     whole library once. It keys on the stored `is_consumable`, not on `status`: a book
     parked because a licence was refused still reads consumable, a re-read would only
     confirm that, and `update_books` would not restore it anyway.
+
+    A withdrawn book only counts while it is parked: one already downloaded, or one
+    the user has since retried, has nothing waiting on the re-read, and counting it kept
+    the full re-read on for good once any downloaded title had been withdrawn.
     """
     with closing(_get_connection()) as conn:
         row = conn.execute(
             """
             SELECT EXISTS(
-                SELECT 1 FROM library WHERE account_id = ? AND (is_consumable IS NULL OR is_consumable = 0)
+                SELECT 1 FROM library
+                 WHERE account_id = ?
+                   AND (is_consumable IS NULL OR (is_consumable = 0 AND status = ?))
             )
             """,
-            (account_id,),
+            (account_id, BookStatus.UNAVAILABLE),
         ).fetchone()
     return bool(row[0])
 

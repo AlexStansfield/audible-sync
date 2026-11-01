@@ -792,6 +792,14 @@ def test_needs_consumability_refresh_spots_a_parked_book(db):
     assert database.needs_consumability_refresh(ACCOUNT) is True
 
 
+def test_needs_consumability_refresh_ignores_a_withdrawn_book_that_is_not_parked(db):
+    """A downloaded title Audible later withdrew has nothing waiting on a re-read."""
+    database.update_books(ACCOUNT, [make_book("B001"), make_book("GONE")])
+    _set("GONE", status=BookStatus.DOWNLOADED, is_consumable=0)
+
+    assert database.needs_consumability_refresh(ACCOUNT) is False
+
+
 def test_needs_consumability_refresh_spots_a_row_that_predates_the_column(db):
     """After upgrading, availability has never been read for the existing library."""
     database.update_books(ACCOUNT, [make_book("B001")])
