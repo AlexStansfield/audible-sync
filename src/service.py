@@ -12,7 +12,7 @@ Environment:
     AUDIBLE_SYNC_PORT          Port, default 8080
     AUDIBLE_SYNC_API_TOKEN     Bearer token the API requires. If unset, one is generated
                                on the first start, kept in the settings table, and
-                               logged at every start so it can be copied from the log
+                               logged in full that once; later starts log only its end
     AUDIBLE_SYNC_CORS_ORIGINS  Comma-separated origins allowed to call from a browser
     AUDIBLE_SYNC_DEBUG         `true` forces DEBUG logging whatever the settings say
     AUDIBLE_SYNC_SECRET_KEY    The key the stored credentials and API token are
@@ -85,19 +85,29 @@ def resolve_api_token(configured: str | None) -> str:
     one stored for next time.
 
     Generated once rather than on every start, so the token copied from the log keeps
-    working across restarts.
+    working across restarts. It is logged in full only on the start that generates it:
+    a log handed over with a bug report must not hand over the API. Later starts log
+    where it came from and its last four characters, enough to tell which one is in use.
     """
     if configured:
+        logger.info("API token: from AUDIBLE_SYNC_API_TOKEN")
         return configured
     stored = get_settings().get(API_TOKEN_SETTING)
     if stored:
         try:
-            return crypto.decrypt(stored)
+            token = crypto.decrypt(stored)
         except crypto.WrongKey as error:
             logger.error("The stored API token cannot be read, generating a new one: %s", error)
+        else:
+            logger.info("API token: the stored one, ending ...%s", token[-4:])
+            return token
     token = secrets.token_urlsafe(32)
     save_settings({API_TOKEN_SETTING: crypto.encrypt(token)})
-    logger.info("Generated a new API token and stored it in the settings table")
+    logger.warning(
+        "Generated a new API token: %s - copy it now, it is not logged again "
+        "(set AUDIBLE_SYNC_API_TOKEN to choose your own)",
+        token,
+    )
     return token
 
 
@@ -121,7 +131,6 @@ def build(config: ServiceConfig):
     encrypt_stored_secrets()
 
     api_token = resolve_api_token(config.api_token)
-    logger.info("API token: %s", api_token)
 
     state = RunState()
     scheduler = Scheduler(load_settings=Settings.from_db, run=_run, state=state, stop_timeout=STOP_TIMEOUT)

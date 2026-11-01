@@ -85,18 +85,11 @@ List of tasks to complete by phases
 - [x] Extras: `GET /api/logs`, a webhook posted after every run (`webhook-url`, with `POST /api/settings/webhook/test`), `GET /api/stats`
 - [x] Review fixes (2026-11-01): the scheduler no longer runs back to back when a pass records no run (no accounts yet); a run no longer writes its refreshed credentials over a re-login made while it ran; an account added after the migration no longer inherits the migrated library's cursor; a re-login in another marketplace is refused
 - [x] Second review fixes (2026-11-01): `PUT /api/settings` refuses `null` for a setting that cannot be unset (it locked the API out of its own settings); rejected credentials record the run as aborted saying to log in again, not as a failed book; a failed token write-back no longer leaves the run row `running`; a withdrawn book that is already downloaded no longer forces a full library re-read every run; a book action that loses the race with a run's claim is a 409, not a silent success
+- [x] Known issues from the review (2026-11-01): `DELETE /api/accounts/{id}` is a 409 while the run is on that account, and a run skips an account removed since it began; a confirmed login whose account was deleted, or that cannot be stored, fails and deregisters the new device (API and CLI); a `200` that is not JSON no longer kills a device-code login's poll; a book refresh stores the token it renewed; the CLI warns when it holds another key than the one the stored secrets were written with; the API token is logged in full only on the start that generates it; the CLI `login`'s `print` recorded as the exception to the logging rule
 
 ### Known issues from the 2026-11-01 review (not yet fixed)
 
-- [ ] A login confirmed for an `account_id` acts on the account as it was when the login started: if the account is deleted before the code is entered, the new device is stored nowhere and the login still reports `confirmed`. Re-read the account in the finisher and fail (deregistering the new device) when it is gone
-- [ ] When storing a confirmed login fails (database locked, no key, account gone), the newly registered device stays on the user's Amazon device list with nothing holding it. Deregister it on that path
-- [ ] A CLI `login` on the host generates its own `secrets/secret.key` when the service's key lives elsewhere (`AUDIBLE_SYNC_SECRET_KEY` in Docker), and the service then cannot read the new credentials. Warn when the CLI generates a key while the database already holds encrypted secrets
-- [ ] A `200` from `/auth/register` whose body is not JSON fails the code login instead of being polled again like a `429`/`5xx`
-- [ ] The CLI `login` prints its result and the code to enter (`print`, `echo=print`), which the "never `print`" rule forbids. Either route it through logging or record the CLI's user-facing output as the exception
-- [ ] The API token is logged in full at INFO on every start, so `docker logs` attached to a bug report hands over the API. Decide: log it in full only when generated, and only that one is in use otherwise
-- [ ] `DELETE /api/accounts/{id}` does not check whether the run in flight is that account's; deleting during its sync phase can leave orphan library rows, during downloads a book ends up on disk with no row. Answer 409 while that account is running
-- [ ] `POST /api/books/{id}/refresh` does not write back a token the call refreshed (`persist_auth_if_changed`), unlike a run. Costs one extra refresh
-- [ ] `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome
+- [ ] `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Deferred: the service runs one sync at a time, so it takes a CLI run beside the service, and the fix is a claim token on every transition
 
 ## Milestone 4: Web App Frontend
 

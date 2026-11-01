@@ -1144,6 +1144,28 @@ def encrypt_stored_secrets() -> int:
     return rewritten
 
 
+def count_unreadable_secrets() -> int:
+    """
+    How many stored secrets the configured key cannot decrypt.
+
+    Non-zero means this process holds another key than the one that wrote them - a CLI
+    on the host that generated its own `secrets/secret.key` while the service's key is
+    in `AUDIBLE_SYNC_SECRET_KEY`, say. Anything it stores now is unreadable to the other.
+    """
+    with closing(_get_connection()) as conn:
+        values = [row["auth"] for row in conn.execute("SELECT auth FROM accounts WHERE auth IS NOT NULL")]
+        values += [
+            row["value"] for row in conn.execute("SELECT value FROM settings WHERE key = ?", (API_TOKEN_SETTING,))
+        ]
+    unreadable = 0
+    for value in values:
+        try:
+            crypto.decrypt(value)
+        except crypto.WrongKey:
+            unreadable += 1
+    return unreadable
+
+
 def add_account(
     name: str,
     country_code: str,
@@ -1212,14 +1234,19 @@ def update_account(
         conn.commit()
 
 
-def save_account_auth(account_id: int, auth: dict | None) -> None:
-    """Store the credentials, or clear them (None) so the account reads as needing a login."""
+def save_account_auth(account_id: int, auth: dict | None) -> bool:
+    """
+    Store the credentials, or clear them (None) so the account reads as needing a login.
+
+    Returns whether the account was there to store them on.
+    """
     with closing(_get_connection()) as conn:
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE accounts SET auth = ? WHERE id = ?",
             (_encode_auth(auth), account_id),
         )
         conn.commit()
+        return cursor.rowcount == 1
 
 
 def replace_account_auth_if_unchanged(account_id: int, expected: dict | None, auth: dict) -> bool:

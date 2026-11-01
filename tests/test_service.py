@@ -58,6 +58,29 @@ def test_a_generated_token_is_kept_for_the_next_start(db):
     assert stored.startswith("enc:") and first not in stored
 
 
+def test_the_token_is_logged_in_full_only_on_the_start_that_generates_it(db, caplog):
+    """`docker logs` attached to a bug report must not hand over the API on every start."""
+    caplog.set_level(logging.INFO, logger="src.service")
+    token = resolve_api_token(None)
+    assert token in caplog.text
+    assert "not logged again" in caplog.text
+    caplog.clear()
+
+    assert resolve_api_token(None) == token
+
+    assert token not in caplog.text
+    assert f"the stored one, ending ...{token[-4:]}" in caplog.text
+
+
+def test_a_configured_token_is_never_logged(db, caplog):
+    caplog.set_level(logging.INFO, logger="src.service")
+
+    resolve_api_token("chosen-by-the-user")
+
+    assert "chosen-by-the-user" not in caplog.text
+    assert "from AUDIBLE_SYNC_API_TOKEN" in caplog.text
+
+
 def test_a_token_stored_in_plain_text_by_an_older_version_still_works(db):
     database.save_settings({"api_token": "old-token"})
 

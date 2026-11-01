@@ -431,8 +431,8 @@ def try_register(
 
     Returns the credentials (see `credentials_from`) once the user has confirmed the
     code, `None` while they have not - a `401 Unauthorized`, the only answer seen while
-    waiting - and also `None`, with a warning, for a `429` or a `5xx`, which are Amazon
-    rather than the login and are retried on the next poll.
+    waiting - and also `None`, with a warning, for a `429`, a `5xx` or a `200` whose body
+    is not JSON, which are Amazon rather than the login and are retried on the next poll.
 
     Raises:
         LoginFailed: for any other answer: the code was refused, or has expired on
@@ -447,7 +447,12 @@ def try_register(
     )
     error = _error_code(response)
     if response.status_code == 200:
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            # A truncated or proxy-mangled answer, not a refusal: poll again like a 5xx
+            logger.warning("Amazon answered a login poll with a body that is not JSON; trying again")
+            return None
         success = data.get("response", {}).get("success") if isinstance(data, dict) else None
         if isinstance(success, dict):
             logger.info("Registered a new device with Audible %s", login.country_code)
@@ -493,6 +498,23 @@ def poll_code_login(
 
 
 # --- the store -------------------------------------------------------------------------
+
+
+def discard_device(auth: Authenticator) -> bool:
+    """
+    Deregister a device a login registered but that could not be stored; best effort.
+
+    Without this a failed store leaves the device on the user's Amazon device list with
+    nothing holding its credentials. Returns whether Amazon took it; a failure is logged,
+    never raised, because the caller is already reporting the error that led here.
+    """
+    try:
+        auth.deregister_device()
+    except Exception:
+        logger.warning("Could not deregister the device of a login that was not stored", exc_info=True)
+        return False
+    logger.info("Deregistered the device of a login that could not be stored")
+    return True
 
 
 class PendingLogins:
@@ -627,7 +649,13 @@ class PendingLogins:
         try:
             account_id = finish(auth)
         except Exception as error:
-            self._fail(login, f"the login was confirmed but the account could not be stored: {error}")
+            # Amazon has registered a device that nothing will ever hold or deregister
+            discarded = discard_device(auth)
+            self._fail(
+                login,
+                f"the login was confirmed but the account could not be stored: {error}"
+                + ("; the new device was deregistered, log in again" if discarded else ""),
+            )
             raise
         with self._lock:
             login.status = LoginStatus.CONFIRMED

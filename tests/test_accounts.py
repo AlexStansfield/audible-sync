@@ -6,6 +6,7 @@ from audible import Authenticator
 import src.database as database
 from src import accounts
 from src.accounts import (
+    AccountGone,
     authenticator_for,
     display_name,
     persist_auth_if_changed,
@@ -155,6 +156,42 @@ def test_replace_account_auth_queues_the_books_the_old_device_was_refused(db, mo
     assert database.get_book_by_asin("B002", account_id=account_id).status is BookStatus.UNAVAILABLE
     assert database.get_book_by_asin("B001", account_id=other).status is BookStatus.UNAVAILABLE
     assert "Queued 1 parked book(s)" in caplog.text
+
+
+def test_replace_account_auth_refuses_an_account_deleted_while_the_login_ran(db, monkeypatch):
+    """A login takes minutes; the account it was started for may be gone by the end."""
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    stale = database.get_account(account_id)
+    database.delete_account(account_id)
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
+
+    with pytest.raises(AccountGone, match="was removed while the login was in progress"):
+        replace_account_auth(stale, Authenticator.from_dict(dict(AUTH_BLOB)))
+
+    assert database.get_accounts() == []
+
+
+def test_replace_account_auth_refuses_when_the_account_goes_before_the_write(db, monkeypatch):
+    account_id = database.add_account("Alex (UK)", "uk", auth=None)
+    monkeypatch.setattr(accounts, "save_account_auth", lambda account_id, auth: False)
+
+    with pytest.raises(AccountGone):
+        replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
+
+
+def test_replace_account_auth_deregisters_the_device_stored_now_not_the_one_read_earlier(db, monkeypatch):
+    """Another login may have replaced the credentials since this one started."""
+    account_id = database.add_account("Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|first"})
+    stale = database.get_account(account_id)
+    database.save_account_auth(account_id, {**AUTH_BLOB, "access_token": "Atna|second"})
+    seen = []
+    monkeypatch.setattr(
+        accounts, "authenticator_for", lambda account: seen.append(account.auth["access_token"]) or _Deregistering()
+    )
+
+    replace_account_auth(stale, Authenticator.from_dict(dict(AUTH_BLOB)))
+
+    assert seen == ["Atna|second"]
 
 
 def test_replace_account_auth_goes_ahead_when_the_old_device_cannot_deregister(db, monkeypatch, caplog):

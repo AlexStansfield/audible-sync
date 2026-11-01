@@ -66,6 +66,14 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
         return stats
 
     monkeypatch.setattr(main_module, "get_accounts", lambda: accounts)
+    # The loop reads each account again at its turn; `calls["removed"]` plays one deleted meanwhile
+    monkeypatch.setattr(
+        main_module,
+        "get_account",
+        lambda account_id: (
+            None if account_id in calls.get("removed", ()) else next((a for a in accounts if a.id == account_id), None)
+        ),
+    )
     monkeypatch.setattr(main_module, "authenticator_for", lambda account: f"auth-{account.id}")
     monkeypatch.setattr(main_module, "Audible", FakeAudible)
     monkeypatch.setattr(
@@ -208,13 +216,23 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     monkeypatch.setattr(main_module, "load_secret_key", lambda: order.append("key") or "k")
     monkeypatch.setattr(main_module.crypto, "configure", lambda key: order.append(("configure", key)))
     monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
+    monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: order.append("check key") or 0)
     monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
 
     main([])
 
     # The key after logging, so where it came from is reported
-    assert order[:7] == ["init_db", "seed", "settings", ("logging", True), "key", ("configure", "k"), "encrypt"]
-    step, passed_settings, progress = order[7]
+    assert order[:8] == [
+        "init_db",
+        "seed",
+        "settings",
+        ("logging", True),
+        "key",
+        ("configure", "k"),
+        "encrypt",
+        "check key",
+    ]
+    step, passed_settings, progress = order[8]
     assert (step, passed_settings) == ("pipeline", settings)
     # The bar is a terminal concern the CLI injects, like the logging config above
     assert isinstance(progress, main_module.TqdmProgress)
@@ -314,6 +332,31 @@ def test_run_pipeline_gives_every_account_its_turn_then_raises_the_first_error(t
     assert [kw["outcome"] for _, kw in calls["finished_all"]] == [SyncOutcome.FAILED, SyncOutcome.FAILED]
 
 
+def test_run_pipeline_skips_an_account_removed_after_the_run_began(tmp_path, monkeypatch, caplog):
+    """The list is read once; an account deleted while an earlier one runs must not be synced."""
+    caplog.set_level(logging.INFO, logger="src.main")
+    calls = {"removed": {2}}
+    _patch_pipeline(monkeypatch, calls, accounts=[make_account(id=1), make_account(id=2, name="Gone")])
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["synced_accounts"] == [1]
+    assert "Skipping Gone: removed since the run began" in caplog.text
+
+
+def test_run_pipeline_reads_each_account_again_at_its_turn(tmp_path, monkeypatch):
+    """Disabled while an earlier account ran: the fresh row decides, not the stale list."""
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, accounts=[make_account(id=1), make_account(id=2)])
+    monkeypatch.setattr(
+        main_module, "get_account", lambda account_id: make_account(id=account_id, enabled=account_id != 2)
+    )
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["synced_accounts"] == [1]
+
+
 def test_run_pipeline_stops_between_accounts_when_cancelled(tmp_path, monkeypatch):
     calls = {}
     _patch_pipeline(monkeypatch, calls, accounts=[make_account(id=1), make_account(id=2)])
@@ -354,7 +397,29 @@ def _patch_prepare(monkeypatch, order):
     monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: settings))
     monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append("logging"))
     monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
+    monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: 0)
     return settings
+
+
+def test_a_command_warns_when_the_stored_secrets_were_written_under_another_key(monkeypatch, caplog):
+    """A CLI on the host next to a service in Docker: a login stored now would be lost on the service."""
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: 2)
+    monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: None)
+
+    main(["run"])
+
+    assert "2 stored secret(s) were encrypted with another key" in caplog.text
+    assert "AUDIBLE_SYNC_SECRET_KEY" in caplog.text
+
+
+def test_a_command_says_nothing_when_the_key_reads_the_stored_secrets(monkeypatch, caplog):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: None)
+
+    main(["run"])
+
+    assert "another key" not in caplog.text
 
 
 def test_run_is_the_default_command(monkeypatch):
@@ -491,6 +556,23 @@ def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch,
 
     assert replaced == [(3, "auth")]
     assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+
+
+def test_login_command_deregisters_the_device_when_the_account_cannot_be_stored(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    discarded = []
+    monkeypatch.setattr(main_module, "discard_device", lambda auth: discarded.append(auth) or True)
+
+    def locked(auth, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", locked)
+
+    with pytest.raises(SystemExit, match="could not be stored: database is locked"):
+        main(["login", "--marketplace", "uk"])
+
+    assert discarded == ["auth"]
 
 
 def test_login_command_refuses_an_unknown_account_before_amazon_is_asked(monkeypatch):
