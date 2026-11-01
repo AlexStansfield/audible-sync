@@ -23,6 +23,7 @@ from src.audible_login import (
     authorization_code_from,
     complete_login,
     credentials_from,
+    discard_device,
     locale_for,
     login_interactively,
     login_with_code,
@@ -538,7 +539,10 @@ def test_store_marks_a_code_login_amazon_refused_failed():
     assert done.account_id is None
 
 
-def test_store_marks_a_code_login_failed_when_the_account_cannot_be_stored(caplog):
+def test_store_marks_a_code_login_failed_when_the_account_cannot_be_stored(monkeypatch, caplog):
+    """The device Amazon registered is held by nothing, so it is deregistered."""
+    deregistered = []
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: deregistered.append(self.access_token))
     store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
 
     def broken(auth):
@@ -550,7 +554,41 @@ def test_store_marks_a_code_login_failed_when_the_account_cannot_be_stored(caplo
     done = store.get(login.id)
     assert done.status is LoginStatus.FAILED
     assert "confirmed but the account could not be stored: disk full" in done.error
+    assert "the new device was deregistered" in done.error
+    assert deregistered == ["Atna|access"]
     assert "Could not store the account" in caplog.text
+
+
+def test_store_still_fails_the_login_when_the_unstored_device_cannot_be_deregistered(monkeypatch, caplog):
+    def unreachable(self):
+        raise RuntimeError("amazon down")
+
+    monkeypatch.setattr(Authenticator, "deregister_device", unreachable)
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
+
+    def broken(auth):
+        raise RuntimeError("disk full")
+
+    login = store.start_code("uk", broken)
+    store.join(login.id, timeout=5)
+
+    done = store.get(login.id)
+    assert done.status is LoginStatus.FAILED
+    assert "deregistered" not in done.error
+    assert "Could not deregister the device of a login that was not stored" in caplog.text
+
+
+def test_discard_device_reports_whether_amazon_took_it():
+    class Device:
+        def __init__(self, error=None):
+            self.error = error
+
+        def deregister_device(self):
+            if self.error:
+                raise self.error
+
+    assert discard_device(Device()) is True
+    assert discard_device(Device(RuntimeError("throttled"))) is False
 
 
 def test_store_start_code_lets_a_refused_code_pair_through():

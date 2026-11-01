@@ -495,6 +495,23 @@ def poll_code_login(
 # --- the store -------------------------------------------------------------------------
 
 
+def discard_device(auth: Authenticator) -> bool:
+    """
+    Deregister a device a login registered but that could not be stored; best effort.
+
+    Without this a failed store leaves the device on the user's Amazon device list with
+    nothing holding its credentials. Returns whether Amazon took it; a failure is logged,
+    never raised, because the caller is already reporting the error that led here.
+    """
+    try:
+        auth.deregister_device()
+    except Exception:
+        logger.warning("Could not deregister the device of a login that was not stored", exc_info=True)
+        return False
+    logger.info("Deregistered the device of a login that could not be stored")
+    return True
+
+
 class PendingLogins:
     """
     The logins started and not yet finished, in memory, with the thread that polls each
@@ -627,7 +644,13 @@ class PendingLogins:
         try:
             account_id = finish(auth)
         except Exception as error:
-            self._fail(login, f"the login was confirmed but the account could not be stored: {error}")
+            # Amazon has registered a device that nothing will ever hold or deregister
+            discarded = discard_device(auth)
+            self._fail(
+                login,
+                f"the login was confirmed but the account could not be stored: {error}"
+                + ("; the new device was deregistered, log in again" if discarded else ""),
+            )
             raise
         with self._lock:
             login.status = LoginStatus.CONFIRMED

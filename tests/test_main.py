@@ -526,6 +526,23 @@ def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch,
     assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
 
 
+def test_login_command_deregisters_the_device_when_the_account_cannot_be_stored(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    discarded = []
+    monkeypatch.setattr(main_module, "discard_device", lambda auth: discarded.append(auth) or True)
+
+    def locked(auth, **kw):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", locked)
+
+    with pytest.raises(SystemExit, match="could not be stored: database is locked"):
+        main(["login", "--marketplace", "uk"])
+
+    assert discarded == ["auth"]
+
+
 def test_login_command_refuses_an_unknown_account_before_amazon_is_asked(monkeypatch):
     _patch_prepare(monkeypatch, [])
     monkeypatch.setattr(main_module, "get_account", lambda account_id: None)

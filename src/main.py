@@ -11,7 +11,7 @@ from src.accounts import (
     replace_account_auth,
 )
 from src.audible_client import Audible
-from src.audible_login import MARKETPLACES, LoginFailed, login_interactively, login_with_code
+from src.audible_login import MARKETPLACES, LoginFailed, discard_device, login_interactively, login_with_code
 from src.crypto import load_secret_key
 from src.database import (
     encrypt_stored_secrets,
@@ -267,11 +267,19 @@ def login_command(
         auth = login_interactively(marketplace) if browser else login_with_code(marketplace)
     except LoginFailed as error:
         raise SystemExit(f"Login failed: {error}") from None
+    try:
+        if existing is not None:
+            replace_account_auth(existing, auth)
+        else:
+            account_id = add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
+    except Exception as error:
+        logger.exception("Could not store the login")
+        # Otherwise the device Amazon just registered stays on the account with nothing holding it
+        discard_device(auth)
+        raise SystemExit(f"Logged in, but the account could not be stored: {error}") from None
     if existing is not None:
-        replace_account_auth(existing, auth)
         print(f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept.")
         return
-    account_id = add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
     logger.info("Added account %d for Audible %s", account_id, marketplace)
     print(f"Logged in. Account {account_id} added; the next run will sync it.")
 

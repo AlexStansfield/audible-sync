@@ -1090,6 +1090,13 @@ def test_the_credentials_are_stored_encrypted(db):
     assert _stored_auth(account_id) is None
 
 
+def test_save_account_auth_reports_whether_the_account_was_there(db):
+    account_id = database.add_account("Alex (UK)", "uk", auth=None)
+
+    assert database.save_account_auth(account_id, {"access_token": "Atna|x"}) is True
+    assert database.save_account_auth(account_id + 100, {"access_token": "Atna|x"}) is False
+
+
 def test_credentials_under_another_key_read_as_needing_a_login(db, caplog, secret_key):
     """The key changed: the account is skipped, loudly, and the blob is kept for the right key."""
     account_id = database.add_account("Alex (UK)", "uk", auth={"access_token": "Atna|secret"})

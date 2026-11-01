@@ -21,6 +21,7 @@ from audible import Authenticator
 
 from src.database import (
     add_account,
+    get_account,
     replace_account_auth_if_unchanged,
     requeue_unavailable,
     save_account_auth,
@@ -112,6 +113,10 @@ def check_marketplace(account: Account, country_code: str | None) -> None:
         )
 
 
+class AccountGone(LookupError):
+    """The account a login was for no longer exists."""
+
+
 def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> None:
     """
     Give an existing account new credentials, keeping its id and so its library.
@@ -125,11 +130,19 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     are queued again for the new one (`requeue_unavailable`).
 
     Raises:
+        AccountGone: if the account was deleted while the login was going; the caller
+            owns the new device and should deregister it (`audible_login.discard_device`)
         ValueError: if `auth` is another marketplace's login. An account's library
             is one marketplace's: credentials for another would leave its books asking
             the wrong store for licences, and its cursor skipping the other's catalogue.
             The migration's placeholder has no marketplace yet and takes any
     """
+    # The account as it is now: a login takes minutes, and the one it was started for may
+    # have been removed or given other credentials meanwhile
+    current = get_account(account.id)
+    if current is None:
+        raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
+    account = current
     check_marketplace(account, auth.locale.country_code if auth.locale else None)
     if deregister_previous and account.auth is not None:
         try:
@@ -144,7 +157,8 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
         country_code=auth.locale.country_code if auth.locale else None,
         customer_name=customer_name_of(auth),
     )
-    save_account_auth(account.id, auth_to_dict(auth))
+    if not save_account_auth(account.id, auth_to_dict(auth)):
+        raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
     logger.info("Replaced the credentials of %r", account)
     # The books the old device was refused licences for get another go with the new
     # one; a title Audible really has retired is refused once more and parks again.

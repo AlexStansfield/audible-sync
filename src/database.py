@@ -1212,14 +1212,19 @@ def update_account(
         conn.commit()
 
 
-def save_account_auth(account_id: int, auth: dict | None) -> None:
-    """Store the credentials, or clear them (None) so the account reads as needing a login."""
+def save_account_auth(account_id: int, auth: dict | None) -> bool:
+    """
+    Store the credentials, or clear them (None) so the account reads as needing a login.
+
+    Returns whether the account was there to store them on.
+    """
     with closing(_get_connection()) as conn:
-        conn.execute(
+        cursor = conn.execute(
             "UPDATE accounts SET auth = ? WHERE id = ?",
             (_encode_auth(auth), account_id),
         )
         conn.commit()
+        return cursor.rowcount == 1
 
 
 def replace_account_auth_if_unchanged(account_id: int, expected: dict | None, auth: dict) -> bool:
