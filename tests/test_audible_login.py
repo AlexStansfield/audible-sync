@@ -345,7 +345,15 @@ def test_try_register_returns_the_credentials_once_confirmed():
     assert credentials["customer_info"] == {"user_id": "u1", "name": "Alex"}
 
 
-@pytest.mark.parametrize("answer", [OVERLOADED, httpx.Response(500, text="oops"), httpx.Response(503, json={})])
+@pytest.mark.parametrize(
+    "answer",
+    [
+        OVERLOADED,
+        httpx.Response(500, text="oops"),
+        httpx.Response(503, json={}),
+        httpx.Response(200, text="<html>gateway</html>"),  # not JSON: the poll used to die on it
+    ],
+)
 def test_try_register_treats_an_overloaded_amazon_as_still_pending(answer, caplog):
     assert try_register(_code_login(), http=FakeAmazon(polls=[answer]).client()) is None
     assert "trying again" in caplog.text
@@ -436,6 +444,15 @@ def test_poll_code_login_waits_for_the_confirmation_then_builds_the_authenticato
     assert len(amazon.bodies("/auth/register")) == 3
     # Paced by Amazon's interval, and no sleep after the answer
     assert slept == [5.0, 5.0]
+
+
+def test_poll_code_login_carries_on_past_a_200_that_is_not_json():
+    amazon = FakeAmazon(polls=[httpx.Response(200, text="<html>gateway</html>"), registered_response()])
+    _, now, _ = _clock()
+
+    auth = poll_code_login(_code_login(), http=amazon.client(), sleep=lambda seconds: None, now=now)
+
+    assert auth.access_token == "Atna|access"
 
 
 def test_poll_code_login_gives_up_when_the_code_expires():

@@ -431,8 +431,8 @@ def try_register(
 
     Returns the credentials (see `credentials_from`) once the user has confirmed the
     code, `None` while they have not - a `401 Unauthorized`, the only answer seen while
-    waiting - and also `None`, with a warning, for a `429` or a `5xx`, which are Amazon
-    rather than the login and are retried on the next poll.
+    waiting - and also `None`, with a warning, for a `429`, a `5xx` or a `200` whose body
+    is not JSON, which are Amazon rather than the login and are retried on the next poll.
 
     Raises:
         LoginFailed: for any other answer: the code was refused, or has expired on
@@ -447,7 +447,12 @@ def try_register(
     )
     error = _error_code(response)
     if response.status_code == 200:
-        data = response.json()
+        try:
+            data = response.json()
+        except ValueError:
+            # A truncated or proxy-mangled answer, not a refusal: poll again like a 5xx
+            logger.warning("Amazon answered a login poll with a body that is not JSON; trying again")
+            return None
         success = data.get("response", {}).get("success") if isinstance(data, dict) else None
         if isinstance(success, dict):
             logger.info("Registered a new device with Audible %s", login.country_code)
