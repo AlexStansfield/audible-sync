@@ -5,7 +5,7 @@ description = "Sync your Audible library and decrypt your audiobooks to DRM-free
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "audible==0.10.0",
+    "audible==0.13.1",
     "fastapi>=0.141.1",
     "httpx==0.28.1",
     "mutagen>=1.48.1",

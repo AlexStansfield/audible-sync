@@ -11,6 +11,7 @@ from src.accounts import (
     ensure_account_from_auth_file,
     import_auth_file,
     persist_auth_if_changed,
+    replace_account_auth,
 )
 from src.model import Account
 from tests.conftest import make_account
@@ -157,3 +158,68 @@ def test_add_account_from_authenticator_defaults_the_name(db):
     account_id = accounts.add_account_from_authenticator(Authenticator.from_dict(dict(AUTH_BLOB)))
 
     assert database.get_account(account_id).name == "Alex (UK)"
+
+
+# --- replacing credentials -----------------------------------------------------------
+
+
+class _Deregistering:
+    def __init__(self, raise_error=None):
+        self.calls = 0
+        self.raise_error = raise_error
+
+    def deregister_device(self):
+        self.calls += 1
+        if self.raise_error:
+            raise self.raise_error
+
+
+def test_replace_account_auth_keeps_the_account_and_stores_the_new_credentials(db, monkeypatch):
+    """The recovery for a registration Audible stopped licensing: same id, same library."""
+    account_id = database.add_account(
+        "Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"}, customer_name="Old"
+    )
+    database.update_books(account_id, [])
+    old_device = _Deregistering()
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: old_device)
+    new_auth = Authenticator.from_dict({**AUTH_BLOB, "customer_info": {"name": "Alexander"}})
+
+    replace_account_auth(database.get_account(account_id), new_auth)
+
+    account = database.get_account(account_id)
+    assert account.auth["access_token"] == "Atna|access"
+    assert account.customer_name == "Alexander"
+    assert account.name == "Alex (UK)"  # the user's name for it is theirs
+    assert old_device.calls == 1
+
+
+def test_replace_account_auth_goes_ahead_when_the_old_device_cannot_deregister(db, monkeypatch, caplog):
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: _Deregistering(RuntimeError("throttled")))
+
+    replace_account_auth(
+        database.get_account(account_id), Authenticator.from_dict({**AUTH_BLOB, "access_token": "Atna|new"})
+    )
+
+    assert database.get_account(account_id).auth["access_token"] == "Atna|new"
+    assert "Could not deregister the previous device" in caplog.text
+
+
+def test_replace_account_auth_can_skip_deregistering(db, monkeypatch):
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("must not deregister"))
+
+    replace_account_auth(
+        database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)), deregister_previous=False
+    )
+
+
+def test_replace_account_auth_on_an_account_that_had_none(db, monkeypatch):
+    account_id = database.add_account("Pending", "", auth=None)
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
+
+    replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
+
+    account = database.get_account(account_id)
+    assert account.needs_login is False
+    assert account.country_code == "uk"

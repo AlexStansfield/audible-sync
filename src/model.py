@@ -53,6 +53,12 @@ class SyncOutcome(StrEnum):
     sync has completed - the sync is seconds, the downloads are the hours - so a
     cancelled run has always read the library through and counts as a cursor too. The
     book it was on is handed back to the queue with its attempt count untouched.
+
+    `ABORTED` is a run that stopped itself: `max_consecutive_failures` books in a row
+    were refused a licence or failed, which means something is wrong with the account
+    or with Audible rather than with the books, and walking the rest of the queue would
+    only repeat it. Like `CANCELLED` it comes after the sync, so it is a cursor too;
+    the reason is in `error`.
     """
 
     RUNNING = "running"
@@ -60,6 +66,7 @@ class SyncOutcome(StrEnum):
     PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    ABORTED = "aborted"
 
 
 def _json_list(value: str | None) -> list:

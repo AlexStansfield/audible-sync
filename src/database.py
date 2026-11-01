@@ -367,10 +367,15 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
                 -- The only status the sync may change, in either direction. A book
                 -- Audible has withdrawn leaves the queue; one it has offered again
                 -- rejoins it, which is how a restored Plus title comes back on its own.
+                -- "Offered again" means the API's view flipped: the stored row said
+                -- withdrawn and this response says consumable. A book parked because a
+                -- licence was refused while the API said consumable all along is not
+                -- restored here - it would be refused again, and with a download cap it
+                -- would take a slot from a book that can download. `retry` is for that.
                 -- Every other state - downloading, downloaded, failed - is left alone.
                 status = CASE
                     WHEN excluded.is_consumable = 0 AND library.status = ? THEN ?
-                    WHEN excluded.is_consumable = 1 AND library.status = ? THEN ?
+                    WHEN excluded.is_consumable = 1 AND library.is_consumable = 0 AND library.status = ? THEN ?
                     ELSE library.status
                 END
             """,
@@ -482,17 +487,23 @@ def needs_consumability_refresh(account_id: int) -> bool:
 
     The incremental sync only fetches what was purchased after the newest `date_added`,
     so a book already in the library is never re-read and its `is_consumable` never
-    changes. That matters in both directions: a parked title Audible has offered again
-    would stay parked forever, and a row written before the column existed has never had
-    its availability read at all.
+    changes. That matters in both directions: a title Audible withdrew and has offered
+    again would stay parked forever, and a row written before the column existed has
+    never had its availability read at all.
 
     True when either is present, which is the signal for `sync_library` to re-read the
-    whole library once. It goes back to False as soon as nothing is parked.
+    whole library once. It keys on the stored `is_consumable`, not on `status`: a book
+    parked because a licence was refused still reads consumable, a re-read would only
+    confirm that, and `update_books` would not restore it anyway.
     """
     with closing(_get_connection()) as conn:
         row = conn.execute(
-            "SELECT EXISTS(SELECT 1 FROM library WHERE account_id = ? AND (is_consumable IS NULL OR status = ?))",
-            (account_id, BookStatus.UNAVAILABLE),
+            """
+            SELECT EXISTS(
+                SELECT 1 FROM library WHERE account_id = ? AND (is_consumable IS NULL OR is_consumable = 0)
+            )
+            """,
+            (account_id,),
         ).fetchone()
     return bool(row[0])
 
@@ -599,15 +610,19 @@ def mark_book_failed(book_id: int, error: str, *, max_attempts: int, terminal: b
 
 def mark_book_unavailable(book_id: int, error: str) -> None:
     """
-    Park a book Audible will not currently license, without failing it.
+    Park a book Audible will not license, without failing it.
 
-    Deliberately not terminal, and it does not count towards `max_attempts`. A Plus
-    title withdrawn after the customer added it cannot be downloaded today but can be
-    offered again, so the book leaves the queue - it stops costing a licence request
-    every run - and the next sync that sees it consumable puts it straight back.
+    Deliberately not terminal, and it does not count towards `max_attempts`: the book
+    leaves the queue so it stops costing a licence request (and a `max_download` slot)
+    every run, with the reason in `last_error`, until somebody asks for it again with
+    `reset_for_download` (the API's `retry`).
 
-    This covers the race where the rights change between a sync and the download; the
-    common case is caught at sync time from `customer_rights.is_consumable`.
+    `is_consumable` is left as the sync read it. It is the API's view, and for a book
+    that reaches here the API said consumable - Audible refused the download licence
+    anyway (a title retired to streaming only, say). Writing 0 here used to make the
+    next sync's availability refresh "restore" the book, which queued it to be refused
+    again on every run; with a download cap, two such books blocked everything else.
+    A title the API itself reports withdrawn never gets here: the sync parks it.
 
     `attempts` is left where the claim put it: the attempt really did happen, and
     nothing terminal is decided from it while the book sits here.
@@ -617,7 +632,6 @@ def mark_book_unavailable(book_id: int, error: str) -> None:
             """
             UPDATE library
                SET status = ?,
-                   is_consumable = 0,
                    last_error = ?
              WHERE id = ?
             """,
@@ -838,15 +852,45 @@ def list_books(
         return [Book.from_row(row) for row in rows], total
 
 
+def library_stats(*, account_id: int | None = None) -> dict:
+    """
+    Counts for a dashboard: books by status, wanted or not, and the total.
+
+    Every `BookStatus` appears in `by_status`, zero when empty, so a UI has a stable
+    shape to draw from.
+    """
+    clause = "" if account_id is None else " WHERE account_id = ?"
+    params: tuple = () if account_id is None else (account_id,)
+    with closing(_get_connection()) as conn:
+        by_status = {status.value: 0 for status in BookStatus}
+        for status, count in conn.execute(f"SELECT status, COUNT(*) FROM library{clause} GROUP BY status", params):
+            if status in by_status:
+                by_status[status] = count
+        monitored = conn.execute(f"SELECT COUNT(*) FROM library{clause}", params).fetchone()[0]
+        wanted = conn.execute(
+            f"SELECT COUNT(*) FROM library{clause}{' AND' if clause else ' WHERE'} monitored = 1", params
+        ).fetchone()[0]
+    return {"by_status": by_status, "monitored": wanted, "unmonitored": monitored - wanted, "total": monitored}
+
+
+def downloaded_file_paths(*, account_id: int | None = None) -> list[str]:
+    """Every recorded `file_path`, for adding up what the library takes on disk."""
+    clause = " AND account_id = ?" if account_id is not None else ""
+    params: tuple = (account_id,) if account_id is not None else ()
+    with closing(_get_connection()) as conn:
+        rows = conn.execute(f"SELECT file_path FROM library WHERE file_path IS NOT NULL{clause}", params)
+        return [row[0] for row in rows]
+
+
 # --- sync_runs -------------------------------------------------------------------
 # Grouped by table rather than split across the readers and writers above: the four
 # functions below are only meaningful together, and only `latest_successful_sync_start`
 # is read by the pipeline itself.
 
-# A run whose sync finished is a valid cursor even if its downloads did not, so all three
-# count: a cancel is only honoured after the sync (see `SyncOutcome`). A run still
+# A run whose sync finished is a valid cursor even if its downloads did not, so all four
+# count: a cancel or an abort only happens after the sync (see `SyncOutcome`). A run still
 # `running`, or one that failed before reading the library, does not.
-_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED)
+_CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED, SyncOutcome.ABORTED)
 
 
 def start_sync_run(account_id: int | None = None) -> int:

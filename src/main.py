@@ -7,18 +7,29 @@ from src.accounts import (
     authenticator_for,
     ensure_account_from_auth_file,
     persist_auth_if_changed,
+    replace_account_auth,
 )
 from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, login_interactively
-from src.database import finish_sync_run, get_accounts, init_db, mark_account_synced, start_sync_run
+from src.database import (
+    finish_sync_run,
+    get_account,
+    get_accounts,
+    get_sync_run,
+    init_db,
+    mark_account_synced,
+    start_sync_run,
+)
 from src.downloader import DownloadStats, download_books
 from src.model import Account, SyncOutcome
+from src.notify import notify_run_finished
 from src.progress import Progress, TqdmProgress
 from src.runstate import RunStage, RunState
 from src.settings import Settings, seed_settings_from_ini
 from src.sync import sync_library
 
-logger = logging.getLogger(__name__)
+# Run as `python -m`, this module is `__main__`; name the logger after the module anyway
+logger = logging.getLogger("src.main" if __name__ == "__main__" else __name__)
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -40,6 +51,8 @@ def _outcome(stats: DownloadStats) -> SyncOutcome:
     """How a run that got through both halves is recorded."""
     if stats.cancelled:
         return SyncOutcome.CANCELLED
+    if stats.aborted:
+        return SyncOutcome.ABORTED
     return SyncOutcome.SUCCESS if stats.failed == 0 else SyncOutcome.PARTIAL
 
 
@@ -169,8 +182,18 @@ def run_account(
             books_added=books_added,
             books_downloaded=stats.succeeded,
             books_failed=stats.failed,
+            error=(
+                f"Gave up after {settings.max_consecutive_failures} books in a row were refused or failed"
+                if stats.aborted
+                else None
+            ),
         )
     finally:
+        # The row is closed on every path above, so what is sent is the final record
+        if settings.webhook_url:
+            run = get_sync_run(run_id)
+            if run is not None:
+                notify_run_finished(settings.webhook_url, run, account)
         # After the row is closed, so a poll never sees "nothing running" beside a run
         # the history still shows in flight
         state.end()
@@ -199,10 +222,22 @@ def run_command() -> None:
     run_pipeline(settings, progress=TqdmProgress())
 
 
-def login_command(marketplace: str, *, name: str | None, monitor_existing: bool) -> None:
-    """Add an account by signing in through the browser and pasting the address back."""
+def login_command(marketplace: str, *, name: str | None, monitor_existing: bool, account_id: int | None = None) -> None:
+    """
+    Add an account by signing in through the browser and pasting the address back, or
+    with `account_id` give an existing account new credentials and keep its library.
+    """
     _prepare()
+    existing = None
+    if account_id is not None:
+        existing = get_account(account_id)
+        if existing is None:
+            raise SystemExit(f"No account with id {account_id}")
     auth = login_interactively(marketplace)
+    if existing is not None:
+        replace_account_auth(existing, auth)
+        print(f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept.")
+        return
     account_id = add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
     logger.info("Added account %d for Audible %s", account_id, marketplace)
     print(f"Logged in. Account {account_id} added; the next run will sync it.")
@@ -225,6 +260,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="leave the books the account already owns out of the download queue; only new purchases are fetched",
     )
+    login.add_argument(
+        "--account",
+        type=int,
+        metavar="ID",
+        help="replace the credentials of this existing account instead of adding one; its library is kept",
+    )
     return parser
 
 
@@ -232,7 +273,12 @@ def main(argv: list[str] | None = None) -> None:
     """CLI entry point: `run` (the default) or `login`."""
     args = build_parser().parse_args(argv)
     if args.command == "login":
-        login_command(args.marketplace, name=args.name, monitor_existing=not args.no_download_existing)
+        login_command(
+            args.marketplace,
+            name=args.name,
+            monitor_existing=not args.no_download_existing,
+            account_id=args.account,
+        )
     else:
         run_command()
 

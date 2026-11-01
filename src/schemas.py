@@ -144,6 +144,11 @@ class LoginComplete(BaseModel):
     Step two. `response_url` is the "page not found" address the browser lands on after
     signing in; `monitor_existing` is whether the library the account already holds is
     queued for download or inserted unmonitored so the user picks.
+
+    With `account_id`, the new credentials replace those of an existing account instead
+    of creating one - the way back when a registration stops working - and `name` and
+    `monitor_existing` are ignored. `deregister_previous` removes the old device from
+    Amazon first, best effort.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -151,6 +156,8 @@ class LoginComplete(BaseModel):
     response_url: str = Field(min_length=1)
     name: str | None = Field(default=None, min_length=1)
     monitor_existing: bool = True
+    account_id: int | None = None
+    deregister_previous: bool = True
 
 
 class SeriesEntry(BaseModel):
@@ -216,6 +223,47 @@ class BookAction(BaseModel):
     removed: list[str] = []
 
 
+class LogEntry(BaseModel):
+    time: str
+    level: str
+    logger: str
+    message: str
+
+
+class LogList(BaseModel):
+    items: list[LogEntry]
+
+
+class WebhookTest(BaseModel):
+    """Try a webhook; `url` defaults to the configured one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: str | None = None
+
+
+class BookCounts(BaseModel):
+    by_status: dict[str, int]
+    monitored: int
+    unmonitored: int
+    total: int
+
+
+class AccountStats(BaseModel):
+    account: AccountOut
+    books: BookCounts
+    bytes_on_disk: int
+    last_run: SyncRunOut | None
+
+
+class Stats(BaseModel):
+    accounts: list[AccountStats]
+    books: BookCounts
+    bytes_on_disk: int
+    last_run: SyncRunOut | None
+    next_run_at: str | None
+
+
 class Status(BaseModel):
     scheduler: SchedulerStatus
     current_run: RunSnapshot | None
@@ -233,6 +281,7 @@ class SettingsOut(BaseModel):
     sync_interval_minutes: int
     max_download: int | None
     max_attempts: int
+    max_consecutive_failures: int | None
     auto_monitor_new: bool
     download_folder: str
     audiobook_folder: str
@@ -265,6 +314,7 @@ class SettingsUpdate(BaseModel):
     sync_interval_minutes: int | None = None
     max_download: int | None = None
     max_attempts: int | None = None
+    max_consecutive_failures: int | None = None
     auto_monitor_new: bool | None = None
     download_folder: str | None = Field(default=None, min_length=1)
     audiobook_folder: str | None = Field(default=None, min_length=1)

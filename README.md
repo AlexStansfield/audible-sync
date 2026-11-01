@@ -46,8 +46,9 @@ Every path setting may be absolute or relative. A relative path is resolved agai
 
 ### `sync`
 
- - `max-download`: total number of books to download and decrypt on each app run, leave unset to get everything waiting to be downloaded
- - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`. A book Audible will not license is failed on the first try, since it cannot succeed later
+ - `max-download`: how many books to download and decrypt on each run (per account), leave unset to get everything waiting. A title Audible refuses to license does not use up a slot
+ - `max-attempts`: how many times a book is downloaded before it is given up on and marked `failed`, default `3`
+ - `max-consecutive-failures`: how many books in a row may be refused a licence or fail before a run gives up on the rest of the queue, default `5`; leave empty to never give up. A streak like that means the account or Audible is the problem, not the books - the run is recorded as `aborted` with the reason, and the next run tries again
  - `audible-auth-file`: path to the audible auth json, leave unset to default to `$HOME/.audible/audible.json`
  - `enabled`, `interval-minutes`: whether the background service runs syncs on a schedule, and how often (default `true`, `360`; at least `5`). The next run is the previous run's start plus the interval, whatever became of that run; a service that was down past its slot runs as soon as it starts. The one-shot CLI ignores both
  - `auto-monitor-new`: whether a purchase seen for the first time is queued for download, default `true`
@@ -96,7 +97,7 @@ Both formats get the same metadata, cover art and chapters. In M4B files the ser
 
 ### `notifications`
 
- - `webhook-url`: optional `http(s)` URL the background service posts a JSON summary to after each sync run. Unset by default
+ - `webhook-url`: optional `http(s)` URL that receives a JSON `POST` after every run of every account - `{"event": "sync.finished", "run": {...the run row...}, "account": {"id", "name", "country_code"}}` - for example to make Audiobookshelf rescan. A receiver that is down is logged and ignored; the run is never held up. `POST /api/settings/webhook/test` sends a sample event. Unset by default
 
 ## Running
 
@@ -125,7 +126,7 @@ The first run starts as soon as the service does, then every `interval-minutes` 
 For a single sync-and-exit instead of the service:
 
 ```
-docker compose run --rm audible-sync uv run python -m src.main
+docker compose run --rm audible-sync uv run --no-sync python -m src.main
 ```
 
 ### Running the App with Python (No Docker)
@@ -193,8 +194,10 @@ python -m src.main
 or add an account:
 
 ```
-python -m src.main login --marketplace uk [--name "Main"] [--no-download-existing]
+python -m src.main login --marketplace uk [--name "Main"] [--no-download-existing] [--account ID]
 ```
+
+`--account ID` signs in again for an existing account - its library and download history are kept - which is what to do if Audible starts answering every download with "License not granted to customer": Audible stopped licensing devices registered with the older app profile in October 2026, and a fresh sign-in registers one it accepts.
 
 The service reads these environment variables:
 
@@ -233,9 +236,12 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
 | `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
 | `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
+| `POST /api/settings/webhook/test` | `{"url"?}`: send a sample event to `url`, or to the configured webhook; `502` with the reason if it fails |
+| `GET /api/logs?limit=&level=` | The newest log lines (up to 1000 are kept), oldest first, at or above `level` |
+| `GET /api/stats` | For a dashboard: per account and in total, books by status, monitored/unmonitored, bytes on disk, the last run, and when the next one is due |
 | `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |
 | `POST /api/accounts/login` | `{"country_code"}`: step one of signing in. Returns `login_id`, the `url` to open in a browser, and `expires_at` (15 minutes) |
-| `POST /api/accounts/login/{login_id}` | `{"response_url", "name"?, "monitor_existing"?}`: step two. `response_url` is the address of the "page not found" page the browser lands on after signing in. `201` with the new account; `404` if the login expired (start again), `400` if the address carries no code, `502` if Amazon rejected it |
+| `POST /api/accounts/login/{login_id}` | `{"response_url", "name"?, "monitor_existing"?, "account_id"?, "deregister_previous"?}`: step two. `response_url` is the address of the "page not found" page the browser lands on after signing in. `201` with the new account; `404` if the login expired (start again), `400` if the address carries no code, `502` if Amazon rejected it. With `account_id` the new credentials replace an existing account's and its library is kept - the way back when Audible stops licensing a registration |
 
 Timestamps are ISO 8601 in UTC. The file actions refuse (`409`) a book a run is downloading; cancel the run first.
 

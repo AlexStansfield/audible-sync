@@ -27,29 +27,34 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from src import library
-from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file
+from src.accounts import add_account_from_authenticator, authenticator_for, import_auth_file, replace_account_auth
 from src.audible_login import MARKETPLACES, PendingLogins, complete_login
 from src.database import (
     BOOK_SORT_COLUMNS,
     count_sync_runs,
     delete_account,
+    downloaded_file_paths,
     get_account,
     get_accounts,
     get_book,
     get_sync_run,
     get_sync_runs,
+    library_stats,
     list_books,
     save_settings,
     set_monitored,
     update_account,
 )
+from src.logbuffer import RingBufferHandler
 from src.model import BookStatus
+from src.notify import send_webhook
 from src.paths import REPO_ROOT
 from src.runstate import RunState
 from src.scheduler import Scheduler
 from src.schemas import (
     AccountImport,
     AccountOut,
+    AccountStats,
     AccountUpdate,
     BookAction,
     BookList,
@@ -59,13 +64,16 @@ from src.schemas import (
     LoginComplete,
     LoginStart,
     LoginStarted,
+    LogList,
     MarketplaceOut,
     Message,
     SettingsOut,
     SettingsUpdate,
+    Stats,
     Status,
     SyncRunList,
     SyncRunOut,
+    WebhookTest,
 )
 from src.settings import Settings
 
@@ -101,6 +109,7 @@ def create_app(
     cors_origins: list[str] | None = None,
     version: str | None = None,
     logins: PendingLogins | None = None,
+    log_buffer: RingBufferHandler | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -113,6 +122,8 @@ def create_app(
         cors_origins: Origins allowed to call from a browser, e.g. the UI's dev server
         version: Reported by the health check; defaults to `pyproject.toml`'s
         logins: The store of logins started and not yet completed; defaults to a fresh one
+        log_buffer: The handler holding recent log lines for `GET /api/logs`; without one
+            the endpoint answers with nothing
     """
     logins = logins or PendingLogins()
 
@@ -208,6 +219,50 @@ def create_app(
         scheduler.wake()
         return SettingsOut.model_validate(settings)
 
+    @router.post("/settings/webhook/test", response_model=Message)
+    def test_webhook(body: WebhookTest) -> Message:
+        """Send a sample event to `url`, or the configured webhook; 502 if it fails."""
+        url = body.url or Settings.from_db().webhook_url
+        if not url:
+            raise HTTPException(status_code=400, detail="No webhook URL configured")
+        try:
+            send_webhook(url, {"event": "test", "message": "Audible Sync webhook test"})
+        except Exception as error:
+            raise HTTPException(status_code=502, detail=f"Webhook failed: {error}") from None
+        return Message(status="sent")
+
+    @router.get("/logs", response_model=LogList)
+    def get_logs(
+        limit: Annotated[int, Query(ge=1, le=1000)] = 200,
+        level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] | None = None,
+    ) -> LogList:
+        """The newest log lines, oldest first, at or above `level`."""
+        return LogList(items=log_buffer.records(limit=limit, level=level) if log_buffer else [])
+
+    @router.get("/stats", response_model=Stats)
+    def get_stats() -> Stats:
+        """The numbers a dashboard opens with: per account and in total."""
+        settings = Settings.from_db()
+        per_account = []
+        for account in get_accounts():
+            last = get_sync_runs(limit=1, account_id=account.id)
+            per_account.append(
+                AccountStats(
+                    account=account,
+                    books=library_stats(account_id=account.id),
+                    bytes_on_disk=_bytes_on_disk(downloaded_file_paths(account_id=account.id)),
+                    last_run=last[0] if last else None,
+                )
+            )
+        last = get_sync_runs(limit=1)
+        return Stats(
+            accounts=per_account,
+            books=library_stats(),
+            bytes_on_disk=sum(a.bytes_on_disk for a in per_account),
+            last_run=last[0] if last else None,
+            next_run_at=scheduler.status(settings)["next_run_at"],
+        )
+
     @router.get("/accounts", response_model=list[AccountOut])
     def list_accounts() -> list[AccountOut]:
         return get_accounts()
@@ -259,11 +314,13 @@ def create_app(
     @router.post("/accounts/login/{login_id}", response_model=AccountOut, status_code=201)
     def complete_account_login(login_id: str, body: LoginComplete) -> AccountOut:
         """
-        Step two: the pasted address becomes an account.
+        Step two: the pasted address becomes an account, or new credentials for one.
 
         404 for a login that was never started or has expired (start again), 400 for an
         address that carries no authorization code, 502 when Amazon rejects the code.
+        With `account_id`, that account's credentials are replaced and its library kept.
         """
+        existing = _account_or_404(body.account_id) if body.account_id is not None else None
         pending = logins.pop(login_id)
         if pending is None:
             raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
@@ -274,6 +331,9 @@ def create_app(
         except Exception as error:
             logger.warning("Amazon rejected the login for %s", pending.country_code, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
+        if existing is not None:
+            replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
+            return get_account(existing.id)
         account_id = add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
         return get_account(account_id)
 
@@ -389,6 +449,17 @@ def _busy_to_409(action, book, settings):
         return action(book, settings)
     except library.BookBusy as error:
         raise HTTPException(status_code=409, detail=str(error)) from None
+
+
+def _bytes_on_disk(paths: list[str]) -> int:
+    """Sum of the file sizes, ignoring any file that has gone."""
+    total = 0
+    for path in paths:
+        try:
+            total += Path(path).stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _account_or_404(account_id: int):

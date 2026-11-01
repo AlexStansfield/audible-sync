@@ -74,6 +74,12 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
     monkeypatch.setattr(main_module, "sync_library", fake_sync)
     monkeypatch.setattr(main_module, "download_books", fake_download)
     monkeypatch.setattr(main_module, "start_sync_run", lambda account_id: calls.setdefault("run_id", 7))
+    monkeypatch.setattr(main_module, "get_sync_run", lambda run_id: f"run-{run_id}")
+    monkeypatch.setattr(
+        main_module,
+        "notify_run_finished",
+        lambda url, run, account: calls.setdefault("notified", []).append((url, run, account.id)),
+    )
     monkeypatch.setattr(
         main_module,
         "finish_sync_run",
@@ -133,6 +139,7 @@ def test_run_pipeline_records_a_successful_run(tmp_path, monkeypatch):
         "books_added": 3,
         "books_downloaded": 2,
         "books_failed": 0,
+        "error": None,
     }
 
 
@@ -401,3 +408,77 @@ def test_login_command_refuses_an_unknown_marketplace(monkeypatch, capsys):
         main(["login", "--marketplace", "xx"])
 
     assert "invalid choice" in capsys.readouterr().err
+
+
+# --- the webhook -------------------------------------------------------------------
+
+
+def test_run_account_sends_the_webhook_with_the_closed_run(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(
+        make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", webhook_url="https://hooks/x")
+    )
+
+    assert calls["notified"] == [("https://hooks/x", "run-7", 1)]
+
+
+def test_run_account_sends_the_webhook_when_the_run_fails_too(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("down"))
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(
+            make_settings(
+                download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", webhook_url="https://hooks/x"
+            )
+        )
+
+    assert calls["notified"] == [("https://hooks/x", "run-7", 1)]
+
+
+def test_run_account_sends_no_webhook_without_a_url(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(_settings(tmp_path))
+
+    assert "notified" not in calls
+
+
+def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+    replaced = []
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: replaced.append((account.id, auth)))
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda *a, **kw: pytest.fail("must not add"))
+
+    main(["login", "--marketplace", "uk", "--account", "3"])
+
+    assert replaced == [(3, "auth")]
+    assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+
+
+def test_login_command_refuses_an_unknown_account_before_the_browser_step(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: None)
+    monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: pytest.fail("must not start a login"))
+
+    with pytest.raises(SystemExit, match="No account with id 9"):
+        main(["login", "--marketplace", "uk", "--account", "9"])
+
+
+def test_run_pipeline_records_aborted_with_the_reason_when_the_breaker_trips(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, stats=DownloadStats(0, 0, 2, 3, aborted=True))
+
+    run_pipeline(
+        make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", max_consecutive_failures=5)
+    )
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] == SyncOutcome.ABORTED
+    assert recorded["error"] == "Gave up after 5 books in a row were refused or failed"
+    assert recorded["books_failed"] == 2
