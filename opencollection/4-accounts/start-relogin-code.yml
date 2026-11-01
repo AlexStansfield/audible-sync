@@ -1,0 +1,25 @@
+info:
+  name: Start a re-login (code)
+  type: http
+  seq: 6
+http:
+  method: POST
+  url: "{{baseUrl}}/api/accounts/login"
+  body:
+    type: json
+    data: |-
+      {
+        "country_code": "uk",
+        "method": "code",
+        "account_id": 1,
+        "deregister_previous": true
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The recovery when a registration stops working: the account keeps its id, library and
+  download history and gets a new device. The previous device is deregistered with Amazon
+  first when `deregister_previous` is true (best effort). Once confirmed, the books Audible
+  refused licences for are queued again. 404 for an unknown account, checked before Amazon
+  is asked.

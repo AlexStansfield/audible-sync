@@ -1,0 +1,22 @@
+info:
+  name: Start a login (browser)
+  type: http
+  seq: 7
+http:
+  method: POST
+  url: "{{baseUrl}}/api/accounts/login"
+  body:
+    type: json
+    data: |-
+      {
+        "country_code": "uk",
+        "method": "browser",
+        "monitor_existing": true
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The fallback for accounts that predate Amazon sign-in. 202 with a `url` to open in a
+  browser; after signing in, Amazon lands on a "page not found" address that carries the
+  authorization code. Paste that address into "Complete a browser login".

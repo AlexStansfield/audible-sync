@@ -1,0 +1,22 @@
+info:
+  name: Retry every parked book
+  type: http
+  seq: 7
+http:
+  method: POST
+  url: "{{baseUrl}}/api/books/retry-unavailable"
+  body:
+    type: json
+    data: |-
+      {
+        "account_id": 1
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Queues every book parked `unavailable` that Audible still reports consumable: for the
+  day every licence was refused (a device registration Audible had stopped accepting)
+  rather than one title it has retired. Titles Audible itself withdrew are left to the
+  sync, which restores them when they are offered again. Send `{}` for every account.
+  Returns `requeued`, the count.

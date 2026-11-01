@@ -1,0 +1,16 @@
+info:
+  name: Delete the files
+  type: http
+  seq: 4
+http:
+  method: POST
+  url: "{{baseUrl}}/api/books/:id/delete-files"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Removes the audio, PDF, cover and annotations, prunes empty folders and unmonitors the book so it stays deleted. Returns the paths removed.

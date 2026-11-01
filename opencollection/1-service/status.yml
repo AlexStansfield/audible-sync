@@ -1,0 +1,12 @@
+info:
+  name: Status
+  type: http
+  seq: 2
+http:
+  method: GET
+  url: "{{baseUrl}}/api/status"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The scheduler (enabled, interval, next run), the run in flight with its stage, book and bytes, the last run and the accounts. Poll this for progress.

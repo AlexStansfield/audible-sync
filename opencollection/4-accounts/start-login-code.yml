@@ -1,0 +1,29 @@
+info:
+  name: Start a login (code)
+  type: http
+  seq: 5
+http:
+  method: POST
+  url: "{{baseUrl}}/api/accounts/login"
+  body:
+    type: json
+    data: |-
+      {
+        "country_code": "uk",
+        "method": "code",
+        "name": null,
+        "monitor_existing": true
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  202 with `login_id`, the five-letter `code` and the `verification_url` to enter it at.
+  The service polls Amazon until the code is confirmed or expires (ten minutes).
+  
+  For a new account: `name` (defaults to the Amazon customer name and marketplace) and
+  `monitor_existing` (queue the back catalogue, or insert it unmonitored to pick from).
+  To replace an existing account's credentials instead, send `account_id` and
+  `deregister_previous` (see "Start a re-login").
+  
+  422 for an unknown marketplace, 502 when Amazon will not issue a code.

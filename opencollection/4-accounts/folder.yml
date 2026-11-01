@@ -1,0 +1,15 @@
+info:
+  name: Accounts
+  type: folder
+  seq: 4
+docs:
+  content: |
+    One account per Audible marketplace login. Add one by signing in to Amazon with a
+    five-letter code (the default), with the browser flow as the fallback, or by importing
+    an `audible-cli` auth file the service can read.
+
+    A login is three steps: start it, enter the code at `https://www.amazon.{domain}/code`
+    on any device, then poll its status until it turns `confirmed`. With `account_id` set,
+    an existing account gets the new credentials instead and keeps its library; books
+    parked because the old device was refused licences are queued again.
+  type: text/markdown

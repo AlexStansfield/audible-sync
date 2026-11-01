@@ -1,0 +1,16 @@
+info:
+  name: Refresh from Audible
+  type: http
+  seq: 8
+http:
+  method: POST
+  url: "{{baseUrl}}/api/books/:id/refresh"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Re-reads the one book from Audible. 409 when the account has no credentials, 502 when Audible does not answer.

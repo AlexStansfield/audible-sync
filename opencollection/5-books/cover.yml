@@ -1,0 +1,16 @@
+info:
+  name: Cover
+  type: http
+  seq: 9
+http:
+  method: GET
+  url: "{{baseUrl}}/api/books/:id/cover"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The cover file once downloaded, else a redirect to Audible's URL, else 404.

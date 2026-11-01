@@ -1,0 +1,14 @@
+info:
+  name: Get an account
+  type: http
+  seq: 3
+http:
+  method: GET
+  url: "{{baseUrl}}/api/accounts/:id"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true

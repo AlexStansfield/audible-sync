@@ -1,0 +1,16 @@
+info:
+  name: Redownload
+  type: http
+  seq: 5
+http:
+  method: POST
+  url: "{{baseUrl}}/api/books/:id/redownload"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Deletes the files and queues the book afresh with its attempts reset.

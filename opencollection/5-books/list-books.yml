@@ -1,0 +1,46 @@
+info:
+  name: List books
+  type: http
+  seq: 1
+http:
+  method: GET
+  url: "{{baseUrl}}/api/books?page=1&page_size=50&sort=date_added&order=desc"
+  params:
+    - name: page
+      value: "1"
+      type: query
+    - name: page_size
+      value: "50"
+      type: query
+      description: 1-200
+    - name: sort
+      value: "date_added"
+      type: query
+      description: date_added, title, author, release_date or downloaded_at
+    - name: order
+      value: "desc"
+      type: query
+      description: asc or desc
+    - name: account_id
+      value: "1"
+      type: query
+      disabled: true
+    - name: status
+      value: "unavailable"
+      type: query
+      description: waiting_download, downloading, downloaded, unavailable or failed
+      disabled: true
+    - name: monitored
+      value: "true"
+      type: query
+      disabled: true
+    - name: q
+      value: "dune"
+      type: query
+      description: matches the title, authors and series
+      disabled: true
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  A page of books and the `total` that matched. Enable the optional filters as needed.

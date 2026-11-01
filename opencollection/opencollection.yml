@@ -1,0 +1,24 @@
+opencollection: "1.0.0"
+info:
+  name: Audible Sync API
+  version: "0.1.0"
+request:
+  auth:
+    type: bearer
+    token: "{{apiToken}}"
+docs:
+  content: |
+    The HTTP API of the audible-sync service, one request per endpoint, for Bruno or
+    any client that reads the OpenCollection format (https://www.opencollection.com/).
+
+    Every request inherits the collection's bearer token except `GET /api/health`.
+    Pick an environment and fill in its two variables:
+
+    - `baseUrl`: where the service listens, `http://localhost:8080` by default
+    - `apiToken`: the token the service logs at every start (or `AUDIBLE_SYNC_API_TOKEN`).
+      It is a secret variable, so Bruno keeps it out of the repository.
+
+    Path parameters (`:id`) default to `1`; change them per request. Folders are
+    numbered in the order you would use them on a fresh install.
+  type: text/markdown
+bundled: false

@@ -1,0 +1,12 @@
+info:
+  name: Cancel the sync
+  type: http
+  seq: 2
+http:
+  method: POST
+  url: "{{baseUrl}}/api/sync/cancel"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  202 when a run was cancelled, 409 when idle. The book being downloaded goes back to the queue with its attempt count untouched; the run is recorded `cancelled`.
