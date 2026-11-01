@@ -29,7 +29,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
 from src import library
-from src.accounts import add_account_from_authenticator, authenticator_for, replace_account_auth
+from src.accounts import (
+    add_account_from_authenticator,
+    authenticator_for,
+    check_marketplace,
+    replace_account_auth,
+)
 from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
@@ -339,9 +344,12 @@ def create_app(
         `confirmed` (with the account) on `GET /api/accounts/login/{login_id}` once the
         user has entered it. With `browser`, open `url`, sign in, and post the "page not
         found" address to `POST /api/accounts/login/{login_id}`. 422 for an unknown
-        marketplace, 404 for an unknown `account_id`, 502 when Amazon will not issue a code.
+        marketplace or one that is not `account_id`'s, 404 for an unknown `account_id`,
+        502 when Amazon will not issue a code.
         """
         existing = _account_or_404(body.account_id) if body.account_id is not None else None
+        if existing is not None:
+            check_marketplace(existing, body.country_code)  # ValueError -> 422
         finish = _finisher(body, existing)
         if body.method == "browser":
             return _login_out(logins.start(body.country_code, finish))  # ValueError -> 422

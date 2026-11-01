@@ -286,7 +286,7 @@ class Account:
     each is a separate login with its own credentials, so an account is a marketplace
     login rather than a person. `auth` is the decoded `Authenticator.to_dict()` blob and
     is None for an account that has no working credentials yet - the placeholder the
-    migration creates when no auth file was found, or an account whose login was
+    migration creates for a pre-accounts library, or an account whose login was
     invalidated. Such an account is skipped by the pipeline and reported as needing a
     login. It is deliberately kept out of `__repr__`.
 

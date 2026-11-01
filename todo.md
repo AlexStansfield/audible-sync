@@ -83,6 +83,15 @@ List of tasks to complete by phases
 - [x] Credentials and the API token encrypted at rest, the key outside `data/` (`secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY`), so the database can be backed up without the Audible login
 - [x] Set book as monitored/unmonitored to remove from sync (`PATCH /api/books/{id}`), plus a paged, searchable `GET /api/books` and a cover endpoint
 - [x] Extras: `GET /api/logs`, a webhook posted after every run (`webhook-url`, with `POST /api/settings/webhook/test`), `GET /api/stats`
+- [x] Review fixes (2026-11-01): the scheduler no longer runs back to back when a pass records no run (no accounts yet); a run no longer writes its refreshed credentials over a re-login made while it ran; an account added after the migration no longer inherits the migrated library's cursor; a re-login in another marketplace is refused
+
+### Known issues from the 2026-11-01 review (not yet fixed)
+
+- [ ] A login confirmed for an `account_id` acts on the account as it was when the login started: if the account is deleted before the code is entered, the new device is stored nowhere and the login still reports `confirmed`. Re-read the account in the finisher and fail (deregistering the new device) when it is gone
+- [ ] When storing a confirmed login fails (database locked, no key, account gone), the newly registered device stays on the user's Amazon device list with nothing holding it. Deregister it on that path
+- [ ] A CLI `login` on the host generates its own `secrets/secret.key` when the service's key lives elsewhere (`AUDIBLE_SYNC_SECRET_KEY` in Docker), and the service then cannot read the new credentials. Warn when the CLI generates a key while the database already holds encrypted secrets
+- [ ] A `200` from `/auth/register` whose body is not JSON fails the code login instead of being polled again like a `429`/`5xx`
+- [ ] The CLI `login` prints its result and the code to enter (`print`, `echo=print`), which the "never `print`" rule forbids. Either route it through logging or record the CLI's user-facing output as the exception
 
 ## Milestone 4: Web App Frontend
 
