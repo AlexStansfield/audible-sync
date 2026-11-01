@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audible Sync – One Word Kill</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0e1014}
+[data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
+[data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
+a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+
+<nav aria-label="Main" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
+<div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
+</div>
+<div style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
+<a href="Library.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 600; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path><path d="M8 7h7"></path></svg>Library<span style="margin-left: auto; font-size: 12px; color: var(--muted)">354</span></a>
+<a href="Activity.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Activity</a>
+<a href="Accounts.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>Accounts</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 12h4M12 12h8M4 18h12"></path><circle cx="17" cy="6" r="2.5"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="19" cy="18" r="2"></circle></svg>Settings</a>
+<div style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok)"></span>Service healthy</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><a href="Profile.dc.html" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; min-height: 32px"><span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">A</span>admin</a><a href="Login.dc.html" style="font-size: 13px; color: var(--text-2); text-decoration: none">Sign out</a></div>
+</div>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px">
+
+<nav aria-label="Breadcrumb" style="font-size: 13px; color: var(--muted)"><a href="Library.dc.html" style="text-decoration: none">Library</a> / <span aria-current="page">One Word Kill</span></nav>
+
+<section style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start">
+<div aria-hidden="true" style="flex: 0 1 280px; aspect-ratio: 1; border-radius: 10px; background: #1f3a5a; color: #e6eef8; display: flex; align-items: flex-end; padding: 20px; box-sizing: border-box; font-family: Georgia, serif; font-weight: 700; font-size: 30px; line-height: 1.05">One Word Kill</div>
+
+<div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<span style="display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: {{chipBg}}; color: {{chipFg}}; font-size: 12px; font-weight: 600"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{chipFg}}"></span>{{statusLabel}}</span>
+<span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--text-2)">UK</span>
+<span style="font-size: 13px; color: var(--muted)">Alex (UK)</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.01em">One Word Kill</h1>
+<p style="margin: 0; font-size: 15px; color: var(--text-2)">Impossible Times, Book 1</p>
+</div>
+<p style="margin: 0; font-size: 15px">By <a href="Library.dc.html" style="text-decoration: none">Mark Lawrence</a> · Narrated by Joe Jameson</p>
+
+<dl style="margin: 4px 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px 20px; padding: 16px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Series</dt><dd style="margin: 0; font-weight: 500">Impossible Times #1</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Length</dt><dd style="margin: 0; font-weight: 500">7h 6m</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Released</dt><dd style="margin: 0; font-weight: 500">9 May 2019</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Added to Audible</dt><dd style="margin: 0; font-weight: 500">28 Oct 2026</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">ASIN</dt><dd style="margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px">B07P6B2Q1L</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Genres</dt><dd style="margin: 0; font-weight: 500">Science Fiction, Time Travel</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Companion PDF</dt><dd style="margin: 0; font-weight: 500">None</dd></div>
+<div style="display: flex; flex-direction: column; gap: 6px"><dt style="font-size: 12px; color: var(--muted)">Listening progress</dt><dd style="margin: 0; display: flex; align-items: center; gap: 8px"><span aria-hidden="true" style="flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden"><span style="display: block; width: 42%; height: 100%; background: var(--info)"></span></span><span style="font-weight: 500">42%</span></dd></div>
+</dl>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 4px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 0 14px 0 10px; min-height: 42px; border-radius: 8px; background: var(--panel); border: 1px solid var(--line); font-weight: 600">
+<button type="button" role="switch" aria-checked="true" aria-labelledby="mon-l" style="width: 40px; height: 24px; border-radius: 999px; border: 0; background: var(--accent); position: relative; cursor: pointer"><span style="position: absolute; top: 3px; left: 19px; width: 18px; height: 18px; border-radius: 50%; background: #fff"></span></button><span id="mon-l">Monitored</span></div>
+<sc-if value="{{isDownloaded}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Redownload</button>
+<button type="button" onClick="{{openDelete}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--bad-line); background: transparent; color: var(--bad-text); font: inherit; font-weight: 600; cursor: pointer">Delete files</button>
+</div>
+</sc-if>
+<sc-if value="{{canRetry}}" hint-placeholder-val="{{ false }}">
+<button type="button" style="min-height: 42px; padding: 0 18px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Retry download</button>
+</sc-if>
+<button type="button" style="min-height: 42px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>Refresh from Audible</button>
+</div>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+
+<section aria-labelledby="dl-h" style="flex: 1 1 380px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+<h2 id="dl-h" style="margin: 0; font-size: 15px; font-weight: 600">Download</h2>
+<sc-if value="{{hasError}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="padding: 12px; border-radius: 8px; background: rgba(255,122,122,0.08); border: 1px solid var(--bad-line); display: flex; flex-direction: column; gap: 6px">
+<span style="font-weight: 600; color: var(--bad-text)">{{errorTitle}}</span>
+<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--bad-text); white-space: pre-wrap">{{errorText}}</code>
+</div>
+</sc-if>
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 20px">
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Attempts</dt><dd style="margin: 0; font-weight: 500">{{attempts}}</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Last attempt</dt><dd style="margin: 0; font-weight: 500">28 Oct 2026, 14:06</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Downloaded</dt><dd style="margin: 0; font-weight: 500">{{downloadedAt}}</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Format</dt><dd style="margin: 0; font-weight: 500">{{format}}</dd></div>
+</dl>
+</section>
+
+<section aria-labelledby="files-h" style="flex: 1.4 1 480px; min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 6px">
+<h2 id="files-h" style="margin: 0 0 8px; font-size: 15px; font-weight: 600">Files on disk</h2>
+<sc-for list="{{files}}" as="f" hint-placeholder-count="4">
+<div style="display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line)">
+<span style="width: 92px; flex: none; font-size: 12px; color: var(--muted)">{{f.kind}}</span>
+<code style="flex: 1; min-width: 0; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: {{f.color}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{f.path}}</code>
+</div>
+</sc-for>
+</section>
+</div>
+</main>
+
+<sc-if value="{{confirmDelete}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; background: rgba(5,6,8,0.72); display: flex; align-items: flex-start; justify-content: center; padding-top: 200px">
+<div role="dialog" aria-modal="true" aria-labelledby="del-h" style="width: 100%; max-width: 460px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<h2 id="del-h" style="margin: 0; font-size: 18px; font-weight: 700">Delete the files for One Word Kill?</h2>
+<p style="margin: 0; color: var(--text-2)">The audio, cover and annotations are removed from your audiobooks folder, along with any folders left empty. The book is unmonitored so it will not download again. It stays in your library.</p>
+<div style="display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px">
+<button type="button" onClick="{{closeDelete}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Keep files</button>
+<button type="button" onClick="{{closeDelete}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: #e55b5b; color: #fff; font: inherit; font-weight: 700; cursor: pointer">Delete files</button>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"status":{"editor":"enum","options":["downloaded","failed","unavailable","waiting"],"default":"downloaded"},"confirmDelete":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const status = this.props.status ?? 'downloaded';
+    const open = (this.state && this.state.open) ?? (this.props.confirmDelete ?? false);
+    const meta = {
+      downloaded: ['Downloaded', 'rgba(76,207,143,0.14)', 'var(--ok)'],
+      failed: ['Failed', 'rgba(255,122,122,0.14)', 'var(--bad)'],
+      unavailable: ['Unavailable', 'rgba(183,156,255,0.14)', 'var(--violet)'],
+      waiting: ['Waiting', 'rgba(111,177,255,0.14)', 'var(--info)'],
+    }[status];
+    const dl = status === 'downloaded';
+    const base = 'audiobooks/Mark Lawrence/Impossible Times/1 - One Word Kill/One Word Kill';
+    return {
+      theme: this.props.theme ?? 'dark',
+      statusLabel: meta[0], chipBg: meta[1], chipFg: meta[2],
+      isDownloaded: dl,
+      canRetry: status === 'failed' || status === 'unavailable',
+      hasError: status === 'failed' || status === 'unavailable',
+      errorTitle: status === 'failed' ? 'Gave up after 3 attempts' : 'Audible refused the licence',
+      errorText: status === 'failed' ? 'ffmpeg exited with status 1: Invalid data found when processing input' : 'License not granted to customer',
+      attempts: status === 'failed' ? '3 of 3' : dl ? '1 of 3' : '0 of 3',
+      downloadedAt: dl ? '28 Oct 2026, 14:19' : '—',
+      format: dl ? 'M4B (AAC, original)' : '—',
+      files: [
+        { kind: 'Audio', path: dl ? base + '.m4b' : 'Not downloaded', color: dl ? 'var(--text)' : 'var(--muted)' },
+        { kind: 'Cover', path: dl ? base + '_cover.jpg' : '—', color: dl ? 'var(--text)' : 'var(--muted)' },
+        { kind: 'Annotations', path: dl ? base + '_annotations.json' : '—', color: dl ? 'var(--text)' : 'var(--muted)' },
+        { kind: 'PDF', path: 'No companion PDF', color: 'var(--muted)' },
+      ],
+      confirmDelete: open,
+      openDelete: () => this.setState({ open: true }),
+      closeDelete: () => this.setState({ open: false }),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -107,5 +107,19 @@ A web application that exposes a UI to the API allowing you to login to audible,
 
 ### Tasks
 
-To be defined
+The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
+
+- [x] Design: every screen, light and dark themes, behaviour and API mapping (`docs/design/`)
+- [ ] Backend: an `admin` user created on the first start with a generated password logged once; password hash stored encrypted
+- [ ] Backend: session sign-in (`/api/auth/login`, `/logout`, `/me`) accepted beside the bearer token; rate-limited failures
+- [ ] Backend: change the username and password (current password required; a password change ends other sessions)
+- [ ] Backend: a server-side way to reset a forgotten password
+- [ ] Backend: serve the built web app from FastAPI with an `index.html` fallback
+- [ ] Docker and CI: a Node build stage for `web/`; lint, type-check and build it in CI
+- [ ] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
+- [ ] Web: sign-in and Your sign-in
+- [ ] Web: Dashboard with the live run card
+- [ ] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
+- [ ] Web: Accounts with the code and browser sign-in flows
+- [ ] Web: Activity (runs, log) and Settings
 
