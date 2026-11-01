@@ -9,7 +9,6 @@ data/
 ~data/.gitkeep
 
 # tmp 
-audible.json
 example-book.json
 # Local test deployments
 test/

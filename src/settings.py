@@ -18,7 +18,7 @@ Note this module must never import `src.downloader`: the downloader imports
 import configparser
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -34,16 +34,6 @@ DEFAULT_CONFIG_FILE = REPO_ROOT / "config" / "config.ini"
 # Resolved once, so the dataclass defaults below are plain constants
 DEFAULT_DOWNLOAD_FOLDER = REPO_ROOT / "data" / "downloads"
 DEFAULT_AUDIOBOOK_FOLDER = REPO_ROOT / "audiobooks"
-
-
-def _default_auth_file() -> Path:
-    """
-    The location `audible quickstart` writes to.
-
-    A factory rather than a plain default so the home directory is read when the
-    settings are built, not when this module is imported.
-    """
-    return Path.home() / ".audible" / "audible.json"
 
 
 DEFAULT_MAX_ATTEMPTS = 3
@@ -138,8 +128,6 @@ class Settings:
     max_consecutive_failures: int | None = DEFAULT_MAX_CONSECUTIVE_FAILURES
     # Whether a purchase seen for the first time joins the download queue
     auto_monitor_new: bool = True
-    # Not a runtime setting: this is where an existing audible-cli login is imported from
-    auth_file: Path = field(default_factory=_default_auth_file)
 
     # [folders]
     download_folder: Path = DEFAULT_DOWNLOAD_FOLDER
@@ -186,9 +174,6 @@ class Settings:
         config = configparser.ConfigParser()
         config.read(path, encoding="utf-8")
 
-        # An empty `audible-auth-file =` means "unset", same as omitting the key
-        auth_file = config.get("sync", "audible-auth-file", fallback="")
-
         return cls(
             debug=config.getboolean("general", "debug", fallback=False),
             sync_enabled=config.getboolean("sync", "enabled", fallback=True),
@@ -198,7 +183,6 @@ class Settings:
             # An empty value means "never give up", the same "unset" as the other optionals
             max_consecutive_failures=_optional_int(config, "sync", "max-consecutive-failures"),
             auto_monitor_new=config.getboolean("sync", "auto-monitor-new", fallback=True),
-            auth_file=resolve_path(auth_file) if auth_file else _default_auth_file(),
             download_folder=resolve_path(config.get("folders", "downloads", fallback=DEFAULT_DOWNLOAD_FOLDER)),
             audiobook_folder=resolve_path(config.get("folders", "audiobooks", fallback=DEFAULT_AUDIOBOOK_FOLDER)),
             folder_template=config.get("naming", "folder", fallback=DEFAULT_FOLDER_TEMPLATE),
@@ -240,7 +224,7 @@ class Settings:
         A copy with some runtime settings replaced, validated like any other build.
 
         This is what a settings update goes through, so it refuses a key that is not a
-        runtime setting - a typo, or `auth_file`, which is import-only - and normalises
+        runtime setting - a typo - and normalises
         the shapes a caller is likely to send: a folder given as text is anchored like
         one read from the file, and an empty webhook URL means "unset".
 
@@ -273,9 +257,8 @@ def _optional_int(config: configparser.ConfigParser, section: str, key: str) -> 
     return int(text) if text else None
 
 
-# The settings the table holds and the API may change. `auth_file` is the one field left
-# out: it is where an existing login is imported from, not something a run reads.
-DB_SETTING_KEYS: tuple[str, ...] = tuple(f.name for f in fields(Settings) if f.name != "auth_file")
+# The settings the table holds and the API may change: every field.
+DB_SETTING_KEYS: tuple[str, ...] = tuple(f.name for f in fields(Settings))
 
 
 def _format(value: Any) -> str:

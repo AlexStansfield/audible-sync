@@ -17,7 +17,6 @@ services:
       # folder up separately from ./data: without the key the logins have to be redone.
       - AUDIBLE_SYNC_SECRET_KEY=${AUDIBLE_SYNC_SECRET_KEY:-}
     volumes:
-      - ~/.audible:/root/.audible
       - ./data:/app/data
       - ./secrets:/app/secrets
       - ./audiobooks:/app/audiobooks

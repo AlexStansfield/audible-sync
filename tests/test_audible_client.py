@@ -173,19 +173,13 @@ def test_client_is_given_a_timeout_that_fits_a_full_page(monkeypatch):
     """
     captured = {}
 
-    class FakeAuthenticator:
-        @staticmethod
-        def from_file(filename):
-            return "auth"
-
     def fake_client(auth, **kwargs):
         captured.update(kwargs)
         return object()
 
-    monkeypatch.setattr(src.audible_client.audible, "Authenticator", FakeAuthenticator)
     monkeypatch.setattr(src.audible_client.audible, "Client", fake_client)
 
-    src.audible_client.Audible.from_file("ignored.json")
+    src.audible_client.Audible("auth")
 
     assert captured["timeout"] == src.audible_client._API_TIMEOUT
     assert captured["timeout"] > 10

@@ -41,7 +41,6 @@ max-download = 5
 max-attempts = 4
 max-consecutive-failures = 8
 auto-monitor-new = false
-audible-auth-file = /keys/audible.json
 
 [folders]
 downloads = /var/tmp/downloads
@@ -70,7 +69,6 @@ def test_from_ini_reads_every_setting(tmp_path):
     assert settings.max_attempts == 4
     assert settings.max_consecutive_failures == 8
     assert settings.auto_monitor_new is False
-    assert settings.auth_file == Path("/keys/audible.json")
     assert settings.download_folder == Path("/var/tmp/downloads")
     assert settings.audiobook_folder == Path("/mnt/media/audiobooks")
     assert settings.folder_template == "{author}/{title}"
@@ -111,39 +109,6 @@ def test_relative_folders_are_anchored_to_the_repo_root(tmp_path):
 
     assert settings.download_folder == REPO_ROOT / "data" / "downloads"
     assert settings.audiobook_folder == REPO_ROOT / "audiobooks"
-
-
-@pytest.mark.parametrize(
-    ("configured", "expected"),
-    [
-        ("audible.json", REPO_ROOT / "audible.json"),
-        ("/keys/audible.json", Path("/keys/audible.json")),
-    ],
-)
-def test_auth_file_paths_are_resolved(tmp_path, configured, expected):
-    body = f"[sync]\naudible-auth-file = {configured}\n"
-
-    assert Settings.from_ini(write_config(tmp_path, body)).auth_file == expected
-
-
-def test_auth_file_expands_home(tmp_path):
-    body = "[sync]\naudible-auth-file = ~/keys/audible.json\n"
-
-    assert Settings.from_ini(write_config(tmp_path, body)).auth_file == Path.home() / "keys" / "audible.json"
-
-
-@pytest.mark.parametrize("body", ["[sync]\n", "[sync]\naudible-auth-file =\n"])
-def test_auth_file_falls_back_to_the_audible_cli_location(tmp_path, body):
-    """An empty value means unset, the same as omitting the key."""
-    expected = Path.home() / ".audible" / "audible.json"
-
-    assert Settings.from_ini(write_config(tmp_path, body)).auth_file == expected
-
-
-def test_auth_file_default_reads_home_when_the_settings_are_built(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-
-    assert Settings().auth_file == tmp_path / ".audible" / "audible.json"
 
 
 @pytest.mark.parametrize(
@@ -296,9 +261,9 @@ _CHANGED = {
 }
 
 
-def test_db_setting_keys_are_every_field_but_the_auth_file():
-    """The auth file is where a login is imported from, not something a run reads."""
-    expected = {f.name for f in dataclasses.fields(Settings)} - {"auth_file"}
+def test_db_setting_keys_are_every_field():
+    """Every setting is a runtime setting the table holds and the API may change."""
+    expected = {f.name for f in dataclasses.fields(Settings)}
 
     assert set(DB_SETTING_KEYS) == expected
     assert set(_CHANGED) == expected
@@ -312,7 +277,6 @@ def test_to_db_values_writes_text_the_ini_file_would_accept():
     assert values["sync_interval_minutes"] == "45"
     assert values["download_folder"] == "/var/tmp/dl"
     assert values["webhook_url"] == "https://hooks.example/audible"
-    assert "auth_file" not in values
 
 
 def test_to_db_values_writes_unset_as_an_empty_string():
@@ -409,9 +373,9 @@ def test_with_changes_replaces_only_what_it_is_given():
     assert settings.folder_template == Settings().folder_template
 
 
-@pytest.mark.parametrize("key", ["auth_file", "nope"])
+@pytest.mark.parametrize("key", ["nope", "auth_file"])
 def test_with_changes_refuses_a_key_that_is_not_a_runtime_setting(key):
-    """A typo must not pass silently, and the auth file is import-only."""
+    """A typo must not pass silently; `auth_file` was a field once, so a stale client may still send it."""
     with pytest.raises(ValueError, match=f"not a runtime setting: {key}"):
         Settings().with_changes(**{key: "x"})
 
