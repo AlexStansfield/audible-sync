@@ -1,0 +1,20 @@
+info:
+  name: Delete an account
+  type: http
+  seq: 11
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/accounts/:id?deregister=false"
+  params:
+    - name: id
+      value: "1"
+      type: path
+    - name: deregister
+      value: "false"
+      type: query
+      description: also deregister the device with Amazon (best effort)
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Removes the account, its library rows and its runs. Files on disk stay.

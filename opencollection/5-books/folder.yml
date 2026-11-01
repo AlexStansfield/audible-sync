@@ -1,0 +1,9 @@
+info:
+  name: Books
+  type: folder
+  seq: 5
+docs:
+  content: |
+    The library: list and search it, and act on one book. A book a run is working on
+    (`downloading`) refuses every action with a 409; cancel the run first.
+  type: text/markdown

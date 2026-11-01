@@ -1,0 +1,18 @@
+info:
+  name: Test the webhook
+  type: http
+  seq: 3
+http:
+  method: POST
+  url: "{{baseUrl}}/api/settings/webhook/test"
+  body:
+    type: json
+    data: |-
+      {
+        "url": "http://localhost:9000/hook"
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  POSTs a sample `sync.finished` payload to `url`, or to the configured `webhook_url` with an empty body `{}`. 400 with neither, 502 when the receiver does not answer.

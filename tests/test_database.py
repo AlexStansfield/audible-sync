@@ -707,6 +707,64 @@ def test_a_licence_denied_book_comes_back_when_retried(db):
     assert [b.asin for b in database.get_books_to_download()] == ["B001"]
 
 
+def test_requeue_unavailable_gives_licence_refused_books_another_go(db):
+    """The bulk retry for the day Audible refused every licence: the device's fault, not the books'."""
+    database.update_books(ACCOUNT, [make_book("B001"), make_book("B002"), make_book("B003", is_consumable=False)])
+    for asin in ("B001", "B002"):
+        database.claim_book_for_download(_id(asin))
+        database.mark_book_unavailable(_id(asin), "Denied")
+    _set("B002", monitored=0)
+
+    assert database.requeue_unavailable(ACCOUNT) == 2
+
+    first, second, withdrawn = (database.get_book_by_asin(a) for a in ("B001", "B002", "B003"))
+    assert (first.status, first.attempts, first.last_error) == (BookStatus.WAITING_DOWNLOAD, 0, None)
+    # Wanted or not is the user's call and stays as it was
+    assert (second.status, second.monitored) == (BookStatus.WAITING_DOWNLOAD, False)
+    # A title Audible itself withdrew is left to the sync: queuing it is a guaranteed refusal
+    assert withdrawn.status is BookStatus.UNAVAILABLE
+    assert [b.asin for b in database.get_books_to_download()] == ["B001"]
+
+
+def test_requeue_unavailable_leaves_every_other_state_alone(db):
+    database.update_books(ACCOUNT, [make_book("B001"), make_book("B002"), make_book("B003"), make_book("B004")])
+    _set("B001", status=BookStatus.FAILED, attempts=3, last_error="boom")
+    _set("B002", status=BookStatus.DOWNLOADED)
+    _set("B003", status=BookStatus.DOWNLOADING, attempts=1)
+
+    assert database.requeue_unavailable() == 0
+
+    assert database.get_book_by_asin("B001").status is BookStatus.FAILED
+    assert database.get_book_by_asin("B001").attempts == 3
+    assert database.get_book_by_asin("B002").status is BookStatus.DOWNLOADED
+    assert database.get_book_by_asin("B003").status is BookStatus.DOWNLOADING
+
+
+def test_requeue_unavailable_is_scoped_to_the_account_asked_for(db):
+    other = database.add_account("Other", "us", auth=None)
+    database.update_books(ACCOUNT, [make_book("B001")])
+    database.update_books(other, [make_book("B001")])
+    for account in (ACCOUNT, other):
+        book = database.get_book_by_asin("B001", account_id=account)
+        database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied")
+
+    assert database.requeue_unavailable(other) == 1
+
+    assert database.get_book_by_asin("B001", account_id=ACCOUNT).status is BookStatus.UNAVAILABLE
+    assert database.get_book_by_asin("B001", account_id=other).status is BookStatus.WAITING_DOWNLOAD
+    # No account means everyone's
+    assert database.requeue_unavailable() == 1
+    assert database.get_book_by_asin("B001", account_id=ACCOUNT).status is BookStatus.WAITING_DOWNLOAD
+
+
+def test_requeue_unavailable_fails_open_on_a_row_that_predates_is_consumable(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    _set("B001", status=BookStatus.UNAVAILABLE, is_consumable=None)
+
+    assert database.requeue_unavailable(ACCOUNT) == 1
+
+
 def test_a_withdrawn_book_comes_back_on_the_next_sync(db):
     """The full round trip for a Plus title: withdrawn at sync time, then offered again."""
     database.update_books(ACCOUNT, [make_book("B001", is_consumable=False)])

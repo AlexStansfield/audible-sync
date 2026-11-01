@@ -236,6 +236,7 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/books/{id}/delete-files` | Remove the audio, PDF, cover and annotations (and folders left empty) and unmonitor the book, so it stays deleted |
 | `POST /api/books/{id}/redownload` | Remove the files and queue the book afresh, attempts reset |
 | `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
+| `POST /api/books/retry-unavailable` | `{"account_id"?}`: queue every parked book Audible still reports consumable again, for one account or all; returns `requeued`. For the day every licence was refused rather than one retired title - a re-login does this for its account by itself. Titles Audible withdrew are left to the sync, which restores them when they are offered again |
 | `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
 | `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
 | `POST /api/settings/webhook/test` | `{"url"?}`: send a sample event to `url`, or to the configured webhook; `502` with the reason if it fails |
@@ -247,6 +248,8 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/accounts/login/{login_id}` | `{"response_url"}`: step two of a `browser` login, the address of the "page not found" page the browser lands on after signing in. `201` with the confirmed login; `404` if it expired or was already completed (start again), `400` if the address carries no code (paste again), `502` if Amazon rejected it |
 
 Timestamps are ISO 8601 in UTC. The file actions refuse (`409`) a book a run is downloading; cancel the run first.
+
+A ready-made request collection lives in [`opencollection/`](opencollection/), one request per endpoint in the [OpenCollection](https://www.opencollection.com/) format: open the folder as a collection in [Bruno](https://www.usebruno.com) (or any client that reads the format), pick the `local` environment and set its `apiToken` secret to the token the service logs at start. Every request inherits the token except the health check.
 
 ## Todo
 

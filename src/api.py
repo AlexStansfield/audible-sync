@@ -43,6 +43,7 @@ from src.database import (
     get_sync_runs,
     library_stats,
     list_books,
+    requeue_unavailable,
     save_settings,
     set_monitored,
     update_account,
@@ -69,6 +70,8 @@ from src.schemas import (
     LogList,
     MarketplaceOut,
     Message,
+    Requeued,
+    RetryUnavailable,
     SettingsOut,
     SettingsUpdate,
     Stats,
@@ -415,6 +418,20 @@ def create_app(
             offset=(page - 1) * page_size,
         )
         return BookList(items=items, total=total, page=page, page_size=page_size)
+
+    @router.post("/books/retry-unavailable", response_model=Requeued)
+    def retry_unavailable(body: RetryUnavailable | None = None) -> Requeued:
+        """
+        Queue every parked book Audible still reports consumable again.
+
+        For the day Audible refused every licence - a device registration it had
+        stopped accepting, say - rather than one title it has retired. A re-login
+        does this for the account by itself; this is the button for everything else.
+        """
+        account_id = body.account_id if body else None
+        if account_id is not None:
+            _account_or_404(account_id)
+        return Requeued(requeued=requeue_unavailable(account_id))
 
     @router.get("/books/{book_id}", response_model=BookOut)
     def get_one_book(book_id: int) -> BookOut:

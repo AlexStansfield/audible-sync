@@ -1,0 +1,22 @@
+info:
+  name: Monitor or unmonitor
+  type: http
+  seq: 3
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/books/:id"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+        "monitored": false
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  An unmonitored book is never queued.

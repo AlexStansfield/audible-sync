@@ -1,0 +1,17 @@
+info:
+  name: Get a book
+  type: http
+  seq: 2
+http:
+  method: GET
+  url: "{{baseUrl}}/api/books/:id"
+  params:
+    - name: id
+      value: "1"
+      type: path
+      description: the row id, not the ASIN
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Includes `primary_series`, the series the book files under.

@@ -1,0 +1,9 @@
+info:
+  name: Settings
+  type: folder
+  seq: 3
+docs:
+  content: |
+    The live configuration lives in the database, seeded once from `config/config.ini`.
+    Changes made here apply to the next run; a changed interval applies at once.
+  type: text/markdown

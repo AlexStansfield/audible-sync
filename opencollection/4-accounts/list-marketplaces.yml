@@ -1,0 +1,12 @@
+info:
+  name: List marketplaces
+  type: http
+  seq: 1
+http:
+  method: GET
+  url: "{{baseUrl}}/api/marketplaces"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The country codes a login accepts, with the Amazon domain of each.

@@ -243,6 +243,20 @@ class BookAction(BaseModel):
     removed: list[str] = []
 
 
+class RetryUnavailable(BaseModel):
+    """Queue the parked books again: one account's, or everyone's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int | None = None
+
+
+class Requeued(BaseModel):
+    """How many books a bulk retry put back in the queue."""
+
+    requeued: int
+
+
 class LogEntry(BaseModel):
     time: str
     level: str

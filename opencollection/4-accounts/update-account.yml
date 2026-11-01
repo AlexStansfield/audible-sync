@@ -1,0 +1,23 @@
+info:
+  name: Update an account
+  type: http
+  seq: 4
+http:
+  method: PATCH
+  url: "{{baseUrl}}/api/accounts/:id"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  body:
+    type: json
+    data: |-
+      {
+        "name": "Alex (UK)",
+        "enabled": true
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  `name` and `enabled` only. A disabled account is skipped by the pipeline.

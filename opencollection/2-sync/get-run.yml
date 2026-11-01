@@ -1,0 +1,16 @@
+info:
+  name: Get a run
+  type: http
+  seq: 4
+http:
+  method: GET
+  url: "{{baseUrl}}/api/sync/runs/:id"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  One run; 404 for an unknown id. A row still `running` with no `finished_at` is a run that was killed.

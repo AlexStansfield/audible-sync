@@ -1,0 +1,16 @@
+info:
+  name: Retry
+  type: http
+  seq: 6
+http:
+  method: POST
+  url: "{{baseUrl}}/api/books/:id/retry"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Queues a `failed` or `unavailable` book again without touching any files. 409 for a downloaded book; that is what redownload is for.

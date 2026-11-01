@@ -1,0 +1,22 @@
+info:
+  name: Logs
+  type: http
+  seq: 3
+http:
+  method: GET
+  url: "{{baseUrl}}/api/logs?limit=200"
+  params:
+    - name: limit
+      value: "200"
+      type: query
+      description: 1-1000, newest lines, oldest first
+    - name: level
+      value: "INFO"
+      type: query
+      description: DEBUG, INFO, WARNING or ERROR
+      disabled: true
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The newest log lines the service kept in memory. `docker logs` is the real log.

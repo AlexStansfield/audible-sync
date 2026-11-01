@@ -793,6 +793,39 @@ def reset_for_download(book_id: int, *, monitored: bool) -> bool:
     return cursor.rowcount == 1
 
 
+def requeue_unavailable(account_id: int | None = None) -> int:
+    """
+    Queue every parked book Audible still reports consumable again, and return how many.
+
+    A book is parked `unavailable` for one of two reasons, and only one of them heals
+    on its own. A title Audible itself withdrew (`is_consumable` 0) is restored by the
+    sync when the API offers it again. A title the API calls consumable but Audible
+    refused a licence for stays parked until somebody asks: the refusal may be the
+    title's (retired to streaming only) or the device's (the October 2026 registrations)
+    and the book cannot tell which. This is the asking, for the whole shelf at once -
+    the API's bulk retry, and what `replace_account_auth` does for a new device, when
+    the refusals were the device's and a retry is exactly what is wanted.
+
+    Withdrawn titles are left to the sync: queuing them is a guaranteed refusal, and a
+    row of those would trip the circuit breaker. `is_consumable` NULL (a row written
+    before the column) fails open here as everywhere. `monitored` is not touched: an
+    unmonitored book is still not wanted, and `reset_for_download` is for changing that
+    one book at a time. One account's books, or everyone's.
+    """
+    where = "status = ? AND is_consumable IS NOT 0"
+    params: list = [BookStatus.UNAVAILABLE]
+    if account_id is not None:
+        where += " AND account_id = ?"
+        params.append(account_id)
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            f"UPDATE library SET status = ?, attempts = 0, last_error = NULL WHERE {where}",
+            (BookStatus.WAITING_DOWNLOAD, *params),
+        )
+        conn.commit()
+    return cursor.rowcount
+
+
 # The columns a listing may be sorted by, keyed by the name the API accepts. `author`
 # sorts on the JSON text of the list, which puts the first author first - good enough
 # for a shelf.

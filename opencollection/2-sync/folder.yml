@@ -1,0 +1,8 @@
+info:
+  name: Sync
+  type: folder
+  seq: 2
+docs:
+  content: |
+    Start or cancel a run and read the run history.
+  type: text/markdown

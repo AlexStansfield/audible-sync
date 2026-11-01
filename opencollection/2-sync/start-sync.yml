@@ -1,0 +1,12 @@
+info:
+  name: Start a sync
+  type: http
+  seq: 1
+http:
+  method: POST
+  url: "{{baseUrl}}/api/sync"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  202 when a run starts, 409 while one is in flight. Works with the schedule disabled.

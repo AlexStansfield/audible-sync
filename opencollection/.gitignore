@@ -1,0 +1,3 @@
+# Bruno keeps the values of secret environment variables outside the collection
+# (its own app data), so nothing here should ever hold the token. Belt and braces:
+*.local.yml

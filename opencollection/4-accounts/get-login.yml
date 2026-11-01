@@ -1,0 +1,17 @@
+info:
+  name: Get a login
+  type: http
+  seq: 8
+http:
+  method: GET
+  url: "{{baseUrl}}/api/accounts/login/:login_id"
+  params:
+    - name: login_id
+      value: ""
+      type: path
+      description: the login_id a start returned
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  `pending`, `confirmed` with the `account`, `expired`, or `failed` with the `error`. 404 once the login has been forgotten (15 minutes after it ended); start again.

@@ -1,0 +1,8 @@
+info:
+  name: Service
+  type: folder
+  seq: 1
+docs:
+  content: |
+    Health, the run in flight, recent log lines and the dashboard numbers.
+  type: text/markdown

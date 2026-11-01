@@ -1,0 +1,23 @@
+info:
+  name: Complete a browser login
+  type: http
+  seq: 9
+http:
+  method: POST
+  url: "{{baseUrl}}/api/accounts/login/:login_id"
+  params:
+    - name: login_id
+      value: ""
+      type: path
+      description: the login_id the browser start returned
+  body:
+    type: json
+    data: |-
+      {
+        "response_url": "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=..."
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Step two of a browser login only. 201 with the confirmed login; 400 when the address carries no code (the login stays open), 404 for an unknown, expired, finished or code login, 502 when Amazon rejects it.
