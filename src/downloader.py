@@ -80,6 +80,9 @@ class DownloadStats(NamedTuple):
     # Whether the loop gave up after `max_consecutive_failures` refusals or failures in
     # a row; `run_pipeline` records the run as aborted from it
     aborted: bool = False
+    # Why Audible refused the account's credentials, when it did: the loop stops, no
+    # book is charged for it, and `run_pipeline` records the run as aborted with this
+    credentials_error: str | None = None
 
 
 def get_http_client() -> httpx.Client:
@@ -863,6 +866,7 @@ def download_books(
     unavailable = []
     cancelled = False
     aborted = False
+    credentials_error: str | None = None
     # Refusals and failures since the last success
     streak = 0
     breaker = settings.max_consecutive_failures
@@ -907,13 +911,14 @@ def download_books(
             succeeded += 1
             attempted += 1
             streak = 0
-        except (Unauthorized, NoRefreshToken, AuthFlowError):
+        except (Unauthorized, NoRefreshToken, AuthFlowError) as error:
             # The credentials are the problem, not this book. Hand the claim back with
             # its attempt count untouched, or a token that expires often would
-            # eventually mark perfectly good books failed.
+            # eventually mark perfectly good books failed. Nor is it counted as a failed
+            # book: the run record says the account needs attention instead.
             logger.exception("Audible rejected our credentials, stopping before %s (%s)", title, asin)
             release_book(book.id)
-            failed.append((asin, title))
+            credentials_error = f"{type(error).__name__}: {error}"
             attempted += 1
             break
         except SyncCancelled:
@@ -968,4 +973,5 @@ def download_books(
         unavailable=len(unavailable),
         cancelled=cancelled,
         aborted=aborted,
+        credentials_error=credentials_error,
     )

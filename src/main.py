@@ -54,9 +54,18 @@ def _outcome(stats: DownloadStats) -> SyncOutcome:
     """How a run that got through both halves is recorded."""
     if stats.cancelled:
         return SyncOutcome.CANCELLED
-    if stats.aborted:
+    if stats.aborted or stats.credentials_error:
         return SyncOutcome.ABORTED
     return SyncOutcome.SUCCESS if stats.failed == 0 else SyncOutcome.PARTIAL
+
+
+def _run_error(stats: DownloadStats, settings: Settings) -> str | None:
+    """The text a run that got through both halves records in `error`, if any."""
+    if stats.credentials_error:
+        return f"Audible rejected the account's credentials; log in again. {stats.credentials_error}"
+    if stats.aborted:
+        return f"Gave up after {settings.max_consecutive_failures} books in a row were refused or failed"
+    return None
 
 
 def run_pipeline(
@@ -174,9 +183,14 @@ def run_account(
             )
             raise
         finally:
-            # Whatever happened, a token the run refreshed is worth keeping
+            # Whatever happened, a token the run refreshed is worth keeping - but not at
+            # the price of the run record: raising here would skip finish_sync_run below
+            # and leave the row `running` for good
             if audible is not None:
-                persist_auth_if_changed(account, audible.auth)
+                try:
+                    persist_auth_if_changed(account, audible.auth)
+                except Exception:
+                    logger.exception("Could not store the refreshed credentials of %r", account)
 
         finish_sync_run(
             run_id,
@@ -185,11 +199,7 @@ def run_account(
             books_added=books_added,
             books_downloaded=stats.succeeded,
             books_failed=stats.failed,
-            error=(
-                f"Gave up after {settings.max_consecutive_failures} books in a row were refused or failed"
-                if stats.aborted
-                else None
-            ),
+            error=_run_error(stats, settings),
         )
     finally:
         # The row is closed on every path above, so what is sent is the final record

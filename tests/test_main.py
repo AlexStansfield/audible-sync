@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import threading
 
 import pytest
@@ -522,3 +523,34 @@ def test_run_pipeline_records_aborted_with_the_reason_when_the_breaker_trips(tmp
     assert recorded["outcome"] == SyncOutcome.ABORTED
     assert recorded["error"] == "Gave up after 5 books in a row were refused or failed"
     assert recorded["books_failed"] == 2
+
+
+def test_run_pipeline_records_rejected_credentials_as_an_aborted_run_saying_so(tmp_path, monkeypatch):
+    """Not a failed book: the account needs a new login, and the history has to say so."""
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, stats=DownloadStats(1, 0, 0, 0, credentials_error="Unauthorized: expired"))
+
+    run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] == SyncOutcome.ABORTED
+    assert recorded["books_failed"] == 0
+    assert "log in again" in recorded["error"]
+    assert "Unauthorized: expired" in recorded["error"]
+
+
+def test_a_failed_credentials_write_back_still_closes_the_run(tmp_path, monkeypatch, caplog):
+    """A locked database on the token write-back must not leave the row `running` for good."""
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    def locked(account, auth):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(main_module, "persist_auth_if_changed", locked)
+
+    run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] == SyncOutcome.SUCCESS
+    assert "Could not store the refreshed credentials" in caplog.text

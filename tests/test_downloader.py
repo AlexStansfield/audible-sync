@@ -629,12 +629,15 @@ def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch
 
     monkeypatch.setattr(downloader.Downloader, "download_book", reject)
 
-    downloader.download_books(
+    stats = downloader.download_books(
         object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib")
     )
 
     # Every remaining book would fail the same way, so the run stops after the first
     assert attempts == ["A1"]
+    # Reported as the account's problem, not as a failed book
+    assert stats.failed == 0
+    assert stats.credentials_error.startswith("Unauthorized")
     assert "rejected our credentials" in caplog.text
     # The claim goes back untouched: an expiring token must not fail a good book
     assert released == ["A1"]

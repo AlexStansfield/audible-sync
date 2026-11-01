@@ -90,6 +90,18 @@ def _not_busy(book: Book) -> None:
         raise BookBusy(f"{book.title} ({book.asin}) is being downloaded; cancel the run first")
 
 
+def _reset(book: Book, *, monitored: bool) -> None:
+    """
+    `reset_for_download`, treating "nothing changed" as the run having got there first.
+
+    `_not_busy` reads the `Book` the caller fetched; a run can claim the row between
+    that read and this write, and the guarded UPDATE then changes nothing. Reporting
+    that as success would lose the request silently.
+    """
+    if not reset_for_download(book.id, monitored=monitored):
+        raise BookBusy(f"{book.title} ({book.asin}) was claimed by a run; cancel the run first")
+
+
 def delete_download(book: Book, settings: Settings) -> list[Path]:
     """
     Remove the files and stop wanting the book: it goes back to `waiting_download`
@@ -101,7 +113,7 @@ def delete_download(book: Book, settings: Settings) -> list[Path]:
     _not_busy(book)
     removed = delete_book_files(book, settings)
     clear_book_files(book.id)
-    reset_for_download(book.id, monitored=False)
+    _reset(book, monitored=False)
     return removed
 
 
@@ -115,7 +127,7 @@ def redownload(book: Book, settings: Settings) -> list[Path]:
     _not_busy(book)
     removed = delete_book_files(book, settings)
     clear_book_files(book.id)
-    reset_for_download(book.id, monitored=True)
+    _reset(book, monitored=True)
     return removed
 
 
@@ -130,7 +142,7 @@ def retry(book: Book) -> None:
     _not_busy(book)
     if book.status is BookStatus.DOWNLOADED:
         raise ValueError(f"{book.title} ({book.asin}) is already downloaded; use redownload to fetch it again")
-    reset_for_download(book.id, monitored=True)
+    _reset(book, monitored=True)
 
 
 def refresh(book: Book) -> Book:
