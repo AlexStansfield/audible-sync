@@ -15,16 +15,17 @@ body{margin:0;background:#0e1014}
 [data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
 [data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
 a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+@media (max-width: 720px){[data-shell="nav"]{flex-direction:row!important;align-items:center;overflow-x:auto;padding:8px 10px!important;border-right:0!important;border-bottom:1px solid var(--line);gap:2px!important}[data-shell="nav"] > a{flex:none;padding:8px 10px!important}[data-shell="brand"]{padding:4px 6px 4px 2px!important;flex:none}[data-shell="brand-text"]{display:none!important}[data-shell="nav-foot"]{margin:0!important;border-top:0!important;flex-direction:row!important;align-items:center;padding:0 6px!important;flex:none;gap:14px!important}[data-shell="main"]{padding:20px 16px 40px!important}}
 </style>
 </helmet>
-<div data-theme="{{theme}}" style="min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+<div data-theme="{{theme}}" style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
 
-<nav aria-label="Main" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
-<div style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
+<nav aria-label="Main" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<div data-shell="brand" style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
 <div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
 <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
 </div>
-<div style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
+<div data-shell="brand-text" style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
 </div>
 <a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
@@ -36,30 +37,43 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>Accounts</a>
 <a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 12h4M12 12h8M4 18h12"></path><circle cx="17" cy="6" r="2.5"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="19" cy="18" r="2"></circle></svg>Settings</a>
-<div style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
+<div data-shell="nav-foot" style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
 <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent)"></span>Syncing · book 3 of 10</div>
 <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><a href="Profile.dc.html" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; min-height: 32px"><span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">A</span>admin</a><a href="Login.dc.html" style="font-size: 13px; color: var(--text-2); text-decoration: none">Sign out</a></div>
 </div>
 </nav>
 
-<main style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+<main data-shell="main" style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
 
 <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
 <div style="display: flex; flex-direction: column; gap: 2px">
 <h1 style="margin: 0; font-size: 24px; font-weight: 700">Library</h1>
-<span style="color: var(--muted); font-size: 13px">354 books across 2 accounts</span>
+<span style="color: var(--muted); font-size: 13px">{{subtitle}}</span>
 </div>
+<sc-if value="{{hasBooks}}" hint-placeholder-val="{{ true }}">
 <div style="margin-left: auto; display: flex; flex-wrap: wrap; gap: 10px">
 <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Retry unavailable (17)</button>
+<button type="button" aria-pressed="{{selecting}}" onClick="{{toggleSelect}}" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{selectBorder}}; background: {{selectBg}}; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"></rect><path d="m8 12 3 3 5-6"></path></svg>{{selectLabel}}</button>
 </div>
+</sc-if>
 </header>
 
+<sc-if value="{{noBooks}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="empty-h" style="background: var(--panel); border: 1px dashed var(--line-strong); border-radius: 14px; padding: 64px 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center">
+<div style="width: 64px; height: 64px; border-radius: 16px; background: var(--raised); color: var(--muted); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path><path d="M8 7h7"></path></svg></div>
+<h2 id="empty-h" style="margin: 0; font-size: 19px; font-weight: 700">Your library is empty</h2>
+<p style="margin: 0; color: var(--text-2); max-width: 440px">Add an Audible account to fetch your library. The books appear here after its first sync.</p>
+<a href="Accounts.dc.html" style="min-height: 44px; padding: 0 18px; border-radius: 8px; background: var(--accent); color: #1a1206; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add an Audible account</a>
+</section>
+</sc-if>
+
+<sc-if value="{{hasBooks}}" hint-placeholder-val="{{ true }}">
 <section aria-label="Filters" style="display: flex; flex-direction: column; gap: 12px">
 <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
-<div style="flex: 1 1 320px; position: relative; display: flex; align-items: center">
+<div style="flex: 1 1 280px; position: relative; display: flex; align-items: center">
 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--muted); position: absolute; left: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
 <label for="q" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search the library</label>
-<input id="q" type="search" placeholder="Search title, author or series" style="width: 100%; min-height: 42px; padding: 0 14px 0 38px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; box-sizing: border-box">
+<input id="q" type="search" value="{{query}}" placeholder="Search title, author or series" style="width: 100%; min-height: 42px; padding: 0 14px 0 38px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; box-sizing: border-box">
 </div>
 <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted)">Account
 <select style="min-height: 42px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit"><option>All accounts</option><option>Alex (UK)</option><option>Alex (US)</option></select></label>
@@ -78,16 +92,58 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-2); min-height: 36px"><input type="checkbox" style="width: 18px; height: 18px; accent-color: var(--accent)">Unmonitored only</label>
 </div>
 </section>
+</sc-if>
 
-<sc-if value="{{isGrid}}" hint-placeholder-val="{{ true }}">
-<section aria-label="Books" style="display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 18px 16px">
+<sc-if value="{{showResult}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; background: rgba(76,207,143,0.1); border: 1px solid var(--line-strong)">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ok); flex: none"><path d="m5 12 5 5 9-10"></path></svg>
+<span style="flex: 1"><strong style="font-weight: 600">6 books monitored and queued for download.</strong> <span style="color: var(--text-2)">1 skipped because a run is downloading it.</span></span>
+<button type="button" aria-label="Dismiss" onClick="{{dismiss}}" style="width: 36px; height: 36px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+</sc-if>
+
+<sc-if value="{{selecting}}" hint-placeholder-val="{{ false }}">
+<section aria-label="Selection" style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 12px 16px; border-radius: 12px; background: var(--panel); border: 1px solid var(--accent)">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; flex: 1 1 340px">
+<span style="font-weight: 700">{{selCountLabel}}</span>
+<sc-if value="{{notAllMatching}}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{selectPage}}" style="border: 0; background: transparent; padding: 0; min-height: 32px; color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Select all on this page (24)</button>
+<button type="button" onClick="{{selectAll}}" style="border: 0; background: transparent; padding: 0; min-height: 32px; color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Select all 354 matching these filters</button>
+</sc-if>
+<button type="button" onClick="{{clearSel}}" style="border: 0; background: transparent; padding: 0; min-height: 32px; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer">Clear</button>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<button type="button" onClick="{{doMonitor}}" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Monitor</button>
+<button type="button" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Unmonitor</button>
+<button type="button" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Retry</button>
+<button type="button" onClick="{{askDelete}}" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--bad-line); background: transparent; color: var(--bad-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Delete files</button>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{noResults}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="nores-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 56px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center">
+<div style="width: 56px; height: 56px; border-radius: 14px; background: var(--raised); color: var(--muted); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path><path d="M8.5 11h5"></path></svg></div>
+<h2 id="nores-h" style="margin: 0; font-size: 18px; font-weight: 700">No books match these filters</h2>
+<p style="margin: 0; color: var(--text-2)">Nothing matches &quot;zelazny&quot; in Failed.</p>
+<button type="button" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Clear filters</button>
+</section>
+</sc-if>
+
+<sc-if value="{{showGridBooks}}" hint-placeholder-val="{{ true }}">
+<section aria-label="Books" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 18px 16px">
 <sc-for list="{{books}}" as="b" hint-placeholder-count="24">
 <div style="display: flex; flex-direction: column; gap: 7px; min-width: 0; opacity: {{b.opacity}}">
-<a href="Book.dc.html" aria-label="{{b.title}}" style="position: relative; display: block; aspect-ratio: 1; border-radius: 6px; background: {{b.bg}}; color: {{b.fg}}; text-decoration: none; overflow: hidden">
+<div style="position: relative; aspect-ratio: 1; border-radius: 8px; outline: {{b.ring}}; outline-offset: 2px">
+<a href="Book.dc.html" aria-label="{{b.title}}" style="position: absolute; inset: 0; display: block; border-radius: 6px; background: {{b.bg}}; color: {{b.fg}}; text-decoration: none; overflow: hidden">
 <span aria-hidden="true" style="position: absolute; left: 8px; right: 8px; bottom: 8px; font-family: Georgia, serif; font-weight: 700; font-size: 13px; line-height: 1.1">{{b.title}}</span>
 <span style="position: absolute; top: 6px; left: 6px; display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 999px; background: var(--pill); color: {{b.color}}; font-size: 11px; font-weight: 600"><span style="width: 6px; height: 6px; border-radius: 50%; background: {{b.color}}"></span>{{b.status}}</span>
 <sc-if value="{{b.downloading}}" hint-placeholder-val="{{ false }}"><span style="position: absolute; left: 0; right: 0; bottom: 0; height: 4px; background: rgba(14,16,20,0.7)"><span style="display: block; width: 60%; height: 100%; background: var(--accent)"></span></span></sc-if>
 </a>
+<sc-if value="{{b.selecting}}" hint-placeholder-val="{{ false }}">
+<label style="position: absolute; top: 2px; right: 2px; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; cursor: pointer"><input type="checkbox" checked="{{b.selected}}" onChange="{{b.toggle}}" aria-label="Select {{b.title}}" style="width: 22px; height: 22px; margin: 0; accent-color: var(--accent); cursor: pointer"></label>
+</sc-if>
+</div>
 <div style="display: flex; align-items: flex-start; gap: 4px">
 <div style="display: flex; flex-direction: column; min-width: 0; flex: 1">
 <a href="Book.dc.html" style="font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{b.title}}</a>
@@ -100,16 +156,18 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 </section>
 </sc-if>
 
-<sc-if value="{{isTable}}" hint-placeholder-val="{{ false }}">
+<sc-if value="{{showTableBooks}}" hint-placeholder-val="{{ false }}">
 <section aria-label="Books" style="overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px">
 <table style="width: 100%; min-width: 900px; border-collapse: collapse; font-size: 13px">
 <thead><tr style="text-align: left; color: var(--muted); font-size: 12px">
+<sc-if value="{{selecting}}" hint-placeholder-val="{{ false }}"><th scope="col" style="padding: 12px 0 12px 16px; width: 32px"><input type="checkbox" checked="{{pageAll}}" onChange="{{selectPage}}" aria-label="Select all on this page" style="width: 18px; height: 18px; margin: 0; accent-color: var(--accent)"></th></sc-if>
 <th scope="col" style="padding: 12px 16px; font-weight: 600">Title</th><th scope="col" style="padding: 12px 8px; font-weight: 600">Author</th><th scope="col" style="padding: 12px 8px; font-weight: 600">Series</th><th scope="col" style="padding: 12px 8px; font-weight: 600">Account</th><th scope="col" style="padding: 12px 8px; font-weight: 600">Status</th><th scope="col" style="padding: 12px 8px; font-weight: 600">Added</th><th scope="col" style="padding: 12px 16px; font-weight: 600; text-align: right">Monitored</th>
 </tr></thead>
 <tbody>
 <sc-for list="{{books}}" as="b" hint-placeholder-count="12">
-<tr style="border-top: 1px solid var(--line)">
-<td style="padding: 8px 16px"><a href="Book.dc.html" style="display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; font-weight: 600"><span aria-hidden="true" style="width: 36px; height: 36px; flex: none; border-radius: 4px; background: {{b.bg}}"></span>{{b.title}}</a></td>
+<tr style="border-top: 1px solid var(--line); background: {{b.rowBg}}">
+<sc-if value="{{b.selecting}}" hint-placeholder-val="{{ false }}"><td style="padding: 8px 0 8px 16px"><input type="checkbox" checked="{{b.selected}}" onChange="{{b.toggle}}" aria-label="Select {{b.title}}" style="width: 18px; height: 18px; margin: 0; accent-color: var(--accent)"></td></sc-if>
+<td style="padding: 8px 16px; opacity: {{b.opacity}}"><a href="Book.dc.html" style="display: flex; align-items: center; gap: 12px; color: var(--text); text-decoration: none; font-weight: 600"><span aria-hidden="true" style="width: 36px; height: 36px; flex: none; border-radius: 4px; background: {{b.bg}}"></span>{{b.title}}</a></td>
 <td style="padding: 8px; color: var(--text-2)">{{b.author}}</td>
 <td style="padding: 8px; color: var(--text-2)">{{b.series}}</td>
 <td style="padding: 8px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--text-2)">{{b.cc}}</span></td>
@@ -123,9 +181,10 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 </section>
 </sc-if>
 
+<sc-if value="{{showPager}}" hint-placeholder-val="{{ true }}">
 <nav aria-label="Pages" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--muted); font-size: 13px">
 <span>1–24 of 354</span>
-<div style="margin-left: auto; display: flex; gap: 6px">
+<div style="margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px">
 <button type="button" disabled style="min-width: 40px; min-height: 40px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--faint); font: inherit">Prev</button>
 <button type="button" aria-current="page" style="min-width: 40px; min-height: 40px; border-radius: 8px; border: 1px solid var(--accent); background: rgba(242,165,65,0.14); color: var(--text); font: inherit; font-weight: 600">1</button>
 <button type="button" style="min-width: 40px; min-height: 40px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit">2</button>
@@ -135,13 +194,30 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <button type="button" style="min-width: 40px; min-height: 40px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit">Next</button>
 </div>
 </nav>
+</sc-if>
 </main>
+
+<sc-if value="{{confirmDelete}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; background: rgba(5,6,8,0.72); display: flex; align-items: flex-start; justify-content: center; padding: 220px 20px 40px; box-sizing: border-box">
+<div role="dialog" aria-modal="true" aria-labelledby="bdel-h" style="width: 100%; max-width: 480px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<h2 id="bdel-h" style="margin: 0; font-size: 18px; font-weight: 700">Delete the files for {{selCount}} books?</h2>
+<p style="margin: 0; color: var(--text-2)">The audio, covers and annotations are removed from your audiobooks folder, with any folders left empty. The books are unmonitored so they will not download again, and they stay in your library. Books with no files, or that a run is downloading, are skipped.</p>
+<div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding-top: 6px">
+<button type="button" onClick="{{cancelDelete}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Keep files</button>
+<button type="button" onClick="{{cancelDelete}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: #e55b5b; color: #fff; font: inherit; font-weight: 700; cursor: pointer">Delete files for {{selCount}} books</button>
+</div>
+</div>
+</div>
+</sc-if>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"view":{"editor":"enum","options":["grid","table"],"default":"grid"},"$preview":{"width":1440,"height":1240}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"view":{"editor":"enum","options":["grid","table"],"default":"grid"},"empty":{"editor":"enum","options":["none","noBooks","noResults"],"default":"none"},"bulk":{"editor":"enum","options":["off","selecting","confirmDelete","result"],"default":"off"},"$preview":{"width":1440,"height":1240}}'>
 class Component extends DCLogic {
   renderVals() {
-    const view = (this.state && this.state.view) || this.props.view || 'grid';
+    const st = this.state || {};
+    const view = st.view || this.props.view || 'grid';
+    const empty = this.props.empty || 'none';
+    const bulk = st.bulk || this.props.bulk || 'off';
     const S = {
       downloaded: ['Downloaded', 'var(--ok)'],
       waiting: ['Waiting', 'var(--info)'],
@@ -175,26 +251,77 @@ class Component extends DCLogic {
       ['The Name of the Wind', 'Patrick Rothfuss', 'Kingkiller Chronicle 1', 'downloaded', '#6b2a1e', '#fde6e0', 'UK', true, '3 Aug'],
       ['Mistborn', 'Brandon Sanderson', 'Mistborn 1', 'downloaded', '#2e2e2e', '#f2f2f2', 'UK', true, '28 Jul'],
     ];
-    const books = raw.map(([title, author, series, st, bg, fg, cc, monitored, added]) => ({
-      title, author, series: series || '—', bg, fg, cc, added, monitored,
-      status: S[st][0], color: S[st][1], downloading: st === 'downloading',
-      opacity: monitored ? 1 : 0.55,
-      monLabel: monitored ? 'Stop monitoring ' + title : 'Monitor ' + title,
-      monColor: monitored ? 'var(--accent-text)' : 'var(--muted)',
-      monFill: monitored ? 'currentColor' : 'none',
-      switchBg: monitored ? 'var(--accent-text)' : 'var(--line-strong)',
-      knob: monitored ? '19px' : '3px',
-    }));
-    const f = (label, count, dot, on) => ({ label, count, dot, on, bg: on ? 'var(--raised)' : 'transparent', border: on ? 'var(--accent-text)' : 'var(--line-strong)' });
+    const selecting = bulk === 'selecting' || bulk === 'confirmDelete';
+    const defaultSel = { 0: true, 6: true, 8: true, 14: true, 19: true, 22: true };
+    const sel = st.sel || (selecting ? defaultSel : {});
+    const allMatching = !!st.allMatching;
+    const count = allMatching ? 354 : Object.keys(sel).filter((k) => sel[k]).length;
+    const setBulk = (b, extra) => () => this.setState({ bulk: b, ...(extra || {}) });
+    const books = raw.map(([title, author, series, s, bg, fg, cc, monitored, added], i) => {
+      const selected = allMatching || !!sel[i];
+      return {
+        title, author, series: series || '—', bg, fg, cc, added, monitored,
+        status: S[s][0], color: S[s][1], downloading: s === 'downloading',
+        opacity: monitored ? 1 : 0.55,
+        monLabel: monitored ? 'Stop monitoring ' + title : 'Monitor ' + title,
+        monColor: monitored ? 'var(--accent-text)' : 'var(--muted)',
+        monFill: monitored ? 'currentColor' : 'none',
+        switchBg: monitored ? 'var(--accent-text)' : 'var(--line-strong)',
+        knob: monitored ? '19px' : '3px',
+        selected,
+        selecting,
+        ring: selecting && selected ? '3px solid var(--accent)' : 'none',
+        rowBg: selecting && selected ? 'rgba(242,165,65,0.08)' : 'transparent',
+        toggle: () => this.setState({ bulk: 'selecting', allMatching: false, sel: { ...sel, [i]: !sel[i] } }),
+      };
+    });
+    const f = (label, count, dot, on) => ({ label, count, dot, on, bg: on ? 'var(--raised)' : 'transparent', border: on ? 'var(--accent)' : 'var(--line-strong)' });
+    const noBooks = empty === 'noBooks';
+    const noResults = empty === 'noResults';
+    const listed = !noBooks && !noResults;
+    const pageSel = {};
+    raw.forEach((_, i) => { pageSel[i] = true; });
     return {
       theme: this.props.theme ?? 'dark',
+      subtitle: noBooks ? 'No books yet' : '354 books across 2 accounts',
+      noBooks, noResults,
+      hasBooks: !noBooks,
+      query: noResults ? 'zelazny' : '',
       isGrid: view === 'grid',
       isTable: view === 'table',
+      showGridBooks: listed && view === 'grid',
+      showTableBooks: listed && view === 'table',
+      showPager: listed,
       gridBg: view === 'grid' ? 'var(--line)' : 'transparent',
       tableBg: view === 'table' ? 'var(--line)' : 'transparent',
       showGrid: () => this.setState({ view: 'grid' }),
       showTable: () => this.setState({ view: 'table' }),
-      filters: [
+      selecting,
+      selectLabel: selecting ? 'Done' : 'Select',
+      selectBorder: selecting ? 'var(--accent)' : 'var(--line-strong)',
+      selectBg: selecting ? 'rgba(242,165,65,0.14)' : 'var(--raised)',
+      toggleSelect: selecting ? setBulk('off', { sel: {}, allMatching: false }) : setBulk('selecting', { sel: {}, allMatching: false }),
+      selCount: count,
+      selCountLabel: allMatching ? 'All 354 matching books selected' : count + ' selected',
+      notAllMatching: !allMatching,
+      pageAll: !allMatching && count === raw.length,
+      selectPage: () => this.setState({ bulk: 'selecting', allMatching: false, sel: pageSel }),
+      selectAll: () => this.setState({ bulk: 'selecting', allMatching: true }),
+      clearSel: () => this.setState({ bulk: 'selecting', allMatching: false, sel: {} }),
+      doMonitor: setBulk('result', { sel: {}, allMatching: false }),
+      askDelete: setBulk('confirmDelete'),
+      cancelDelete: setBulk('selecting'),
+      confirmDelete: bulk === 'confirmDelete',
+      showResult: bulk === 'result',
+      dismiss: setBulk('off'),
+      filters: noResults ? [
+        f('All', 354, 'var(--text)', false),
+        f('Downloaded', 312, 'var(--ok)', false),
+        f('Waiting', 20, 'var(--info)', false),
+        f('Downloading', 1, 'var(--accent-text)', false),
+        f('Unavailable', 17, 'var(--violet)', false),
+        f('Failed', 4, 'var(--bad)', true),
+      ] : [
         f('All', 354, 'var(--text)', true),
         f('Downloaded', 312, 'var(--ok)', false),
         f('Waiting', 20, 'var(--info)', false),

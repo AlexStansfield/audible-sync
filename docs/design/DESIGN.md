@@ -23,7 +23,12 @@ The sample data (titles, counts, the ASIN, run numbers) is illustrative. The rea
 | `Activity.dc.html` | Run history and the service log | `/activity` |
 | `Settings.dc.html` | Settings | `/settings` |
 | `Profile.dc.html` | Your sign-in (change username and password) | `/profile` |
-| `LightDashboard.dc.html`, `LightLibrary.dc.html` | The Dashboard and Library in the light theme | - |
+| `NotFound.dc.html` | 404 for an unknown route or a book that does not exist (`kind`) | any unknown path |
+| `Unreachable.dc.html` | The service cannot be reached at all | - |
+| `Patterns.dc.html` | Common patterns: skeletons, a failed request, toasts | - |
+| `State*.dc.html`, `Phone*.dc.html`, `Light*.dc.html` | Frames that show a screen above with one variant switched on (first run, empty library, bulk selection, each Accounts dialog, phone width, light theme). They contain no design of their own: read the screen they import and its variant | - |
+
+Every screen's `data-props` lists its variants. Round 2 added: Dashboard `firstRun`, `generatedPassword`; Library `empty` (`noBooks`, `noResults`) and `bulk` (`selecting`, `confirmDelete`, `result`); Book `status` = `downloading`, `monitored`, `sizeKnown`; Accounts `step` = `expired`, `failed`, `relogin`, `rename`, `remove`, `menu`; Sign in `forgot`; Settings `token` (`masked`, `confirm`, `regenerated`), `lowDisk`; Activity `expanded`.
 
 ## Stack
 
@@ -187,6 +192,86 @@ Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with
 
 The audio format, folder and naming sections say that changes apply to books downloaded from now on, and that existing files are not converted or renamed.
 
+## Round 2: states, dialogs and new pages
+
+Each item below is a variant on the screen named, so the same screen code renders it. The `State*` frames on the canvas show each one switched on.
+
+### Dashboard: first run (`firstRun`)
+
+What a new install shows after the first sign-in as `admin`: no accounts, nothing has run.
+
+- The subtitle reads "No accounts yet"; Sync now and the next-run time are hidden.
+- The generated-password banner sits at the top (it also shows on a normal dashboard while `generated_password` is true, the `generatedPassword` variant), linking to Your sign-in.
+- A welcome card: "Welcome to Audible Sync", one paragraph, the primary button **Add an Audible account** (to Accounts), and three numbered steps: add an account, choose what to download, let it run.
+- The five totals stay, at zero and dimmed. The accounts, recently downloaded, up next, needs-attention and recent-runs cards are hidden.
+- Show this whenever `GET /api/accounts` is empty, whatever has run before.
+
+### Dashboard: Up next
+
+A card at the top of the right column: the books the next run will download, in order. That means waiting and monitored, oldest purchase first, for each enabled account. Each row shows its position, a small cover, the title, the author with the purchase date, and the account. Below the first four, a "+N more waiting" link opens the Library filtered to Waiting. The header gives the run time and the limit: "up to `max_download` books per account", or "everything waiting" when `max_download` is empty.
+
+**API:** `GET /api/books?status=waiting_download&monitored=true&sort=date_added&order=asc&page_size=4`, per account or merged, works today. A dedicated `GET /api/queue` that applies the per-account limit would be more accurate.
+
+### Library: empty states (`empty`)
+
+- `noBooks`: the filters, the Select button and the pager are hidden; a dashed card reads "Your library is empty / Add an Audible account to fetch your library", with **Add an Audible account**.
+- `noResults`: the filters stay as set; a card reads "No books match these filters", restates the search and status, and offers **Clear filters**. The pager is hidden.
+
+### Library: bulk actions (`bulk`)
+
+Built for an account added with "Download the books already in this library" turned off, whose whole back catalogue arrives unmonitored.
+
+- **Select** in the header toggles selection mode (it becomes **Done**). In the grid, each cover gets a checkbox top right and a selected cover gets a 3px accent outline. In the table, a checkbox column appears, with a select-page checkbox in its header, and selected rows are tinted.
+- **The action bar** sits above the books, with an accent border. It shows "N selected", **Select all on this page (24)**, **Select all 354 matching these filters** (which turns the label into "All 354 matching books selected"), and **Clear**. The actions are **Monitor**, **Unmonitor**, **Retry** and **Delete files**, the last in the destructive outline style.
+- Only Delete files confirms, in a dialog: "Delete the files for N books?", saying what goes, that the books are unmonitored and stay in the library, and that books with no files or that a run is downloading are skipped. The confirm button reads "Delete files for N books".
+- **After any action** a dismissible result banner reads, for example, "6 books monitored and queued for download. 1 skipped because a run is downloading it." The selection is cleared.
+- Selection survives paging. "Select all matching" sends the filters, not the ids.
+
+**Backend work needed:** `POST /api/books/bulk` with `{"action": "monitor"|"unmonitor"|"retry"|"delete_files", "ids": [...]}` or `{"action": ..., "filter": {account_id, status, monitored, q}}`. It returns `{"updated": n, "skipped": [{"id", "reason"}]}`. Skips cover books a run holds (`downloading`), retrying a downloaded book, and deleting files from a book with none.
+
+### Book detail: downloading and unmonitored
+
+- `status=downloading`: an accent-bordered panel above the actions reads "Downloading in run #148", with the book's place in the run, a progress bar of `transfer.bytes / transfer.total` from `GET /api/status` (`sizeKnown=false`: an indeterminate bar and "243 MB so far · size unknown"), and **Cancel run**. Redownload, Delete files and Refresh are disabled, with a line saying why. The Monitored switch stays usable.
+- `monitored=false`: the cover is shown at half opacity, a "Not monitored" outline chip with the outline bookmark sits beside the status, and a note says the book will not be downloaded and how to queue it.
+
+### Accounts: dialogs (`step`)
+
+- **Account menu** (`menu`): the ⋯ button opens a menu with Rename and Remove account (the latter in the error colour).
+- **Rename** (`rename`): one Name field, prefilled, with "Only used in this app". Cancel and Save. `PATCH /api/accounts/{id}` `{"name"}`.
+- **Remove** (`remove`): "Remove Alex (US)?", what is deleted (library rows, run history), what stays (files on disk, with the count), and a checked **Also remove this device from my Amazon account** (`deregister=true`). Keep account, and the destructive **Remove account**. A `409` means the run is on that account: say so.
+- **Sign in again** (`relogin`, from Sign in or Sign in again on a card): the add-account dialog titled "Sign in again: Alex (UK)", with the marketplace fixed and shown locked, a note that the library and history are kept and refused books are queued again, and a checked "Remove the old device from my Amazon account" (`deregister_previous`). Then the same code step, with the account's own domain, and a done screen that says it is signed in again. `POST /api/accounts/login` with `account_id`.
+- **Code expired** (`expired`): the code is shown greyed and struck through, with "This code has expired. A code lasts ten minutes." and **Get a new code** (a new `POST /api/accounts/login`).
+- **Sign-in failed** (`failed`): the code greyed, an error box "Sign-in failed" with the login's `error` text as sent by the server, **Try again** and **Use browser sign-in**.
+
+### Sign in: forgot password (`forgot`)
+
+"Forgot your password?" sits beside the Password label. It swaps the form for a card: "Reset your password", an explanation that there is no email so the reset is done on the server, a code block with the command (a placeholder until the command exists), what happens next (sign in, choose your own password, other browsers signed out), and **Back to sign in**.
+
+### Settings: API access and System
+
+- **API access** (`token`): the token is shown masked to its last four characters, with **Copy** disabled and **Regenerate** in the destructive outline style. Regenerate confirms ("The current token stops working at once…", **Keep the current token** or **Regenerate**). Afterwards (`regenerated`) the full token is shown with an accent border, Copy is enabled, and a line says to copy it now because it is masked again after leaving the page. If the token comes from `AUDIBLE_SYNC_API_TOKEN`, say to change it there instead and disable Regenerate.
+- **System:** the audiobooks folder with free and total space and a meter (`lowDisk`: the meter, text and border in the error colour, with a warning that downloads stop when the disk is full), the app and FFmpeg versions (and whether libopus is available), where the encryption key comes from (environment variable, or the key file and its path), the database size, and a reminder to back up the key separately.
+
+**Backend work needed:** `POST /api/settings/api-token/regenerate` (returns the new token once), `GET /api/settings/api-token` (`last4`, `source`: `env` or `stored`), and `GET /api/system` (`version`, `ffmpeg_version`, `libopus`, `audiobook_folder` with `free_bytes` and `total_bytes`, `key_source` and `key_file`, `database_bytes`). Low space means under 5% or under 50 GB free, whichever is larger.
+
+### Activity: books in a run (`expanded`)
+
+Each run row has a chevron button that expands a row underneath, listing the run's books in three columns: Downloaded, Failed and Refused by Audible, each with a count. Every book links to its detail page, with a small cover and a note (time and size, or the error). Runs from before per-book records existed say so instead.
+
+**Backend work needed:** a `sync_run_books` table (`run_id`, `book_id`, `outcome`: `downloaded`/`failed`/`refused`, `error`, `bytes`, `seconds`) written by `download_books`, and `GET /api/sync/runs/{id}/books`. This is the lowest priority.
+
+### Common patterns (`Patterns.dc.html`), 404 and unreachable
+
+- **Skeletons:** grey blocks in the shape of the content (a card with rows; the library grid's covers and two text lines), with a slow shimmer and none under `prefers-reduced-motion`. Set `aria-busy` on the container.
+- **A failed request:** replaces only the card that failed. It shows a warning icon, a title saying what could not load, the API's `detail`, the request and status in small mono, and **Retry**.
+- **Toasts:** bottom right, newest on top (full width at the bottom on a phone). A success toast closes itself after 4 s; an error toast stays until dismissed and has a title and the `detail`.
+- **404** (`NotFound.dc.html`, `kind`): inside the normal layout, a large "404", a title ("This book is not in your library" or "Page not found"), a line of explanation, the path, and **Back to the library** and **Go to the dashboard**. Use it for unknown routes and for `GET /api/books/{id}` returning 404.
+- **Service unreachable** (`Unreachable.dc.html`): full page, without the sidebar, shown when requests fail at the network level (no response at all, not an error status). It says the service is not answering, counts down to an automatic retry with backoff, offers **Retry now**, and shows two `docker compose` commands to check the container. It goes back to where you were when the service answers.
+
+### Phone layout
+
+At 720px and narrower, the sidebar becomes a horizontally scrolling bar above the content (logo, links, then the service state, username and Sign out), and the page padding drops to 20px top and 16px at the sides. The Dashboard totals and covers, and the Library grid, use `repeat(auto-fill/auto-fit, minmax(...))` so they drop columns by themselves (two covers across at 390px). Toolbars and button rows wrap; the Library table keeps its minimum width and scrolls sideways inside its card. The `Phone*` frames show the Dashboard and both Library views at 390px, in dark and light.
+
 ## Behaviour common to every screen
 
 - Show a skeleton while loading, a message with Retry when a request fails, and a short confirmation after an action (a toast is fine).
@@ -201,9 +286,10 @@ The audio format, folder and naming sections say that changes apply to books dow
 1. **Web app users:** create `admin` with a generated password on the first start and log it once; store a salted password hash (argon2 or bcrypt) encrypted like the other secrets; track whether the generated password is still in use.
 2. **Sessions:** `POST /api/auth/login` (`username`, `password`, `remember`), `POST /api/auth/logout`, `GET /api/auth/me` (`username`, `generated_password`); an HTTP-only session cookie accepted by every route that now takes the bearer token; rate-limit failed sign-ins.
 3. **Changing the sign-in:** `PUT /api/auth/username` and `PUT /api/auth/password`, each requiring the current password; a password change ends every other session.
-4. **A way back from a forgotten password,** run on the server, since there is no email: for example a CLI command that resets the password and logs a new one. Not designed yet.
+4. **A way back from a forgotten password,** run on the server, since there is no email: for example a CLI command that resets the password and logs a new one. The sign-in screen's Forgot your password? card shows it; the exact command is still to be decided.
 5. **Serving the app:** mount the built `web/dist` in `src/api.py` with the `index.html` fallback, after the `/api` routes.
 6. **Docker:** a Node build stage that runs the `web/` build and copies `dist` into the image; `.dockerignore` for `web/node_modules`.
 7. **CI:** lint, type-check and build `web/` beside the Python checks.
+8. **Round 2:** `generated_password` on `GET /api/auth/me` (the dashboard banner); `POST /api/books/bulk`; the API-token endpoints and `GET /api/system`; optionally `GET /api/queue` for Up next; per-book run records and `GET /api/sync/runs/{id}/books` (lowest priority). Each is described under its screen in Round 2 above.
 
 Open question: `GET /api/books` has no per-book file size, only the totals in `/api/stats`, so the design shows no sizes per book.

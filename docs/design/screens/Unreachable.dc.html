@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audible Sync – Cannot reach the service</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0e1014}
+[data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
+[data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
+a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="min-height: 100vh; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45; display: flex; align-items: center; justify-content: center; padding: 48px 20px; box-sizing: border-box">
+<main style="width: 100%; max-width: 480px; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center">
+<div style="width: 64px; height: 64px; border-radius: 16px; background: var(--raised); border: 1px solid var(--line-strong); color: var(--bad); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.8a15 15 0 0 1 4.2-2.6"></path><path d="M10 5.1a15 15 0 0 1 12 3.7"></path><path d="M5 12.9a10 10 0 0 1 5.2-2.7"></path><path d="M16.8 11.3a10 10 0 0 1 2.2 1.6"></path><path d="M8.5 16.4a5 5 0 0 1 7 0"></path><path d="M12 20h.01"></path><path d="m3 3 18 18"></path></svg></div>
+<h1 style="margin: 0; font-size: 24px; font-weight: 700">Cannot reach Audible Sync</h1>
+<p style="margin: 0; color: var(--text-2)">The service is not answering. It may be restarting, or the container has stopped. Nothing is lost: runs pick up where they left off when it is back.</p>
+<div role="status" style="display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 8px; background: var(--raised); font-size: 13px; color: var(--text-2)"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="color: var(--accent)"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>Trying again in 8 seconds</div>
+<button type="button" style="min-height: 46px; padding: 0 22px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Retry now</button>
+<div style="width: 100%; margin-top: 8px; padding: 14px 16px; border-radius: 10px; border: 1px dashed var(--line-strong); text-align: left; display: flex; flex-direction: column; gap: 8px">
+<span style="font-weight: 600; font-size: 13px">Running it yourself? Check the container:</span>
+<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text); background: var(--bg); padding: 8px 10px; border-radius: 6px">docker compose ps audible-sync</code>
+<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text); background: var(--bg); padding: 8px 10px; border-radius: 6px">docker compose logs --tail 50 audible-sync</code>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.theme ?? 'dark' };
+  }
+}
+</script>
+</body>
+</html>

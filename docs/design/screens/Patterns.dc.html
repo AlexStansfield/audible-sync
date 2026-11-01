@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audible Sync – Common patterns</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0e1014}
+[data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
+[data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
+a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="width: 1440px; height: 1180px; box-sizing: border-box; padding: 56px; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45; display: flex; flex-direction: column; gap: 40px">
+
+<header style="display: flex; flex-direction: column; gap: 4px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 700">Common patterns</h1>
+<p style="margin: 0; color: var(--muted)">Loading, failure and feedback states shared by every screen.</p>
+</header>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px">
+
+<section aria-labelledby="sk-h" style="display: flex; flex-direction: column; gap: 14px">
+<h2 id="sk-h" style="margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em">Loading: a card</h2>
+<div aria-busy="true" aria-label="Loading" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center"><span style="width: 120px; height: 14px; border-radius: 4px; background: var(--raised)"></span><span style="margin-left: auto; width: 56px; height: 12px; border-radius: 4px; background: var(--raised)"></span></div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="3">
+<div style="display: flex; align-items: center; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line)"><span style="width: 36px; height: 36px; border-radius: 4px; background: var(--raised)"></span><span style="flex: 1; display: flex; flex-direction: column; gap: 6px"><span style="width: {{r.w}}; height: 12px; border-radius: 4px; background: var(--raised)"></span><span style="width: 40%; height: 10px; border-radius: 4px; background: var(--raised)"></span></span></div>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Shapes match the content they stand in for; a slow shimmer, none with reduced motion.</p>
+</section>
+
+<section aria-labelledby="skg-h" style="display: flex; flex-direction: column; gap: 14px">
+<h2 id="skg-h" style="margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em">Loading: the library grid</h2>
+<div aria-busy="true" aria-label="Loading books" style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 16px">
+<sc-for list="{{tiles}}" as="t" hint-placeholder-count="10">
+<div style="display: flex; flex-direction: column; gap: 7px"><span style="aspect-ratio: 1; border-radius: 6px; background: var(--raised)"></span><span style="width: 80%; height: 12px; border-radius: 4px; background: var(--raised)"></span><span style="width: 55%; height: 10px; border-radius: 4px; background: var(--raised)"></span></div>
+</sc-for>
+</div>
+</section>
+
+<section aria-labelledby="err-h" style="display: flex; flex-direction: column; gap: 14px">
+<h2 id="err-h" style="margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em">A request that failed</h2>
+<div role="alert" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 28px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px">
+<div style="display: flex; gap: 12px; align-items: flex-start">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--bad); flex: none; margin-top: 2px"><path d="M12 3 2 21h20L12 3z"></path><path d="M12 10v4M12 17.5v.01"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">Could not load the run history</span><span style="font-size: 13px; color: var(--text-2)">[detail from the server]</span><span style="font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace">GET /api/sync/runs · 500</span></div>
+</div>
+<button type="button" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>Retry</button>
+</div>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Replaces only the card that failed; the rest of the screen keeps working. The message is the API's <code style="font-family: 'JetBrains Mono', monospace">detail</code>.</p>
+</section>
+
+<section aria-labelledby="toast-h" style="display: flex; flex-direction: column; gap: 14px">
+<h2 id="toast-h" style="margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em">Toasts</h2>
+<div style="display: flex; flex-direction: column; gap: 12px; align-items: flex-end; padding: 20px; border-radius: 12px; border: 1px dashed var(--line-strong)">
+<div role="status" style="width: 380px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-strong); box-shadow: 0 12px 32px rgba(0,0,0,0.24)">
+<span style="width: 28px; height: 28px; flex: none; border-radius: 50%; background: rgba(76,207,143,0.14); color: var(--ok); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></span>
+<span style="flex: 1">Settings saved. They apply from the next run.</span>
+<button type="button" aria-label="Dismiss" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+<div role="alert" style="width: 380px; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--bad-line); box-shadow: 0 12px 32px rgba(0,0,0,0.24)">
+<span style="width: 28px; height: 28px; flex: none; border-radius: 50%; background: rgba(255,122,122,0.14); color: var(--bad); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 7v6M12 17v.01"></path></svg></span>
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">Could not delete the files</span><span style="font-size: 13px; color: var(--text-2)">A run is downloading this book. Cancel the run first.</span></span>
+<button type="button" aria-label="Dismiss" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+</div>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Bottom right, stacked newest on top; on a phone, full width at the bottom. Success closes itself after 4 seconds; an error stays until dismissed.</p>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"$preview":{"width":1440,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.theme ?? 'dark',
+      rows: [{ w: '70%' }, { w: '55%' }, { w: '62%' }],
+      tiles: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(() => ({})),
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -15,16 +15,17 @@ body{margin:0;background:#0e1014}
 [data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
 [data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
 a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+@media (max-width: 720px){[data-shell="nav"]{flex-direction:row!important;align-items:center;overflow-x:auto;padding:8px 10px!important;border-right:0!important;border-bottom:1px solid var(--line);gap:2px!important}[data-shell="nav"] > a{flex:none;padding:8px 10px!important}[data-shell="brand"]{padding:4px 6px 4px 2px!important;flex:none}[data-shell="brand-text"]{display:none!important}[data-shell="nav-foot"]{margin:0!important;border-top:0!important;flex-direction:row!important;align-items:center;padding:0 6px!important;flex:none;gap:14px!important}[data-shell="main"]{padding:20px 16px 40px!important}}
 </style>
 </helmet>
 <div data-theme="{{theme}}" style="min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
 
-<nav aria-label="Main" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
-<div style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
+<nav aria-label="Main" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<div data-shell="brand" style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
 <div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
 <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
 </div>
-<div style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
+<div data-shell="brand-text" style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
 </div>
 <a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
@@ -36,13 +37,13 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>Accounts</a>
 <a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 12h4M12 12h8M4 18h12"></path><circle cx="17" cy="6" r="2.5"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="19" cy="18" r="2"></circle></svg>Settings</a>
-<div style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
+<div data-shell="nav-foot" style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
 <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--accent)"></span>Syncing · book 3 of 10</div>
 <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><a href="Profile.dc.html" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; min-height: 32px"><span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">A</span>admin</a><a href="Login.dc.html" style="font-size: 13px; color: var(--text-2); text-decoration: none">Sign out</a></div>
 </div>
 </nav>
 
-<main style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+<main data-shell="main" style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
 
 <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
 <div style="display: flex; flex-direction: column; gap: 2px">
@@ -63,7 +64,7 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <tbody>
 <sc-for list="{{runs}}" as="r" hint-placeholder-count="8">
 <tr style="border-top: 1px solid var(--line)">
-<td style="padding: 11px 20px; font-family: 'JetBrains Mono', monospace; color: var(--text-2)">#{{r.id}}</td>
+<td style="padding: 4px 8px 4px 12px"><button type="button" aria-expanded="{{r.open}}" aria-label="Books in run {{r.id}}" onClick="{{r.toggle}}" style="min-height: 36px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); font-family: 'JetBrains Mono', monospace; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: {{r.rot}}"><path d="m9 6 6 6-6 6"></path></svg>#{{r.id}}</button></td>
 <td style="padding: 11px 8px"><span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; background: {{r.bg}}; color: {{r.fg}}; font-size: 12px; font-weight: 600">{{r.outcome}}</span></td>
 <td style="padding: 11px 8px">{{r.account}}</td>
 <td style="padding: 11px 8px; color: var(--text-2)">{{r.started}}</td>
@@ -74,6 +75,22 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <td style="padding: 11px 8px; text-align: right; font-variant-numeric: tabular-nums; color: {{r.failColor}}">{{r.failed}}</td>
 <td style="padding: 11px 20px; color: var(--muted); max-width: 300px">{{r.note}}</td>
 </tr>
+<sc-if value="{{r.open}}" hint-placeholder-val="{{ false }}">
+<tr style="background: var(--bg)">
+<td colspan="10" style="padding: 14px 20px 18px 48px">
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px">
+<sc-for list="{{r.groups}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: {{g.color}}; padding-bottom: 4px"><span style="width: 7px; height: 7px; border-radius: 50%; background: {{g.color}}"></span>{{g.label}}</span>
+<sc-for list="{{g.books}}" as="b" hint-placeholder-count="3">
+<a href="Book.dc.html" style="display: flex; align-items: center; gap: 10px; min-height: 36px; color: var(--text); text-decoration: none"><span aria-hidden="true" style="width: 28px; height: 28px; flex: none; border-radius: 3px; background: {{b.bg}}"></span><span style="display: flex; flex-direction: column; min-width: 0"><span style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{b.title}}</span><span style="font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{b.note}}</span></span></a>
+</sc-for>
+</div>
+</sc-for>
+</div>
+</td>
+</tr>
+</sc-if>
 </sc-for>
 </tbody>
 </table>
@@ -101,7 +118,7 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"level":{"editor":"enum","options":["DEBUG","INFO","WARNING","ERROR"],"default":"INFO"},"$preview":{"width":1440,"height":1160}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"level":{"editor":"enum","options":["DEBUG","INFO","WARNING","ERROR"],"default":"INFO"},"expanded":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1460}}'>
 class Component extends DCLogic {
   renderVals() {
     const O = {
@@ -121,10 +138,33 @@ class Component extends DCLogic {
       [143, 'Cancelled', 'Alex (UK)', 'Yesterday 20:00', '22m 05s', 0, 0, 3, 0, 'Stopped from the web app'],
       [142, 'Aborted', 'Alex (UK)', 'Yesterday 14:00', '1m 12s', 0, 0, 0, 5, '5 licence refusals in a row. Sign in again if this repeats.'],
       [141, 'Failed', 'Alex (JP)', 'Yesterday 14:00', '2s', 0, 0, 0, 0, 'Credentials rejected by Audible'],
-    ].map(([id, outcome, account, started, dur, seen, added, dl, failed, note]) => ({
-      id, outcome, account, started, dur, seen, added, dl, failed, note: note || '—',
-      bg: O[outcome][0], fg: O[outcome][1], failColor: failed ? 'var(--bad-text)' : 'var(--text)',
-    }));
+    ].map(([id, outcome, account, started, dur, seen, added, dl, failed, note]) => {
+      const openId = this.state && this.state.openId !== undefined ? this.state.openId : (this.props.expanded ?? true) ? 145 : null;
+      const open = openId === id;
+      return {
+        id, outcome, account, started, dur, seen, added, dl, failed, note: note || '—',
+        bg: O[outcome][0], fg: O[outcome][1], failColor: failed ? 'var(--bad-text)' : 'var(--text)',
+        open, rot: open ? 'rotate(90deg)' : 'none',
+        toggle: () => this.setState({ openId: open ? null : id }),
+        groups: id === 145 ? [
+          { label: 'Downloaded (5)', color: 'var(--ok)', books: [
+            { title: 'One Word Kill', note: '6m 35s · 405 MB', bg: '#1f3a5a' },
+            { title: 'Limited Wish', note: '6m 18s · 388 MB', bg: '#5a2340' },
+            { title: 'Golden Son', note: '9m 02s · 611 MB', bg: '#c49a2e' },
+            { title: 'Northern Lights', note: '7m 44s · 452 MB', bg: '#3c2f6b' },
+            { title: 'The Subtle Knife', note: '6m 51s · 410 MB', bg: '#2c3f6e' },
+          ] },
+          { label: 'Failed (1)', color: 'var(--bad)', books: [
+            { title: 'The Ringworld Engineers', note: 'ffmpeg exited with status 1 · attempt 3 of 3', bg: '#3d4f2a' },
+          ] },
+          { label: 'Refused by Audible (1)', color: 'var(--violet)', books: [
+            { title: 'Dune Messiah', note: 'License not granted to customer', bg: '#6b4a2a' },
+          ] },
+        ] : [
+          { label: 'Per-book detail is recorded from this version on', color: 'var(--muted)', books: [] },
+        ],
+      };
+    });
     const order = ['DEBUG', 'INFO', 'WARNING', 'ERROR'];
     const level = (this.state && this.state.level) || this.props.level || 'INFO';
     const C = { DEBUG: 'var(--muted)', INFO: 'var(--info)', WARNING: 'var(--accent-text)', ERROR: 'var(--bad)' };

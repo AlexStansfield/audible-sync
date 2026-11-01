@@ -122,4 +122,10 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [ ] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
 - [ ] Web: Accounts with the code and browser sign-in flows
 - [ ] Web: Activity (runs, log) and Settings
+- [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password
+- [ ] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
+- [ ] Web: Library bulk selection (grid and table), action bar, delete confirmation, result message
+- [ ] Backend: API token last four and regenerate; `GET /api/system` (versions, disk space, key source, database size)
+- [ ] Web: Settings API access and System sections; Dashboard Up next card
+- [ ] Backend and web (later): per-book run records and the expandable run row in Activity
 

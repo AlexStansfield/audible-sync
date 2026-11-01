@@ -27,6 +27,17 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <h1 style="margin: 0; font-size: 24px; font-weight: 700">Sign in to Audible Sync</h1>
 </div>
 
+<sc-if value="{{forgot}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="fp-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 16px">
+<h2 id="fp-h" style="margin: 0; font-size: 18px; font-weight: 700">Reset your password</h2>
+<p style="margin: 0; color: var(--text-2)">Audible Sync has no email, so a forgotten password is reset on the server it runs on. Run this command there. It sets a new password and prints it once in the terminal.</p>
+<code style="display: block; padding: 12px 14px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text)">[RESET COMMAND]</code>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Then sign in with the new password and choose your own under Your sign-in. Every other browser is signed out.</p>
+<button type="button" onClick="{{back}}" style="min-height: 46px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Back to sign in</button>
+</section>
+</sc-if>
+
+<sc-if value="{{signin}}" hint-placeholder-val="{{ true }}">
 <form style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 18px">
 
 <sc-if value="{{showError}}" hint-placeholder-val="{{ false }}">
@@ -39,7 +50,7 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 </div>
 
 <div style="display: flex; flex-direction: column; gap: 8px">
-<label for="pw" style="font-weight: 600; font-size: 13px">Password</label>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><label for="pw" style="font-weight: 600; font-size: 13px">Password</label><button type="button" onClick="{{showForgot}}" style="border: 0; background: transparent; padding: 0; min-height: 28px; color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Forgot your password?</button></div>
 <div style="position: relative; display: flex; align-items: center">
 <input id="pw" type="password" autocomplete="current-password" style="width: 100%; min-height: 44px; padding: 0 48px 0 14px; border-radius: 8px; border: 1px solid {{fieldBorder}}; background: var(--bg); color: var(--text); font: inherit; box-sizing: border-box">
 <button type="button" aria-label="Show password" style="position: absolute; right: 2px; width: 44px; height: 40px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg></button>
@@ -50,16 +61,21 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 
 <a href="Main.dc.html" style="min-height: 46px; border-radius: 8px; background: var(--accent); color: #1a1206; font-weight: 700; display: flex; align-items: center; justify-content: center; text-decoration: none">Sign in</a>
 </form>
+</sc-if>
 
 <p style="margin: 0; text-align: center; font-size: 13px; color: var(--muted)">First start? Sign in as <strong style="color: var(--text); font-weight: 600">admin</strong> with the password shown in the service log.</p>
 </main>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"showError":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"showError":{"editor":"boolean","default":false},"forgot":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":900}}'>
 class Component extends DCLogic {
   renderVals() {
     const showError = this.props.showError ?? false;
+    const forgot = (this.state && this.state.forgot != null) ? this.state.forgot : (this.props.forgot ?? false);
     return {
+      forgot, signin: !forgot,
+      showForgot: () => this.setState({ forgot: true }),
+      back: () => this.setState({ forgot: false }),
       theme: this.props.theme ?? 'dark', showError, fieldBorder: showError ? 'var(--bad-line)' : 'var(--line-strong)' };
   }
 }
