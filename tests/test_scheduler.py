@@ -171,6 +171,29 @@ def test_a_run_that_is_not_due_waits(scheduler_factory):
     assert run.calls == []
 
 
+def test_a_run_that_records_nothing_still_waits_its_interval(scheduler_factory):
+    """With no account to sync no run row is written; the thread must not run again at once."""
+    run = FakeRun()
+    scheduler = scheduler_factory(run, settings=make_settings(sync_interval_minutes=60), last=None)
+    scheduler.start()
+
+    assert run.finished.wait(2)
+    _settle(scheduler)
+    assert scheduler.next_run_at() == NOW + timedelta(minutes=60)
+    time.sleep(0.2)
+    assert len(run.calls) == 1
+
+
+def test_the_newer_of_the_history_and_the_last_attempt_paces_the_schedule(scheduler_factory):
+    scheduler = scheduler_factory(settings=make_settings(sync_interval_minutes=60), last="2026-09-12T11:30:00+00:00")
+    scheduler._last_attempt = NOW - timedelta(minutes=50)
+
+    assert scheduler.next_run_at() == NOW + timedelta(minutes=30)
+
+    scheduler._last_attempt = NOW - timedelta(minutes=10)
+    assert scheduler.next_run_at() == NOW + timedelta(minutes=50)
+
+
 def test_trigger_is_refused_while_a_run_is_going(scheduler_factory):
     run = FakeRun(block=True)
     scheduler = scheduler_factory(run, settings=make_settings(sync_enabled=False))

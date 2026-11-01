@@ -2,9 +2,10 @@
 Runs the pipeline on an interval, and on demand, one run at a time.
 
 A single daemon thread waits until the next run is due, runs the pipeline, and waits
-again. "Due" is worked out from the newest `sync_runs` row rather than from anything
-held in memory, so a restart carries on where the previous process left off instead of
-syncing on every boot. `trigger()` wakes the thread early for a manual run, `cancel()`
+again. "Due" is worked out from the newest `sync_runs` row, so a restart carries on
+where the previous process left off instead of syncing on every boot, or from when this
+process last started the pipeline if that is newer: a pass with no account to sync
+records no row, and must still wait its interval. `trigger()` wakes the thread early for a manual run, `cancel()`
 sets the event the pipeline checks between chunks, and `wake()` makes the thread
 re-read the settings so a changed interval applies at once.
 
@@ -69,6 +70,10 @@ class Scheduler:
         self._stopping = False
         self._triggered = False
         self._running = False
+        # When this process last started the pipeline. A pass can record no run at all -
+        # no accounts yet, or none that can log in - and pacing from the history alone
+        # then reads "never run, due now" for ever, which ran the pipeline back to back
+        self._last_attempt: datetime | None = None
         self._thread: threading.Thread | None = None
 
     # --- control -------------------------------------------------------------------
@@ -142,10 +147,14 @@ class Scheduler:
             return None
 
         now = self._now()
-        last = self._last_run_start()
-        if last is None:
+        recorded = self._last_run_start()
+        starts = [datetime.fromisoformat(recorded)] if recorded is not None else []
+        with self._lock:
+            if self._last_attempt is not None:
+                starts.append(self._last_attempt)
+        if not starts:
             return now
-        due = datetime.fromisoformat(last) + timedelta(minutes=settings.sync_interval_minutes)
+        due = max(starts) + timedelta(minutes=settings.sync_interval_minutes)
         return max(due, now)
 
     def status(self, settings: Settings | None = None) -> dict[str, Any]:
@@ -202,6 +211,7 @@ class Scheduler:
                 return
             self._triggered = False
             self._running = True
+            self._last_attempt = self._now()
             self._cancel.clear()
 
         logger.info("Starting sync run")
