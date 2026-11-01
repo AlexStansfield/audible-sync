@@ -205,13 +205,27 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     monkeypatch.setattr(main_module, "seed_settings_from_ini", lambda: order.append("seed"))
     monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: order.append("settings") or settings))
     monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append(("logging", debug)))
+    monkeypatch.setattr(main_module, "load_secret_key", lambda: order.append("key") or "k")
+    monkeypatch.setattr(main_module.crypto, "configure", lambda key: order.append(("configure", key)))
+    monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
     monkeypatch.setattr(main_module, "ensure_account_from_auth_file", lambda path: order.append(("import", path)))
     monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
 
     main([])
 
-    assert order[:5] == ["init_db", "seed", "settings", ("logging", True), ("import", settings.auth_file)]
-    step, passed_settings, progress = order[5]
+    # The key after logging (so where it came from is reported) and before the import
+    # (which stores credentials with it)
+    assert order[:8] == [
+        "init_db",
+        "seed",
+        "settings",
+        ("logging", True),
+        "key",
+        ("configure", "k"),
+        "encrypt",
+        ("import", settings.auth_file),
+    ]
+    step, passed_settings, progress = order[8]
     assert (step, passed_settings) == ("pipeline", settings)
     # The bar is a terminal concern the CLI injects, like the logging config above
     assert isinstance(progress, main_module.TqdmProgress)
@@ -350,6 +364,7 @@ def _patch_prepare(monkeypatch, order):
     monkeypatch.setattr(main_module, "seed_settings_from_ini", lambda: order.append("seed"))
     monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: settings))
     monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append("logging"))
+    monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
     monkeypatch.setattr(main_module, "ensure_account_from_auth_file", lambda path: order.append("import"))
     return settings
 
@@ -386,8 +401,8 @@ def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):
     main(["login", "--marketplace", "uk", "--name", "Main", "--no-download-existing"])
 
     # The database and settings come first, like every command, then the login
-    assert order[:4] == ["init_db", "seed", "logging", "import"]
-    assert order[4] == ("login", "uk")
+    assert order[:5] == ["init_db", "seed", "logging", "encrypt", "import"]
+    assert order[5] == ("login", "uk")
     assert added == [("auth", "Main", False)]
     assert "Account 3 added" in capsys.readouterr().out
 

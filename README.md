@@ -123,6 +123,8 @@ It listens on port 8080. Every API call except the health check needs a bearer t
 docker compose logs audible-sync | grep "API token"
 ```
 
+The Audible credentials and the API token are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
+
 The first run starts as soon as the service does, then every `interval-minutes` (six hours by default). `docker stop` cancels a run in progress cleanly: the book being downloaded goes back to the queue.
 
 For a single sync-and-exit instead of the service:
@@ -210,6 +212,8 @@ The service reads these environment variables:
 | `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged on the first start if unset |
 | `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server |
 | `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |
+| `AUDIBLE_SYNC_SECRET_KEY` | key file | The key the stored credentials and API token are encrypted with: 44 characters of URL-safe base64, as `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` prints. Unset, the key file is used |
+| `AUDIBLE_SYNC_SECRET_KEY_FILE` | `secrets/secret.key` | Where the key file is; generated owner-only on the first start if missing |
 
 ## API
 

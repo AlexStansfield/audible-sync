@@ -79,6 +79,7 @@ List of tasks to complete by phases
 - [x] Delete a book: `POST /api/books/{id}/delete-files` removes the files and unmonitors; `/redownload` and `/retry` queue it again
 - [x] Bulk retry of parked books: `POST /api/books/retry-unavailable`, and a re-login requeues the account's licence-refused books itself
 - [x] An OpenCollection request collection (`opencollection/`) for testing the API from Bruno
+- [x] Credentials and the API token encrypted at rest, the key outside `data/` (`secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY`), so the database can be backed up without the Audible login
 - [x] Set book as monitored/unmonitored to remove from sync (`PATCH /api/books/{id}`), plus a paged, searchable `GET /api/books` and a cover endpoint
 - [x] Extras: `GET /api/logs`, a webhook posted after every run (`webhook-url`, with `POST /api/settings/webhook/test`), `GET /api/stats`
 

@@ -2,6 +2,7 @@ import argparse
 import logging
 import threading
 
+from src import crypto
 from src.accounts import (
     add_account_from_authenticator,
     authenticator_for,
@@ -11,7 +12,9 @@ from src.accounts import (
 )
 from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, LoginFailed, login_interactively, login_with_code
+from src.crypto import load_secret_key
 from src.database import (
+    encrypt_stored_secrets,
     finish_sync_run,
     get_account,
     get_accounts,
@@ -209,6 +212,10 @@ def _prepare() -> Settings:
     # bitrate now fails before the folders are created rather than after.
     settings = Settings.from_db()
     configure_logging(settings.debug)
+    # The secret key, once logging can report where it came from, and before the auth
+    # file import below stores credentials with it
+    crypto.configure(load_secret_key())
+    encrypt_stored_secrets()
     # An installation from before there were accounts has its auth file made into one
     ensure_account_from_auth_file(settings.auth_file)
     return settings

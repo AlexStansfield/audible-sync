@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 import src.database as database
+from src import crypto
 from src.model import Account, Book, BookStatus, SyncOutcome, SyncRun
 from tests.conftest import ACCOUNT_ID as ACCOUNT
 from tests.conftest import make_book
@@ -1056,7 +1057,77 @@ def test_add_and_get_account(db, monkeypatch):
     assert database.get_account(999) is None
 
 
-def test_get_accounts_is_oldest_first(db):
+def _stored_auth(account_id: int) -> str | None:
+    conn = sqlite3.connect(database.DB_FILE)
+    try:
+        return conn.execute("SELECT auth FROM accounts WHERE id = ?", (account_id,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_the_credentials_are_stored_encrypted(db):
+    """A copy of the database file must not be a working Audible device."""
+    account_id = database.add_account("Alex (UK)", "uk", auth={"access_token": "Atna|secret"})
+
+    stored = _stored_auth(account_id)
+    assert stored.startswith("enc:")
+    assert "Atna" not in stored
+    assert database.get_account(account_id).auth == {"access_token": "Atna|secret"}
+
+    database.save_account_auth(account_id, {"access_token": "Atna|newer"})
+    assert "Atna" not in _stored_auth(account_id)
+    assert database.get_account(account_id).auth == {"access_token": "Atna|newer"}
+
+    database.save_account_auth(account_id, None)
+    assert _stored_auth(account_id) is None
+
+
+def test_credentials_under_another_key_read_as_needing_a_login(db, caplog, secret_key):
+    """The key changed: the account is skipped, loudly, and the blob is kept for the right key."""
+    account_id = database.add_account("Alex (UK)", "uk", auth={"access_token": "Atna|secret"})
+    stored = _stored_auth(account_id)
+    crypto.configure(crypto.generate_key())
+    database._undecryptable_logged.clear()
+
+    account = database.get_account(account_id)
+
+    assert account.needs_login is True
+    assert database.get_account(account_id).needs_login is True
+    assert _stored_auth(account_id) == stored
+    assert caplog.text.count(f"credentials of account {account_id} cannot be read") == 1  # once, not on every poll
+
+    # The right key back: nothing was lost
+    crypto.configure(secret_key)
+    assert database.get_account(account_id).auth == {"access_token": "Atna|secret"}
+
+
+def test_encrypt_stored_secrets_rewrites_plain_text_rows_once(db):
+    """The migration for a database from before there was a key."""
+    account_id = database.add_account("Alex (UK)", "uk", auth=None)
+    conn = sqlite3.connect(database.DB_FILE)
+    conn.execute("UPDATE accounts SET auth = ? WHERE id = ?", ('{"access_token": "Atna|old"}', account_id))
+    conn.execute("INSERT INTO settings (key, value, updated_at) VALUES ('api_token', 'tok', 'then')")
+    conn.commit()
+    conn.close()
+    # Readable before the migration, so a start on an old database works at once
+    assert database.get_account(account_id).auth == {"access_token": "Atna|old"}
+
+    assert database.encrypt_stored_secrets() == 2
+
+    assert _stored_auth(account_id).startswith("enc:")
+    assert database.get_account(account_id).auth == {"access_token": "Atna|old"}
+    stored_token = database.get_settings()["api_token"]
+    assert stored_token.startswith("enc:") and crypto.decrypt(stored_token) == "tok"
+    # The account the fixture made was encrypted on insert and is left alone
+    assert _stored_auth(ACCOUNT).startswith("enc:")
+    assert database.encrypt_stored_secrets() == 0
+
+
+def test_init_db_makes_the_file_owner_only(db):
+    import stat
+
+    assert stat.S_IMODE(db.stat().st_mode) == 0o600
+
     second = database.add_account("Two", "us", auth=None)
 
     assert [a.id for a in database.get_accounts()] == [ACCOUNT, second]

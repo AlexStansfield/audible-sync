@@ -17,10 +17,14 @@ certifi==2025.1.31
     # via
     #   httpcore
     #   httpx
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+    # via cryptography
 click==8.5.0
     # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via tqdm
+cryptography==50.0.2
+    # via audible-sync
 fastapi==0.141.1
     # via audible-sync
 h11==0.16.0
@@ -51,6 +55,8 @@ pyasn1==0.6.1
     # via
     #   audible
     #   rsa
+pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+    # via cffi
 pydantic==2.13.5
     # via fastapi
 pydantic-core==2.46.5
