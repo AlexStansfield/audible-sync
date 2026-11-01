@@ -212,6 +212,23 @@ def test_file_actions_refuse_a_book_a_run_is_downloading(db, tmp_path, action):
     assert Path(book.file_path).exists()
 
 
+@pytest.mark.parametrize("action", ["delete", "redownload", "retry"])
+def test_actions_refuse_a_book_a_run_claimed_after_it_was_read(db, tmp_path, action):
+    """The `Book` in hand says waiting; the row is a run's by the time the reset lands."""
+    book, settings = _stored(tmp_path, status=BookStatus.WAITING_DOWNLOAD)
+    database.claim_book_for_download(book.id)
+
+    with pytest.raises(BookBusy, match="claimed by a run"):
+        if action == "delete":
+            delete_download(book, settings)
+        elif action == "redownload":
+            redownload(book, settings)
+        else:
+            retry(book)
+
+    assert database.get_book(book.id).status is BookStatus.DOWNLOADING
+
+
 def test_retry_queues_a_failed_book_and_keeps_its_files(db, tmp_path):
     book, _ = _stored(tmp_path, status=BookStatus.FAILED, attempts=3, last_error="boom", monitored=0)
 
