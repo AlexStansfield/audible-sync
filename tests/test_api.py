@@ -652,6 +652,16 @@ def test_login_for_an_unknown_account_is_a_404_before_amazon_is_asked(api):
     assert api.amazon.requests == []
 
 
+def test_login_for_another_marketplaces_account_is_a_422_before_amazon_is_asked(api):
+    account_id = database.add_account("Alex (US)", "us", auth=None)
+
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk", "account_id": account_id})
+
+    assert response.status_code == 422
+    assert "US account" in response.json()["detail"]
+    assert api.amazon.requests == []
+
+
 # the browser method
 
 

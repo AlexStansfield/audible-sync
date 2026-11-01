@@ -242,6 +242,9 @@ def _migrate_library_to_accounts(conn: sqlite3.Connection) -> None:
         f"INSERT INTO library (account_id, {columns}) SELECT ?, {columns} FROM library_legacy", (account_id,)
     )
     cursor.execute("DROP TABLE library_legacy")
+    # The runs recorded before there were accounts were this library's, and are its
+    # sync cursor: they belong to this account and to no other
+    cursor.execute("UPDATE sync_runs SET account_id = ? WHERE account_id IS NULL", (account_id,))
     # Indexes went with the old table; `_create_indexes` recreates them
     conn.commit()
 
@@ -1008,9 +1011,11 @@ def latest_successful_sync_start(account_id: int | None = None) -> str | None:
     `partial` counts alongside `success`: its sync completed, and a book that failed to
     download is tracked by the library state machine, not by the cursor.
 
-    Rows written before there were accounts carry no `account_id`, and they count for
-    the migrated account too: they were that library's runs. So the lookup takes rows
-    with a NULL account alongside the account's own.
+    Only the account's own rows count. Runs written before there were accounts are
+    given to the account the migration attaches the library to
+    (`_migrate_library_to_accounts`); counting unowned rows for every account made an
+    account added later start from that library's cursor and never fetch its own back
+    catalogue. `IS` rather than `=` so `account_id=None` still reads unowned rows.
     """
     placeholders = ", ".join("?" for _ in _CURSOR_OUTCOMES)
     with closing(_get_connection()) as conn:
@@ -1018,7 +1023,7 @@ def latest_successful_sync_start(account_id: int | None = None) -> str | None:
             f"""
             SELECT MAX(started_at) FROM sync_runs
              WHERE outcome IN ({placeholders})
-               AND (account_id = ? OR account_id IS NULL)
+               AND account_id IS ?
             """,
             (*_CURSOR_OUTCOMES, account_id),
         ).fetchone()[0]
@@ -1209,6 +1214,27 @@ def save_account_auth(account_id: int, auth: dict | None) -> None:
             (_encode_auth(auth), account_id),
         )
         conn.commit()
+
+
+def replace_account_auth_if_unchanged(account_id: int, expected: dict | None, auth: dict) -> bool:
+    """
+    Store `auth` only if the stored credentials are still `expected`; return whether it did.
+
+    What a run writing back the token it refreshed goes through. A re-login can replace
+    an account's credentials while a run that started with the old ones is still going;
+    a blind write at the end of that run would put the old device - deregistered by the
+    re-login - back over the new one. The read and the write share one write-locked
+    transaction, so nothing can slip in between them.
+    """
+    with closing(_get_connection()) as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute("SELECT id, auth FROM accounts WHERE id = ?", (account_id,)).fetchone()
+        if row is None or _account_from_row(row).auth != expected:
+            conn.rollback()
+            return False
+        conn.execute("UPDATE accounts SET auth = ? WHERE id = ?", (_encode_auth(auth), account_id))
+        conn.commit()
+        return True
 
 
 def mark_account_synced(account_id: int) -> None:

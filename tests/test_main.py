@@ -501,6 +501,15 @@ def test_login_command_refuses_an_unknown_account_before_amazon_is_asked(monkeyp
         main(["login", "--marketplace", "uk", "--account", "9"])
 
 
+def test_login_command_refuses_another_marketplaces_account_before_amazon_is_asked(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, country_code="us"))
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: pytest.fail("must not start a login"))
+
+    with pytest.raises(SystemExit, match="US account"):
+        main(["login", "--marketplace", "uk", "--account", "9"])
+
+
 def test_run_pipeline_records_aborted_with_the_reason_when_the_breaker_trips(tmp_path, monkeypatch):
     calls = {}
     _patch_pipeline(monkeypatch, calls, stats=DownloadStats(0, 0, 2, 3, aborted=True))

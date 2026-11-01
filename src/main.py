@@ -6,6 +6,7 @@ from src import crypto
 from src.accounts import (
     add_account_from_authenticator,
     authenticator_for,
+    check_marketplace,
     persist_auth_if_changed,
     replace_account_auth,
 )
@@ -240,6 +241,10 @@ def login_command(
         existing = get_account(account_id)
         if existing is None:
             raise SystemExit(f"No account with id {account_id}")
+        try:
+            check_marketplace(existing, marketplace)
+        except ValueError as error:
+            raise SystemExit(str(error)) from None
     try:
         auth = login_interactively(marketplace) if browser else login_with_code(marketplace)
     except LoginFailed as error:

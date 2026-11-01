@@ -1238,12 +1238,14 @@ def test_the_cursor_reads_are_per_account(db, monkeypatch):
     assert database.latest_successful_sync_start(other) == "2026-09-12T10:00:00+00:00"
 
 
-def test_a_run_from_before_accounts_is_a_cursor_for_the_migrated_account(db, monkeypatch):
-    """Rows with no account were that library's runs; forgetting them would re-fetch everything."""
+def test_a_run_with_no_account_is_not_another_accounts_cursor(db, monkeypatch):
+    """An account added later must not start from somebody else's cursor and skip its back catalogue."""
     monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
     database.finish_sync_run(database.start_sync_run(), outcome=SyncOutcome.SUCCESS)
+    added = database.add_account("Second", "us", auth=None)
 
-    assert database.latest_successful_sync_start(ACCOUNT) == "2026-09-12T10:00:00+00:00"
+    assert database.latest_successful_sync_start(ACCOUNT) is None
+    assert database.latest_successful_sync_start(added) is None
 
 
 def test_sync_runs_record_their_account(db):
@@ -1339,9 +1341,12 @@ def test_migration_rebuilds_a_pre_accounts_library_under_one_account(tmp_path, m
     # Every column exists on the rebuilt table, with its default
     assert all(b.monitored for b in books)
     assert database.get_books_to_download()[0].asin == "B002"
-    # The old runs stay, without an account, and still serve as the cursor
+    # The old runs are given to the migrated account and still serve as its cursor
     assert database.latest_successful_sync_start(account.id) == "2026-09-01T10:00:00+00:00"
-    assert database.get_sync_run(1).account_id is None
+    assert database.get_sync_run(1).account_id == account.id
+    # ... and only as its cursor: an account added afterwards does a full fetch
+    added = database.add_account("Second", "us", auth=None)
+    assert database.latest_successful_sync_start(added) is None
 
 
 def test_migration_runs_once(tmp_path, monkeypatch):
@@ -1553,3 +1558,13 @@ def test_downloaded_file_paths(db):
 
     assert sorted(database.downloaded_file_paths()) == ["/lib/a.m4b", "/lib/b.m4b"]
     assert database.downloaded_file_paths(account_id=other) == ["/lib/b.m4b"]
+
+
+def test_replace_account_auth_if_unchanged_writes_only_over_what_it_expected(db):
+    database.save_account_auth(ACCOUNT, {"v": 1})
+
+    assert database.replace_account_auth_if_unchanged(ACCOUNT, {"v": 0}, {"v": 2}) is False
+    assert database.get_account(ACCOUNT).auth == {"v": 1}
+    assert database.replace_account_auth_if_unchanged(ACCOUNT, {"v": 1}, {"v": 2}) is True
+    assert database.get_account(ACCOUNT).auth == {"v": 2}
+    assert database.replace_account_auth_if_unchanged(999, None, {"v": 3}) is False

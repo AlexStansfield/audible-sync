@@ -84,6 +84,18 @@ def test_persist_auth_if_changed_writes_only_a_changed_blob(db):
     assert (stored["access_token"], stored["expires"]) == ("Atna|refreshed", 1_900_000_000.0)
 
 
+def test_persist_auth_if_changed_leaves_credentials_a_re_login_replaced(db):
+    """A run must not write its refreshed old device back over a re-login made while it ran."""
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    snapshot = database.get_account(account_id)
+    auth = authenticator_for(snapshot)
+    database.save_account_auth(account_id, {**AUTH_BLOB, "refresh_token": "Atnr|new-device"})
+
+    auth.access_token = "Atna|refreshed"
+    assert persist_auth_if_changed(snapshot, auth) is False
+    assert database.get_account(account_id).auth["refresh_token"] == "Atnr|new-device"
+
+
 def test_add_account_from_authenticator_defaults_the_name(db):
     account_id = accounts.add_account_from_authenticator(Authenticator.from_dict(dict(AUTH_BLOB)))
 
@@ -175,3 +187,28 @@ def test_replace_account_auth_on_an_account_that_had_none(db, monkeypatch):
     account = database.get_account(account_id)
     assert account.needs_login is False
     assert account.country_code == "uk"
+
+
+def test_replace_account_auth_refuses_another_marketplaces_login(db, monkeypatch):
+    account_id = database.add_account("Alex (US)", "us", auth=dict(AUTH_BLOB))
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("nothing is deregistered"))
+
+    with pytest.raises(ValueError, match="US account"):
+        replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
+
+    account = database.get_account(account_id)
+    assert account.country_code == "us"
+    assert account.auth == AUTH_BLOB
+
+
+@pytest.mark.parametrize(
+    ("account_country", "login_country", "accepted"),
+    [("uk", "uk", True), ("UK", "uk", True), ("", "us", True), ("uk", "us", False)],
+)
+def test_check_marketplace(account_country, login_country, accepted):
+    account = make_account(country_code=account_country)
+    if accepted:
+        accounts.check_marketplace(account, login_country)
+    else:
+        with pytest.raises(ValueError):
+            accounts.check_marketplace(account, login_country)

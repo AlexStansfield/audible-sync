@@ -19,7 +19,13 @@ from typing import Any
 
 from audible import Authenticator
 
-from src.database import add_account, requeue_unavailable, save_account_auth, update_account
+from src.database import (
+    add_account,
+    replace_account_auth_if_unchanged,
+    requeue_unavailable,
+    save_account_auth,
+    update_account,
+)
 from src.model import Account
 
 logger = logging.getLogger(__name__)
@@ -50,11 +56,17 @@ def persist_auth_if_changed(account: Account, auth: Authenticator) -> bool:
     `Authenticator` refreshes its access token in memory only; without this the stored
     token would age until every run began with a refresh. Compared as dicts so nothing
     is written when nothing moved.
+
+    `account` is the snapshot the run started from. If the stored credentials are no
+    longer the ones in it - a re-login replaced them while the run was going - the
+    refreshed old ones are dropped rather than written over the new device.
     """
     current = auth_to_dict(auth)
     if current == account.auth:
         return False
-    save_account_auth(account.id, current)
+    if not replace_account_auth_if_unchanged(account.id, account.auth, current):
+        logger.info("Not storing the refreshed credentials of %r: they were replaced during the run", account)
+        return False
     logger.debug("Stored refreshed credentials for %r", account)
     return True
 
@@ -74,7 +86,7 @@ def display_name(auth: Authenticator) -> str:
 def add_account_from_authenticator(
     auth: Authenticator, *, name: str | None = None, monitor_existing: bool = True
 ) -> int:
-    """Store a freshly logged-in or imported authenticator as a new account."""
+    """Store a freshly logged-in authenticator as a new account."""
     return add_account(
         name or display_name(auth),
         auth.locale.country_code if auth.locale else "",
@@ -82,6 +94,22 @@ def add_account_from_authenticator(
         customer_name=customer_name_of(auth),
         monitor_existing=monitor_existing,
     )
+
+
+def check_marketplace(account: Account, country_code: str | None) -> None:
+    """
+    Refuse a login for `account` in another marketplace than the one its library is.
+
+    An account with no marketplace (the migration's placeholder) accepts any.
+
+    Raises:
+        ValueError: naming both marketplaces
+    """
+    if account.country_code and country_code and account.country_code.lower() != country_code.lower():
+        raise ValueError(
+            f"{account.name} is a {account.country_code.upper()} account; "
+            f"log in to the {account.country_code.upper()} marketplace, not {country_code.upper()}"
+        )
 
 
 def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> None:
@@ -95,7 +123,14 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     stopped working, so it may well not be able to, and the new credentials are stored
     either way. Books parked `unavailable` because that device was refused a licence
     are queued again for the new one (`requeue_unavailable`).
+
+    Raises:
+        ValueError: if `auth` is another marketplace's login. An account's library
+            is one marketplace's: credentials for another would leave its books asking
+            the wrong store for licences, and its cursor skipping the other's catalogue.
+            The migration's placeholder has no marketplace yet and takes any
     """
+    check_marketplace(account, auth.locale.country_code if auth.locale else None)
     if deregister_previous and account.auth is not None:
         try:
             authenticator_for(account).deregister_device()
