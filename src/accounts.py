@@ -19,7 +19,7 @@ from typing import Any
 
 from audible import Authenticator
 
-from src.database import add_account, get_accounts, save_account_auth, update_account
+from src.database import add_account, get_accounts, requeue_unavailable, save_account_auth, update_account
 from src.model import Account
 
 logger = logging.getLogger(__name__)
@@ -93,7 +93,8 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     2026 - without deleting the account and losing which books are downloaded. The
     previous device is deregistered with Amazon first, best effort: it is the one that
     stopped working, so it may well not be able to, and the new credentials are stored
-    either way.
+    either way. Books parked `unavailable` because that device was refused a licence
+    are queued again for the new one (`requeue_unavailable`).
     """
     if deregister_previous and account.auth is not None:
         try:
@@ -110,6 +111,11 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     )
     save_account_auth(account.id, auth_to_dict(auth))
     logger.info("Replaced the credentials of %r", account)
+    # The books the old device was refused licences for get another go with the new
+    # one; a title Audible really has retired is refused once more and parks again.
+    requeued = requeue_unavailable(account.id)
+    if requeued:
+        logger.info("Queued %d parked book(s) of %r again for the new device", requeued, account)
 
 
 def import_auth_file(path: str | Path, *, name: str | None = None, monitor_existing: bool = True) -> int:

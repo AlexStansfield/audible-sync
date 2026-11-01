@@ -992,6 +992,50 @@ def test_retry_refuses_a_downloaded_book(api, tmp_path):
     assert "use redownload" in response.json()["detail"]
 
 
+def _park(book):
+    database.claim_book_for_download(book.id)
+    database.mark_book_unavailable(book.id, "Denied")
+
+
+def test_retry_unavailable_queues_the_parked_books_of_one_account(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    mine, withdrawn = _shelve(account_id, make_book("B001"), make_book("B002", is_consumable=False))
+    (theirs,) = _shelve(other, make_book("B003"))
+    _park(mine)
+    _park(theirs)
+
+    response = api.post("/api/books/retry-unavailable", json={"account_id": account_id}, headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"requeued": 1}
+    assert database.get_book(mine.id).status is BookStatus.WAITING_DOWNLOAD
+    assert database.get_book(withdrawn.id).status is BookStatus.UNAVAILABLE
+    assert database.get_book(theirs.id).status is BookStatus.UNAVAILABLE
+
+
+def test_retry_unavailable_with_no_body_means_every_account(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    for book in _shelve(account_id, make_book("B001")) + _shelve(other, make_book("B002")):
+        _park(book)
+
+    response = api.post("/api/books/retry-unavailable", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json() == {"requeued": 2}
+    assert api.post("/api/books/retry-unavailable", json={}, headers=AUTH).json() == {"requeued": 0}
+
+
+def test_retry_unavailable_404s_for_an_unknown_account(api):
+    assert api.post("/api/books/retry-unavailable", json={"account_id": 999}, headers=AUTH).status_code == 404
+
+
+def test_retry_unavailable_rejects_an_unknown_field(api):
+    response = api.post("/api/books/retry-unavailable", json={"status": "failed"}, headers=AUTH)
+    assert response.status_code == 422
+
+
 def test_refresh_re_reads_the_book(api, monkeypatch):
     (book,) = _shelve(_account(), make_book("B001", "Old"))
     monkeypatch.setattr(

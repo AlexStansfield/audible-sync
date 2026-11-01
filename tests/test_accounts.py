@@ -1,4 +1,5 @@
 import json
+import logging
 
 import pytest
 from audible import Authenticator
@@ -13,8 +14,8 @@ from src.accounts import (
     persist_auth_if_changed,
     replace_account_auth,
 )
-from src.model import Account
-from tests.conftest import make_account
+from src.model import Account, BookStatus
+from tests.conftest import make_account, make_book
 
 # What `Authenticator.to_dict()` looks like for a UK login; enough for from_dict/from_file
 AUTH_BLOB = {
@@ -191,6 +192,28 @@ def test_replace_account_auth_keeps_the_account_and_stores_the_new_credentials(d
     assert account.customer_name == "Alexander"
     assert account.name == "Alex (UK)"  # the user's name for it is theirs
     assert old_device.calls == 1
+
+
+def test_replace_account_auth_queues_the_books_the_old_device_was_refused(db, monkeypatch, caplog):
+    """A new device is exactly the moment to try the licence-refused books again."""
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    other = database.add_account("Other", "us", auth=None)
+    database.update_books(account_id, [make_book("B001"), make_book("B002", is_consumable=False)])
+    database.update_books(other, [make_book("B001")])
+    for account in (account_id, other):
+        book = database.get_book_by_asin("B001", account_id=account)
+        database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied")
+    monkeypatch.setattr(accounts, "authenticator_for", lambda account: _Deregistering())
+
+    with caplog.at_level(logging.INFO):
+        replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
+
+    assert database.get_book_by_asin("B001", account_id=account_id).status is BookStatus.WAITING_DOWNLOAD
+    # A title Audible withdrew is the sync's to restore; another account's books are not this device's
+    assert database.get_book_by_asin("B002", account_id=account_id).status is BookStatus.UNAVAILABLE
+    assert database.get_book_by_asin("B001", account_id=other).status is BookStatus.UNAVAILABLE
+    assert "Queued 1 parked book(s)" in caplog.text
 
 
 def test_replace_account_auth_goes_ahead_when_the_old_device_cannot_deregister(db, monkeypatch, caplog):
