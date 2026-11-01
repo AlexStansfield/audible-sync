@@ -329,6 +329,10 @@ class SettingsUpdate(BaseModel):
     Every field is optional and defaults to "not sent", which is distinct from `null`:
     `{"max_download": null}` clears the limit, omitting it leaves it alone. Unknown
     fields are rejected rather than ignored, so a typo cannot pass silently.
+
+    `null` is only accepted for the three settings that can be unset (`max_download`,
+    `max_consecutive_failures`, `webhook_url`). Anywhere else it would be stored as
+    an empty value no later read could parse, locking the API out of its own settings.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -347,3 +351,23 @@ class SettingsUpdate(BaseModel):
     encoding_format: str | None = None
     bitrate: int | None = None
     webhook_url: str | None = None
+
+    @field_validator(
+        "debug",
+        "sync_enabled",
+        "sync_interval_minutes",
+        "max_attempts",
+        "auto_monitor_new",
+        "download_folder",
+        "audiobook_folder",
+        "folder_template",
+        "filename_template",
+        "encoding_format",
+        "bitrate",
+    )
+    @classmethod
+    def _not_null(cls, value: Any) -> Any:
+        # Runs only for a field that was sent: an omitted one keeps its default unvalidated
+        if value is None:
+            raise ValueError("cannot be null; omit the field to leave it unchanged")
+        return value

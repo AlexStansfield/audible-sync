@@ -285,6 +285,15 @@ def test_update_settings_null_clears_an_optional_setting(api):
     assert Settings.from_db().max_download is None
 
 
+@pytest.mark.parametrize("field", ["debug", "sync_interval_minutes", "bitrate", "audiobook_folder"])
+def test_update_settings_refuses_null_for_a_setting_that_cannot_be_unset(api, field):
+    """Stored, a null would be an empty value no later read could parse."""
+    response = api.put("/api/settings", headers=AUTH, json={field: None})
+
+    assert response.status_code == 422
+    assert api.get("/api/settings", headers=AUTH).status_code == 200
+
+
 def test_update_settings_rejects_a_bad_value_with_the_validator_message(api):
     response = api.put("/api/settings", headers=AUTH, json={"bitrate": 0})
 
