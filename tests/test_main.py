@@ -200,7 +200,7 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     monkeypatch.setattr(main_module, "ensure_account_from_auth_file", lambda path: order.append(("import", path)))
     monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
 
-    main()
+    main([])
 
     assert order[:5] == ["init_db", "seed", "settings", ("logging", True), ("import", settings.auth_file)]
     step, passed_settings, progress = order[5]
@@ -331,3 +331,73 @@ def test_run_account_writes_refreshed_credentials_back_even_when_the_run_fails(t
         run_pipeline(_settings(tmp_path))
 
     assert calls["persisted"] == ["auth-1"]
+
+
+# --- the command line ----------------------------------------------------------------
+
+
+def _patch_prepare(monkeypatch, order):
+    settings = make_settings()
+    monkeypatch.setattr(main_module, "init_db", lambda: order.append("init_db"))
+    monkeypatch.setattr(main_module, "seed_settings_from_ini", lambda: order.append("seed"))
+    monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: settings))
+    monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append("logging"))
+    monkeypatch.setattr(main_module, "ensure_account_from_auth_file", lambda path: order.append("import"))
+    return settings
+
+
+def test_run_is_the_default_command(monkeypatch):
+    order = []
+    settings = _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s)))
+
+    main(["run"])
+    main([])
+
+    assert order.count(("pipeline", settings)) == 2
+
+
+def test_login_command_adds_an_account_from_the_browser_login(monkeypatch, capsys):
+    order = []
+    _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(
+        main_module, "login_interactively", lambda marketplace: order.append(("login", marketplace)) or "auth"
+    )
+    added = []
+
+    def fake_add(auth, *, name, monitor_existing):
+        added.append((auth, name, monitor_existing))
+        return 3
+
+    monkeypatch.setattr(main_module, "add_account_from_authenticator", fake_add)
+    monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: pytest.fail("login must not sync"))
+
+    main(["login", "--marketplace", "uk", "--name", "Main", "--no-download-existing"])
+
+    # The database and settings come first, like every command, then the login
+    assert order[:4] == ["init_db", "seed", "logging", "import"]
+    assert order[4] == ("login", "uk")
+    assert added == [("auth", "Main", False)]
+    assert "Account 3 added" in capsys.readouterr().out
+
+
+def test_login_command_defaults(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: "auth")
+    added = []
+    monkeypatch.setattr(
+        main_module,
+        "add_account_from_authenticator",
+        lambda auth, *, name, monitor_existing: added.append((name, monitor_existing)) or 1,
+    )
+
+    main(["login", "--marketplace", "us"])
+
+    assert added == [(None, True)]
+
+
+def test_login_command_refuses_an_unknown_marketplace(monkeypatch, capsys):
+    with pytest.raises(SystemExit):
+        main(["login", "--marketplace", "xx"])
+
+    assert "invalid choice" in capsys.readouterr().err

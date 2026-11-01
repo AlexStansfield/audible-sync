@@ -16,15 +16,21 @@ The purpose of this app is to allow the user more control over how they consumer
 
 ## Initial Setup
 
-You will need to have an existing audible authentication json file. 
+Add your Audible account by signing in through your own browser. The app never sees your Amazon password: it builds a sign-in address, you sign in to Amazon there (captcha and two-factor included), and Amazon sends the browser to a **"page not found"** page whose address carries a one-time code. Paste that address back and the app exchanges it for credentials, which are stored in the database.
 
-Logging in through the app itself is next on the list; until then you need to create the file by other means.
+From the command line:
 
-The easiest way is to use [audible-cli](https://github.com/mkb79/audible-cli). Take a look at the [Getting Started](https://github.com/mkb79/audible-cli?tab=readme-ov-file#getting-started) instruction on using the `quickstart` command. By default this should create a `.audible` folder in your home with an `audible.json` file inside. It's this file that is needed by this app.
+```
+python -m src.main login --marketplace uk
+```
 
-If you decide not to store the file at the default location you can update the `audible-auth-file` setting in the `config.ini` to point to the file location.
+Or through the API (see below): `POST /api/accounts/login` gives the address, `POST /api/accounts/login/{login_id}` takes the pasted one. `GET /api/marketplaces` lists the marketplaces (`uk`, `us`, `de`, `fr`, `ca`, `it`, `au`, `in`, `jp`, `es`, `br`).
 
-On the first start the file is imported into the database as an **account** and is not read again: from then on accounts are managed through the API. The same person can have several - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. A second auth file is added with `POST /api/accounts/import`. A book the account already owned when it was added is downloaded or not according to the account's `monitor_existing` choice; purchases after that follow the `auto-monitor-new` setting.
+The same person can have several accounts - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. When an account is added you choose whether the books it already owns are queued for download (`monitor_existing`, the default) or left unmonitored so you pick them later; `--no-download-existing` on the command line. Purchases after that follow the `auto-monitor-new` setting.
+
+### Already have an audible-cli auth file?
+
+If you have an `audible.json` from [audible-cli](https://github.com/mkb79/audible-cli) at the default `~/.audible/audible.json` (or at `audible-auth-file` in `config.ini`), the first start imports it as an account and does not read it again; from then on accounts are managed through the API. Another file is added with `POST /api/accounts/import`.
 
 ## Config
 
@@ -184,6 +190,12 @@ or a single sync-and-exit:
 python -m src.main
 ```
 
+or add an account:
+
+```
+python -m src.main login --marketplace uk [--name "Main"] [--no-download-existing]
+```
+
 The service reads these environment variables:
 
 | Variable | Default | Meaning |
@@ -213,6 +225,9 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `PATCH /api/accounts/{id}` | Rename or enable/disable an account; a disabled account is skipped by the sync |
 | `DELETE /api/accounts/{id}?deregister=true` | Remove an account with its library rows and run history; files on disk stay. `deregister` also removes the device from Amazon's device list first (best effort) |
 | `POST /api/accounts/import` | `{"path", "name"?, "monitor_existing"?}`: create an account from an auth file the service can read |
+| `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |
+| `POST /api/accounts/login` | `{"country_code"}`: step one of signing in. Returns `login_id`, the `url` to open in a browser, and `expires_at` (15 minutes) |
+| `POST /api/accounts/login/{login_id}` | `{"response_url", "name"?, "monitor_existing"?}`: step two. `response_url` is the address of the "page not found" page the browser lands on after signing in. `201` with the new account; `404` if the login expired (start again), `400` if the address carries no code, `502` if Amazon rejected it |
 
 Timestamps are ISO 8601 in UTC.
 

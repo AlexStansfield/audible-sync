@@ -1,8 +1,15 @@
+import argparse
 import logging
 import threading
 
-from src.accounts import authenticator_for, ensure_account_from_auth_file, persist_auth_if_changed
+from src.accounts import (
+    add_account_from_authenticator,
+    authenticator_for,
+    ensure_account_from_auth_file,
+    persist_auth_if_changed,
+)
 from src.audible_client import Audible
+from src.audible_login import MARKETPLACES, login_interactively
 from src.database import finish_sync_run, get_accounts, init_db, mark_account_synced, start_sync_run
 from src.downloader import DownloadStats, download_books
 from src.model import Account, SyncOutcome
@@ -169,8 +176,8 @@ def run_account(
         state.end()
 
 
-def main() -> None:
-    """CLI entry point: read the settings, set up logging, run one sync and download pass."""
+def _prepare() -> Settings:
+    """What every CLI command does first; see `main` for the order and why."""
     # The settings live in the database, so it is initialised before anything else.
     # `config.ini` is copied in the first time only; after that the table is the truth.
     init_db()
@@ -181,9 +188,53 @@ def main() -> None:
     configure_logging(settings.debug)
     # An installation from before there were accounts has its auth file made into one
     ensure_account_from_auth_file(settings.auth_file)
+    return settings
+
+
+def run_command() -> None:
+    """One sync and download pass, then exit."""
+    settings = _prepare()
     # The progress bar is a terminal concern, injected here for the same reason logging
     # is configured here: a host process running the pipeline gets neither by surprise.
     run_pipeline(settings, progress=TqdmProgress())
+
+
+def login_command(marketplace: str, *, name: str | None, monitor_existing: bool) -> None:
+    """Add an account by signing in through the browser and pasting the address back."""
+    _prepare()
+    auth = login_interactively(marketplace)
+    account_id = add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
+    logger.info("Added account %d for Audible %s", account_id, marketplace)
+    print(f"Logged in. Account {account_id} added; the next run will sync it.")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="python -m src.main", description="Sync an Audible library to DRM-free files")
+    commands = parser.add_subparsers(dest="command")
+    commands.add_parser("run", help="sync and download once, then exit (the default)")
+    login = commands.add_parser("login", help="add an Audible account by signing in through your browser")
+    login.add_argument(
+        "--marketplace",
+        required=True,
+        choices=[m.country_code for m in MARKETPLACES],
+        help="the Audible marketplace to sign in to, e.g. uk or us",
+    )
+    login.add_argument("--name", help="what to call the account; defaults to your name and the marketplace")
+    login.add_argument(
+        "--no-download-existing",
+        action="store_true",
+        help="leave the books the account already owns out of the download queue; only new purchases are fetched",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    """CLI entry point: `run` (the default) or `login`."""
+    args = build_parser().parse_args(argv)
+    if args.command == "login":
+        login_command(args.marketplace, name=args.name, monitor_existing=not args.no_download_existing)
+    else:
+        run_command()
 
 
 if __name__ == "__main__":

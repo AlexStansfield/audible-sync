@@ -34,10 +34,11 @@ Guidance for AI assistants working with the audible-sync codebase.
 - Path-safe file naming from configurable templates, and per-book error handling (a failing book is skipped, not fatal)
 - Settings in a database table, seeded once from `config.ini`, changed at runtime through the API
 - Accounts: one per Audible marketplace login, credentials stored in the database (the existing auth file is imported once), each with its own library rows, sync cursor and run history; the pipeline takes them in turn
+- Login through the user's own browser: a PKCE sign-in URL, the pasted "page not found" address, and a device registration - two API calls or a CLI `login` command, no password through the app
 - A background service: a scheduler runs the pipeline every `sync_interval_minutes`, and a bearer-token API reports the run in flight, starts or cancels a run, lists the run history and reads/changes the settings. The Docker image runs the service
 - Docker image built by GitHub Actions on version tags
 
-Still to come in Milestone 3: the Audible login flow, book management (monitor/delete/redownload) with library endpoints, and the extras (log, webhook, stats). The plan for those is in `todo.md`.
+Still to come in Milestone 3: book management (monitor/delete/redownload) with library endpoints, and the extras (log, webhook, stats). The plan for those is in `todo.md`.
 
 ## Codebase Structure
 
@@ -52,13 +53,14 @@ audible-sync/
 │   ├── audible_sync.db       # SQLite database (created at runtime, gitignored)
 │   └── downloads/            # Temporary per-book working folders
 ├── src/
-│   ├── main.py               # CLI entry point: main(), run_pipeline(), logging setup
+│   ├── main.py               # CLI entry point: `run` (default) and `login` commands, run_pipeline(), logging setup
 │   ├── service.py            # Service entry point: env config, API token, wires scheduler + API, uvicorn
 │   ├── api.py                # create_app(): FastAPI routes, bearer auth, CORS, lifespan
 │   ├── schemas.py            # Pydantic request/response models - the API contract
 │   ├── scheduler.py          # Background thread: interval runs, trigger, cancel, wake
 │   ├── runstate.py           # RunState snapshot of the run in flight + StateProgress
 │   ├── accounts.py           # Authenticator <-> accounts.auth, auth-file import, legacy bring-across
+│   ├── audible_login.py      # Browser sign-in in two steps: start (URL) / complete (pasted address -> Authenticator)
 │   ├── settings.py           # Frozen Settings dataclass, from_ini/from_db, seeding, validation
 │   ├── paths.py              # REPO_ROOT and resolve_path: every path is anchored here
 │   ├── model.py              # Book, Account and SyncRun data models
@@ -72,6 +74,7 @@ audible-sync/
 ├── tests/
 │   ├── test_database.py      # Schema, migrations (incl. the accounts rebuild), queries against a temp DB
 │   ├── test_accounts.py      # Authenticator round trip, auth persistence, file import, legacy bring-across
+│   ├── test_audible_login.py # PKCE URL, code extraction, register call, the pending store, the terminal flow
 │   ├── test_downloader.py    # Sanitizer, metadata, FFMETADATA writer, per-book error handling
 │   ├── test_naming.py        # Sanitizer, templates, optional groups, default layout, validation
 │   ├── test_encoding.py      # Format validation, JPEG/PNG header parsing, picture block, chapter tags, M4B freeform tags, ASIN readback
@@ -134,7 +137,7 @@ Three functions, no module-level work:
 - `configure_logging(debug)` sets the root logger from `settings.debug`. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
 - `run_pipeline(settings, progress=None, *, state=None, cancel=None)` creates the folders, initialises the DB, then takes every account from `get_accounts()` in turn through `run_account`. A disabled account or one with no credentials (`needs_login`) is skipped with a log line; no accounts at all is a warning and a return. **One account failing does not stop the others**: its run is recorded, the loop moves on, and the first error is raised again once every account has had its turn, so a one-shot CLI run still exits non-zero. `cancel` is also checked between accounts
 - `run_account(account, settings, progress=None, *, state=None, cancel=None)` is one account's pass: opens that account's `sync_runs` row, builds `Audible(authenticator_for(account))`, runs `sync_library(audible, account, auto_monitor_new=settings.auto_monitor_new)`, `mark_account_synced`, then `download_books(..., account_id=account.id, ...)`. It **owns the run record**: the row is opened before Audible is touched and closed on every exit, including the exception arm, which re-raises after recording. `SUCCESS` when nothing failed, `PARTIAL` when a book failed *or* an exception arrived after the sync had completed, `FAILED` only when the sync itself raised - the `synced` flag is what separates the last two - and `CANCELLED` when `download_books` reports it stopped early. `SUCCESS`/`PARTIAL`/`CANCELLED` become the account's next cursor. Credentials the run refreshed are written back in a `finally` (`persist_auth_if_changed`), whatever happened. `state` (a `RunState`, see `runstate.py`) gets `begin` and `set_account` first and `end` in a `finally` *after* the row is closed, so a poll never sees "nothing running" beside a history row still in flight; `cancel` is a `threading.Event` only the download half honours
-- `main()` is the CLI entry point: `init_db()`, `seed_settings_from_ini()`, `Settings.from_db()`, `configure_logging`, `ensure_account_from_auth_file(settings.auth_file)`, then `run_pipeline` with a `TqdmProgress()`. The database comes first because the settings live in it; the config file is copied in once, and so is the auth file (see `accounts.py`). Settings are read (and therefore validated) before logging or any folder exists, so a bad template or bitrate fails before anything is created. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
+- `main(argv=None)` is the CLI entry point, an `argparse` parser with two commands. `run` (the default) and `login` both go through `_prepare()` first: `init_db()`, `seed_settings_from_ini()`, `Settings.from_db()`, `configure_logging`, `ensure_account_from_auth_file(settings.auth_file)`. The database comes first because the settings live in it; the config file is copied in once, and so is the auth file (see `accounts.py`). `run_command` then calls `run_pipeline` with a `TqdmProgress()`; `login_command(marketplace, *, name, monitor_existing)` calls `audible_login.login_interactively` and `add_account_from_authenticator`. Tests call `main([])`/`main(["login", ...])` - `parse_args(None)` would read pytest's own argv Settings are read (and therefore validated) before logging or any folder exists, so a bad template or bitrate fails before anything is created. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
 
 This is a one-shot run: sync + download, then exit.
 
@@ -179,7 +182,7 @@ This is a one-shot run: sync + download, then exit.
 
 - Everything under `/api` except `/api/health` requires `Authorization: Bearer <token>` (`HTTPBearer`, compared with `secrets.compare_digest`); a missing or wrong token is a 401 with `WWW-Authenticate: Bearer`
 - Errors are always `{"detail": ...}`. A `ValueError` from the settings validators becomes a 422 carrying the message; pydantic's own `ValidationError` (a `ValueError` subclass) is re-raised so a response that does not fit its schema surfaces as a 500, not a misleading 422
-- Routes: `GET /api/health` (`status`, `version` from `pyproject.toml`), `GET /api/status` (`scheduler`, `current_run` = `state.snapshot()`, `last_run`, `accounts`), `POST /api/sync` (202 / 409), `POST /api/sync/cancel` (202 / 409), `GET /api/sync/runs?limit=&offset=&account_id=` (`items`, `total`), `GET /api/sync/runs/{id}` (404), `GET /api/settings`, `PUT /api/settings`, `GET /api/accounts`, `GET /api/accounts/{id}`, `PATCH /api/accounts/{id}` (`name`, `enabled`), `DELETE /api/accounts/{id}?deregister=` (deregisters the device with Amazon first when asked and the account has credentials - best effort, the account goes either way; files on disk stay), `POST /api/accounts/import` (`path`, `name`, `monitor_existing`; 201, or 400 for a file that is missing or the `audible` library rejects). `AccountOut` never carries `auth`
+- Routes: `GET /api/health` (`status`, `version` from `pyproject.toml`), `GET /api/status` (`scheduler`, `current_run` = `state.snapshot()`, `last_run`, `accounts`), `POST /api/sync` (202 / 409), `POST /api/sync/cancel` (202 / 409), `GET /api/sync/runs?limit=&offset=&account_id=` (`items`, `total`), `GET /api/sync/runs/{id}` (404), `GET /api/settings`, `PUT /api/settings`, `GET /api/accounts`, `GET /api/accounts/{id}`, `PATCH /api/accounts/{id}` (`name`, `enabled`), `DELETE /api/accounts/{id}?deregister=` (deregisters the device with Amazon first when asked and the account has credentials - best effort, the account goes either way; files on disk stay), `POST /api/accounts/import` (`path`, `name`, `monitor_existing`; 201, or 400 for a file that is missing or the `audible` library rejects), `GET /api/marketplaces`, `POST /api/accounts/login` (`country_code` → `login_id`, `url`, `expires_at`; 422 for an unknown marketplace via the `ValueError` handler), `POST /api/accounts/login/{login_id}` (`response_url`, `name`, `monitor_existing` → 201 with the account; 404 unknown or expired - start again, 400 no code in the address, 502 Amazon rejected it). `create_app` takes `logins: PendingLogins` so a test can reach the store. `AccountOut` never carries `auth`
 - `PUT /api/settings` takes a partial body (`SettingsUpdate`, `extra="forbid"`, every field optional; `model_dump(exclude_unset=True)` tells an omitted field from an explicit `null`), goes through `Settings.from_db().with_changes(...)` so validation runs, saves with `save_settings`, applies `debug` to the root logger at once, and calls `scheduler.wake()`. Other changes apply to the next run: `Settings` is frozen and the scheduler re-reads it per run
 - `schemas.py` holds the pydantic models. `SettingsOut` and `SyncRunOut` use `from_attributes` so a `Settings` or `SyncRun` validates directly; `SettingsOut` coerces the two `Path` fields to text in a `mode="before"` validator. These are the contract the web app codes against and may differ from the storage dataclasses
 
@@ -200,6 +203,18 @@ The bridge between the `audible` library's `Authenticator` and the `accounts.aut
 - `ensure_account_from_auth_file(path) -> bool` - brings an existing installation across, **once**. No accounts and a file → the first account is created from it. Exactly one account with `auth NULL` (the placeholder the library rebuild creates) and a file → that account is filled in **under the same id**, so the library rows already attached stay attached. Anything else is left alone: once there is a working account the API is the source of truth, not the file. Called by `main()` and `service.build()` after the settings are read
 
 The `audible` library validates every credential field on assignment (`audible.utils.test_convert`): `access_token` must start `Atna|`, `refresh_token` `Atnr|`, `adp_token` is `{enc:}{key:}{iv:}{name:}{serial:Mg==}`, `device_private_key` a PEM block. `tests/test_accounts.py`'s `AUTH_BLOB` is the smallest dict that passes; reuse it rather than inventing one.
+
+### audible_login.py
+
+Signing in to a marketplace without a terminal, a browser driver or a password. The `audible` library's external login is OAuth with PKCE: a sign-in URL carrying a code challenge, the user signing in to Amazon **in their own browser** (captcha and 2FA included), and Amazon redirecting to an `/ap/maplanding` address that shows "page not found" but carries `openid.oa2.authorization_code`. That splits into two steps with nothing held open between them, which is what makes it work over an API:
+
+- `start_login(country_code, *, now=None, ttl=LOGIN_TTL) -> PendingLogin` - `create_code_verifier()` + `build_oauth_url(...)` from `audible.login`; keeps the `code_verifier`, the device `serial` and an `expires_at` (15 minutes). `ValueError` for a marketplace not in `MARKETPLACES` (built from `audible.localization.LOCALE_TEMPLATES`, names title-cased from the keys)
+- `authorization_code_from(response_url)` - `parse_qs` on the pasted address; `ValueError` with a message meant to be read when there is no code (the sign-in URL pasted back, a plain Amazon page)
+- `complete_login(pending, response_url) -> Authenticator` - the one network step: `audible.register.register(authorization_code, code_verifier, domain, serial)` then `Authenticator.from_dict({**registered, "locale_code", "with_username": False})`. `register` raises a bare `Exception` carrying Amazon's response on a rejection; the API maps that to a 502
+- `PendingLogins` - the in-memory store between the steps, `start(country_code)` / `pop(login_id)`, single-use, pruned on every call by an injectable clock. In memory on purpose: a login is a minute's interaction and nothing secret needs persisting; a restart mid-login means starting again
+- `login_interactively(country_code, *, prompt=input, echo=print)` - the same two steps at a terminal, for the CLI `login` command; both callables injectable so it is tested without a terminal
+
+The library's own `external_login` does the same around a blocking callback; this module uses its building blocks rather than the callback. Tests patch `src.audible_login.register`; a real `Authenticator` is built from `tests/test_accounts.py`'s `AUTH_BLOB`. The generated URL was checked against Amazon on 2026-09-12: it serves the sign-in form.
 
 ### paths.py
 
@@ -481,6 +496,7 @@ uv run pytest -k sanitize   # subset
 - For the scheduler, everything is injected: `Scheduler(load_settings=..., run=FakeRun(), state=..., last_run_start=lambda: ..., now=lambda: NOW)`. `FakeRun` sets `started`/`finished` events and can block until released or cancelled; call `_settle(scheduler)` before re-triggering after a run, because the fake signals `finished` a moment before the scheduler flips `running` off. The fixture stops every scheduler it made.
 - For cancellation in `download_books`, set the event from inside the fake `download_book` (or before the call) and assert on `release_book`, the claims made, and `stats.cancelled`. For `_stream_to_file`, yield the chunks from a generator that sets the event between them.
 - `tests/test_service.py` exercises `ServiceConfig.from_env` with explicit dicts, `resolve_api_token` against the `db` fixture, and `build()` with `configure_logging` and `seed_settings_from_ini` patched on `src.service`.
+- Login: `tests/test_audible_login.py` checks the PKCE challenge in the URL against the kept verifier, patches `src.audible_login.register` to assert what `complete_login` sends and to drive a rejection, and drives `PendingLogins` with an injected clock. The API tests patch `src.api.complete_login`. Never call the real `register` in a test.
 - Accounts: `make_book` fills in `id` (from a counter) and `account_id` (`ACCOUNT_ID`, 1) so a test book behaves like one the database returned; pass `id=None` for one straight from the API. `make_account()` builds an `Account` whose stand-in `auth` blob does not read as needing a login. The `db` fixture in `tests/test_database.py` creates account 1 and `_id(asin)` looks up a row id for the state-machine functions; `_asins(books)` in `tests/test_downloader.py` maps ids back to ASINs so fakes keep asserting on ASINs. `tests/test_main.py`'s `_patch_pipeline` takes `accounts=` and patches `get_accounts`, `authenticator_for`, `persist_auth_if_changed` and `mark_account_synced` on `src.main`. For a real `Authenticator` use `tests/test_accounts.py`'s `AUTH_BLOB`.
 - For `Audible`, build items with a helper and pass a fake client that replays canned pages; never construct a real `Authenticator`. See `tests/test_audible_client.py`.
 - For `Settings.from_db` and the seed, `tests/test_settings.py` has its own `db` fixture pointing `src.database.DB_FILE` at a temp file; write text with `database.save_settings` and read back with `Settings.from_db()`.
@@ -502,6 +518,7 @@ Service (a quick local version with no Audible access is a scratch database, `HO
 - [ ] A database from before accounts migrates on first start: one account, filled in from the mounted auth file, every book attached to it, the cursor and queue unchanged (checked against a copy of the live database on 2026-09-12)
 - [ ] A second marketplace's auth file imported with `POST /api/accounts/import` syncs as its own account with its own run rows; `max-download` applies to each account's run
 - [ ] `PATCH {enabled: false}` skips the account on the next run; an account with `needs_login` is skipped with a warning
+- [ ] `python -m src.main login --marketplace uk`: the printed address shows Amazon's sign-in form, the "page not found" address pasted back adds an account, and the account syncs on the next run. Same through `POST /api/accounts/login` and `/login/{id}`; a second paste of the same address is a 404
 
 Pipeline:
 
@@ -574,7 +591,7 @@ See `todo.md` for the authoritative list.
 
 **Milestone 2 - complete:** logging, PDF/cover/annotations, metadata and chapter embedding, configurable file naming, and Ogg Opus encoding with a bitrate setting. Async download progress is still listed under it in `todo.md` but only pays off with a web UI; recommended to move to Milestone 3.
 
-**Milestone 3 - in progress:** settings table, the service runtime (scheduler, run state, cancel, status/sync/runs/settings endpoints, bearer token, Docker runs the service) and accounts (one per marketplace login, credentials in the database, per-account pipeline and endpoints) are done (2026-09-12). Next: the Audible login flow, book management with library endpoints, and the extras (log endpoint, webhook, stats). **Step 0 is complete** (2026-09-09), including the smaller items folded in with it.
+**Milestone 3 - in progress:** settings table, the service runtime (scheduler, run state, cancel, status/sync/runs/settings endpoints, bearer token, Docker runs the service), accounts (one per marketplace login, credentials in the database, per-account pipeline and endpoints) and the browser login flow are done (2026-09-12). Next: book management with library endpoints, and the extras (log endpoint, webhook, stats). **Step 0 is complete** (2026-09-09), including the smaller items folded in with it.
 
 ## Understanding "Sync"
 
@@ -582,7 +599,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.9
+**Document Version:** 4.10
 **Last Updated:** 2026-09-12
-**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0, the settings table, the service runtime and accounts complete (scheduler, run state, cancellation, bearer-token API for status/sync/runs/settings/accounts; library keyed per account; the Docker image runs the service)
+**Codebase Version:** Milestone 2 complete; Milestone 3 Step 0, the settings table, the service runtime, accounts and the login flow complete (scheduler, run state, cancellation, bearer-token API for status/sync/runs/settings/accounts/login; library keyed per account; the Docker image runs the service)
 **Primary Branch:** `dev`

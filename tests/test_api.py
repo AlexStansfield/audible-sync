@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 import src.database as database
 from src import api as api_module
 from src.api import create_app, read_version
+from src.audible_login import PendingLogins
 from src.model import SyncOutcome
 from src.runstate import RunStage, RunState
 from src.settings import Settings
@@ -66,11 +67,13 @@ def api(db):
     """An app on a fresh database, with its fakes reachable for assertions."""
     scheduler = FakeScheduler()
     state = RunState()
-    app = create_app(scheduler=scheduler, state=state, api_token=TOKEN, version="test")
+    logins = PendingLogins()
+    app = create_app(scheduler=scheduler, state=state, api_token=TOKEN, version="test", logins=logins)
     # No context manager: the lifespan (and so the scheduler) is exercised on its own
     client = TestClient(app)
     client.scheduler = scheduler
     client.state = state
+    client.logins = logins
     return client
 
 
@@ -506,3 +509,115 @@ def test_list_runs_can_be_limited_to_one_account(api):
 
     assert [r["account_id"] for r in body["items"]] == [other]
     assert body["total"] == 1
+
+
+# --- login ---------------------------------------------------------------------------
+
+
+def test_marketplaces(api):
+    body = api.get("/api/marketplaces", headers=AUTH).json()
+
+    assert {"country_code": "uk", "domain": "co.uk", "name": "United Kingdom"} in body
+    assert len(body) >= 10
+
+
+def test_login_step_one_returns_the_sign_in_url(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["url"].startswith("https://www.amazon.co.uk/ap/signin?")
+    assert body["expires_at"].endswith("+00:00")
+    # The store now holds it for step two
+    assert api.logins.pop(body["login_id"]) is not None
+
+
+def test_login_step_one_rejects_an_unknown_marketplace(api):
+    response = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "xx"})
+
+    assert response.status_code == 422
+    assert "unknown marketplace" in response.json()["detail"]
+
+
+def _fake_complete(monkeypatch, *, raises=None):
+    from audible import Authenticator
+
+    from tests.test_accounts import AUTH_BLOB
+
+    calls = []
+
+    def fake(pending, response_url):
+        calls.append((pending.country_code, response_url))
+        if raises is not None:
+            raise raises
+        return Authenticator.from_dict(dict(AUTH_BLOB))
+
+    monkeypatch.setattr(api_module, "complete_login", fake)
+    return calls
+
+
+def test_login_step_two_creates_the_account(api, monkeypatch):
+    calls = _fake_complete(monkeypatch)
+    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+
+    response = api.post(
+        f"/api/accounts/login/{login_id}",
+        headers=AUTH,
+        json={
+            "response_url": "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=X",
+            "monitor_existing": False,
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert (body["name"], body["country_code"], body["monitor_existing"], body["needs_login"]) == (
+        "Alex (UK)",
+        "uk",
+        False,
+        False,
+    )
+    assert calls == [("uk", "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=X")]
+    assert database.get_account(body["id"]).auth["access_token"] == "Atna|access"
+    # Single use
+    assert api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "x"}).status_code == 404
+
+
+def test_login_step_two_takes_a_name(api, monkeypatch):
+    _fake_complete(monkeypatch)
+    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+
+    body = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u", "name": "Main"}).json()
+
+    assert body["name"] == "Main"
+
+
+def test_login_step_two_for_an_unknown_or_expired_login(api):
+    response = api.post("/api/accounts/login/nope", headers=AUTH, json={"response_url": "u"})
+
+    assert response.status_code == 404
+    assert "start again" in response.json()["detail"]
+
+
+def test_login_step_two_with_a_url_that_carries_no_code(api, monkeypatch):
+    _fake_complete(monkeypatch, raises=ValueError("that URL carries no authorization code"))
+    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+
+    response = api.post(
+        f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "https://www.amazon.co.uk/"}
+    )
+
+    assert response.status_code == 400
+    assert "no authorization code" in response.json()["detail"]
+    assert database.get_accounts() == []
+
+
+def test_login_step_two_when_amazon_rejects_the_code(api, monkeypatch, caplog):
+    _fake_complete(monkeypatch, raises=Exception({"error": "InvalidValue"}))
+    login_id = api.post("/api/accounts/login", headers=AUTH, json={"country_code": "uk"}).json()["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": "u"})
+
+    assert response.status_code == 502
+    assert "Amazon rejected the login" in response.json()["detail"]
+    assert "InvalidValue" in caplog.text
