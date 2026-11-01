@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
-from src import service
+from src import crypto, service
 from src.logbuffer import RingBufferHandler
 from src.service import ServiceConfig, resolve_api_token
 from src.settings import Settings
@@ -53,7 +53,26 @@ def test_a_generated_token_is_kept_for_the_next_start(db):
 
     assert len(first) >= 32
     assert resolve_api_token(None) == first
-    assert database.get_settings() == {"api_token": first}
+    # Encrypted at rest, like the credentials: a copy of the database is not API access
+    (stored,) = database.get_settings().values()
+    assert stored.startswith("enc:") and first not in stored
+
+
+def test_a_token_stored_in_plain_text_by_an_older_version_still_works(db):
+    database.save_settings({"api_token": "old-token"})
+
+    assert resolve_api_token(None) == "old-token"
+
+
+def test_a_token_under_another_key_is_replaced(db, caplog):
+    first = resolve_api_token(None)
+    crypto.configure(crypto.generate_key())
+
+    second = resolve_api_token(None)
+
+    assert second != first
+    assert "cannot be read" in caplog.text
+    assert resolve_api_token(None) == second
 
 
 def test_the_stored_token_never_shows_as_a_setting(db):

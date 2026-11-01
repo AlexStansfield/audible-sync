@@ -11,6 +11,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 | **Entry Point** | `python -m src.service` (the service); `python -m src.main` (one sync and exit) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | `config/config.ini`, seeded once into the `settings` table which the app then runs on |
+| **Secrets** | Credentials and API token encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/crypto.py`) |
 | **Lines of Code** | ~4000 lines across 16 Python modules, plus ~5100 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
@@ -33,7 +34,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 - Companion PDF, high-res cover and annotations downloaded alongside the book
 - Path-safe file naming from configurable templates, and per-book error handling (a failing book is skipped, not fatal)
 - Settings in a database table, seeded once from `config.ini`, changed at runtime through the API
-- Accounts: one per Audible marketplace login, credentials stored in the database (the existing auth file is imported once), each with its own library rows, sync cursor and run history; the pipeline takes them in turn
+- Accounts: one per Audible marketplace login, credentials stored in the database **encrypted** (the existing auth file is imported once), each with its own library rows, sync cursor and run history; the pipeline takes them in turn. The key lives outside `data/` (`secrets/secret.key`, or `AUDIBLE_SYNC_SECRET_KEY`), so a backup of the database is not a working Audible device
 - Login the way the Audible apps do: Amazon's device-code flow - a five-letter code the user enters at `amazon.{domain}/code` on any device while the service polls for the registration - with the browser sign-in (PKCE URL, pasted "page not found" address) as the fallback; through the API or a CLI `login` command, no password through the app
 - Book management: a paged, searchable library listing, monitor/unmonitor, delete the files, redownload, retry, refresh from Audible, and a cover endpoint
 - The extras: recent log lines over the API, a webhook after every run, and a stats endpoint for a dashboard
@@ -62,6 +63,7 @@ audible-sync/
 │   ├── scheduler.py          # Background thread: interval runs, trigger, cancel, wake
 │   ├── runstate.py           # RunState snapshot of the run in flight + StateProgress
 │   ├── accounts.py           # Authenticator <-> accounts.auth, auth-file import, legacy bring-across
+│   ├── crypto.py             # Encryption at rest of the stored secrets; the key from the env or secrets/secret.key
 │   ├── audible_login.py      # Device-code login (code pair, polling thread) and the browser fallback; the PendingLogins store
 │   ├── library.py            # Per-book actions: find/delete the files, delete/redownload/retry/refresh transitions
 │   ├── logbuffer.py          # Ring-buffer log handler behind GET /api/logs
@@ -79,6 +81,7 @@ audible-sync/
 ├── tests/
 │   ├── test_database.py      # Schema, migrations (incl. the accounts rebuild), queries against a temp DB
 │   ├── test_accounts.py      # Authenticator round trip, auth persistence, file import, legacy bring-across
+│   ├── test_crypto.py        # Round trip, the prefix, plaintext passthrough, the wrong key, key loading and generation
 │   ├── test_audible_login.py # Code pair, polling, credential mapping, PKCE URL, the store for both methods, the terminal flows
 │   ├── test_library.py       # Legacy audio path lookup, file deletion and pruning, the transitions, refresh
 │   ├── test_logbuffer.py     # Capacity, ordering, level floor, tracebacks
@@ -99,6 +102,7 @@ audible-sync/
 │   ├── test_progress.py      # NullProgress and the tqdm adapter's lifecycle
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
 ├── opencollection/           # The API as a request collection (OpenCollection YAML) for Bruno and the like; not in the image
+├── secrets/                  # secret.key, generated on the first start (gitignored, its own mount)
 ├── compose.yml
 ├── Dockerfile
 ├── pyproject.toml / uv.lock  # Direct dependencies, dev group, ruff and pytest config
@@ -135,6 +139,7 @@ Audible API → audible_client.py → sync.py → database.py → SQLite
 - Absolute imports: `from src.module import ...`
 - Config and DB paths are anchored to the repo root by `src/paths.py`, so the app can be started from any working directory. Never build a path from a relative string; put it through `resolve_path`
 - `settings.py` must never import `downloader.py`: the downloader imports `Settings`, so the reverse edge is a circular import. This is why `validate_max_download` lives in `settings.py`
+- `crypto.py` is a leaf (it imports only `paths.py`): `database.py` imports it to encrypt and decrypt, and the entry points configure it. It must never import `database.py`, which is why the migration of plaintext rows (`encrypt_stored_secrets`) lives in `database.py` and the entry points call the two in turn
 - `database.py` must never read the auth file or import `settings.py`/`accounts.py`: settings imports database. This is why the accounts migration creates a credential-less placeholder and `accounts.ensure_account_from_auth_file` fills it in afterwards
 
 ## Key Modules
@@ -146,7 +151,7 @@ Three functions, no module-level work:
 - `configure_logging(debug)` sets the root logger from `settings.debug`. Called from the entry point, not at import: configuring logging on import would also reconfigure any host process that imports this module, which the Milestone 3 service will do
 - `run_pipeline(settings, progress=None, *, state=None, cancel=None)` creates the folders, initialises the DB, then takes every account from `get_accounts()` in turn through `run_account`. A disabled account or one with no credentials (`needs_login`) is skipped with a log line; no accounts at all is a warning and a return. **One account failing does not stop the others**: its run is recorded, the loop moves on, and the first error is raised again once every account has had its turn, so a one-shot CLI run still exits non-zero. `cancel` is also checked between accounts
 - `run_account(account, settings, progress=None, *, state=None, cancel=None)` is one account's pass (an `aborted` run - the circuit breaker - is one account's; the others still get their turn): opens that account's `sync_runs` row, builds `Audible(authenticator_for(account))`, runs `sync_library(audible, account, auto_monitor_new=settings.auto_monitor_new)`, `mark_account_synced`, then `download_books(..., account_id=account.id, ...)`. It **owns the run record**: the row is opened before Audible is touched and closed on every exit, including the exception arm, which re-raises after recording. `SUCCESS` when nothing failed, `PARTIAL` when a book failed *or* an exception arrived after the sync had completed, `FAILED` only when the sync itself raised - the `synced` flag is what separates the last two - and `CANCELLED` when `download_books` reports it stopped early. `SUCCESS`/`PARTIAL`/`CANCELLED` become the account's next cursor. Credentials the run refreshed are written back in a `finally` (`persist_auth_if_changed`), whatever happened. `state` (a `RunState`, see `runstate.py`) gets `begin` and `set_account` first and `end` in a `finally` *after* the row is closed, so a poll never sees "nothing running" beside a history row still in flight; `cancel` is a `threading.Event` only the download half honours
-- `main(argv=None)` is the CLI entry point, an `argparse` parser with two commands. `run` (the default) and `login` both go through `_prepare()` first: `init_db()`, `seed_settings_from_ini()`, `Settings.from_db()`, `configure_logging`, `ensure_account_from_auth_file(settings.auth_file)`. The database comes first because the settings live in it; the config file is copied in once, and so is the auth file (see `accounts.py`). `run_command` then calls `run_pipeline` with a `TqdmProgress()`; `login_command(marketplace, *, name, monitor_existing, account_id=None, browser=False)` calls `audible_login.login_with_code` (or `login_interactively` with `--browser`) and then `add_account_from_authenticator`, or `replace_account_auth` with `--account`; a `LoginFailed` is a `SystemExit` with the reason. Tests call `main([])`/`main(["login", ...])` - `parse_args(None)` would read pytest's own argv Settings are read (and therefore validated) before logging or any folder exists, so a bad template or bitrate fails before anything is created. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
+- `main(argv=None)` is the CLI entry point, an `argparse` parser with two commands. `run` (the default) and `login` both go through `_prepare()` first: `init_db()`, `seed_settings_from_ini()`, `Settings.from_db()`, `configure_logging`, `crypto.configure(load_secret_key())` + `encrypt_stored_secrets()`, `ensure_account_from_auth_file(settings.auth_file)`. The database comes first because the settings live in it; the config file is copied in once, and so is the auth file (see `accounts.py`). `run_command` then calls `run_pipeline` with a `TqdmProgress()`; `login_command(marketplace, *, name, monitor_existing, account_id=None, browser=False)` calls `audible_login.login_with_code` (or `login_interactively` with `--browser`) and then `add_account_from_authenticator`, or `replace_account_auth` with `--account`; a `LoginFailed` is a `SystemExit` with the reason. Tests call `main([])`/`main(["login", ...])` - `parse_args(None)` would read pytest's own argv Settings are read (and therefore validated) before logging or any folder exists, so a bad template or bitrate fails before anything is created. The progress bar is injected here for the same reason logging is configured here: a host process that imports this module gets neither by surprise
 
 This is a one-shot run: sync + download, then exit.
 
@@ -197,13 +202,24 @@ This is a one-shot run: sync + download, then exit.
 
 ### service.py
 
-`python -m src.service`. `ServiceConfig.from_env()` reads the process-level configuration - `AUDIBLE_SYNC_HOST` (`0.0.0.0`), `AUDIBLE_SYNC_PORT` (`8080`), `AUDIBLE_SYNC_API_TOKEN`, `AUDIBLE_SYNC_CORS_ORIGINS` (comma-separated), `AUDIBLE_SYNC_DEBUG` - which is deliberately only what is about the process; what to sync lives in the settings table. `build(config)` does `init_db`, `seed_settings_from_ini`, `Settings.from_db`, `configure_logging`, resolves the token, wires `RunState` + `Scheduler` + `create_app`, and returns the app without listening, so a test can drive it with `TestClient`. `main()` hands it to `uvicorn.run(..., log_config=None, access_log=False)`: uvicorn stays on the root logger, and the access log is off because a UI polling `/api/status` would write a line a second.
+`python -m src.service`. `ServiceConfig.from_env()` reads the process-level configuration - `AUDIBLE_SYNC_HOST` (`0.0.0.0`), `AUDIBLE_SYNC_PORT` (`8080`), `AUDIBLE_SYNC_API_TOKEN`, `AUDIBLE_SYNC_CORS_ORIGINS` (comma-separated), `AUDIBLE_SYNC_DEBUG` - which is deliberately only what is about the process; what to sync lives in the settings table. `build(config)` does `init_db`, `seed_settings_from_ini`, `Settings.from_db`, `configure_logging`, `crypto.configure(load_secret_key())` + `encrypt_stored_secrets()`, the auth-file import, resolves the token, wires `RunState` + `Scheduler` + `create_app`, and returns the app without listening, so a test can drive it with `TestClient`. `main()` hands it to `uvicorn.run(..., log_config=None, access_log=False)`: uvicorn stays on the root logger, and the access log is off because a UI polling `/api/status` would write a line a second.
 
-`resolve_api_token(configured)`: the env value wins; otherwise the one stored in the settings table under `api_token`; otherwise a new `secrets.token_urlsafe(32)` is stored for next time. Generated once rather than per start, so the token copied from the log keeps working across restarts. `api_token` is a key `Settings.from_db` does not know, so it never appears in `GET /api/settings`. The token is logged at INFO on every start.
+`resolve_api_token(configured)`: the env value wins; otherwise the one stored in the settings table under `api_token` (decrypted; a plaintext one from an older version still reads, and one under another key is replaced with an ERROR in the log); otherwise a new `secrets.token_urlsafe(32)` is stored encrypted for next time. Generated once rather than per start, so the token copied from the log keeps working across restarts. `api_token` is a key `Settings.from_db` does not know, so it never appears in `GET /api/settings`. The token is logged at INFO on every start.
+
+### crypto.py
+
+Encryption at rest for the two secrets the database holds: each account's credentials (`accounts.auth`) and the API token (`settings.api_token`). The threat is the database *leaving* the host - a backup, a copy sent with a bug report, a volume snapshot - not an attacker already on it: the stored blob is a refresh token and a device private key, which make whoever holds them that device as far as Amazon is concerned. So the key never lives under `data/`.
+
+- `load_secret_key(env=None) -> bytes` - `AUDIBLE_SYNC_SECRET_KEY` wins; else the key file at `AUDIBLE_SYNC_SECRET_KEY_FILE` (default `DEFAULT_KEY_FILE`, `secrets/secret.key` under the repo root, `/app/secrets` in the image), **generated** with a 0700 directory and a 0600 file when there is none - a first start - with a WARNING saying where and to back it up separately. `SecretKeyError` for a malformed key or an unreadable file. Tests pass an explicit `env` dict
+- `configure(key)` / `is_configured()` - one key per process, module state on purpose, set by `main._prepare` and `service.build` **after** logging and **before** the auth-file import and the API token (both store secrets). `configure(None)` forgets it
+- `encrypt(text) -> str` - `enc:` + a Fernet token (AES-128-CBC + HMAC, from `cryptography`; the ciphertext is text and authenticated). `decrypt(stored)` - the inverse; a value **without** the prefix is one written before there was a key and comes back as it is, which is what lets an old database start before `encrypt_stored_secrets` rewrites it. `WrongKey` (a `SecretKeyError`) when the value was encrypted under another key - reported, never misread, thanks to the HMAC
+- `generate_key()` - a fresh Fernet key, what the key file and the env variable hold (44 characters of URL-safe base64)
+
+What the callers do with `WrongKey` matters: `database._account_from_row` reads the account as having **no credentials** (`needs_login`, the pipeline skips it, the API reports it) and logs an ERROR **once per account per process** (`_undecryptable_logged`), **without touching the stored blob** - restoring the right key brings the login back, and a re-login replaces it either way. `service.resolve_api_token` generates and stores a new token. Losing the key therefore costs a login, not data.
 
 ### accounts.py
 
-The bridge between the `audible` library's `Authenticator` and the `accounts.auth` column, and the only module that encodes or decodes credentials. `Authenticator.from_dict`/`to_dict` round-trip exactly, so an account's credentials live in the database with no file.
+The bridge between the `audible` library's `Authenticator` and the `accounts.auth` column, and the only module that builds an `Authenticator` from the decoded blob or takes one apart. `Authenticator.from_dict`/`to_dict` round-trip exactly, so an account's credentials live in the database with no file; `database.py` encrypts the JSON on the way in and decrypts it on the way out (see `crypto.py`), so nothing here sees ciphertext.
 
 - `authenticator_for(account)` - `Authenticator.from_dict(dict(account.auth))`; the copy matters because `from_dict` pops `locale_code` out of what it is given. `ValueError` for an account with none
 - `persist_auth_if_changed(account, auth) -> bool` - `Authenticator` refreshes its access token in memory only; `run_account` calls this in a `finally` so the stored blob does not age until every run begins with a refresh. Compared as dicts, so nothing is written when nothing moved
@@ -319,6 +335,8 @@ For the dashboard: `library_stats(*, account_id=None) -> dict` (`by_status` with
 
 The `accounts` functions follow the same text-in-text-out rule as `settings`: the JSON of `Authenticator.to_dict()` is stored and returned decoded, and `src/accounts.py` is the only thing that builds an `Authenticator` from it.
 
+- The blob is **encrypted at rest**: `_encode_auth` runs the JSON through `crypto.encrypt` on every write (`add_account`, `save_account_auth`) and `_account_from_row` decrypts on every read, reading an undecryptable blob as `auth=None` (logged once per account) rather than failing the whole listing. `API_TOKEN_SETTING` (`api_token`) is the settings key the token is stored under, encrypted the same way by `service.resolve_api_token`
+- `encrypt_stored_secrets() -> int` - the one-off migration for a database from before there was a key: every plaintext `accounts.auth` and a plaintext `api_token` are rewritten encrypted; idempotent, run at every start right after the key is configured. Returns the count, logged when non-zero
 - `add_account(name, country_code, *, auth, customer_name=None, monitor_existing=True) -> int` - `auth=None` means it still needs a login
 - `get_accounts() -> list[Account]` (oldest first), `get_account(account_id) -> Account | None`
 - `update_account(account_id, *, name=, country_code=, customer_name=, enabled=)` - only the fields given
@@ -465,7 +483,7 @@ audiobooks = audiobooks
 
 Read in `src/settings.py` with `configparser`, into a frozen `Settings`, and copied into the `settings` table on the first run only - after that the table is the live configuration (see `settings.py` above). Relative paths are anchored to the repo root, so the app can be started from any working directory. The config file is copied into the Docker image, so committed values become the image defaults for a fresh database. Users override by mounting `./config` (see `compose.yml`).
 
-The **service process** is configured by environment variables, kept deliberately to what is about the process rather than about syncing: `AUDIBLE_SYNC_HOST`, `AUDIBLE_SYNC_PORT`, `AUDIBLE_SYNC_API_TOKEN`, `AUDIBLE_SYNC_CORS_ORIGINS`, `AUDIBLE_SYNC_DEBUG` (see `service.py`).
+The **service process** is configured by environment variables, kept deliberately to what is about the process rather than about syncing: `AUDIBLE_SYNC_HOST`, `AUDIBLE_SYNC_PORT`, `AUDIBLE_SYNC_API_TOKEN`, `AUDIBLE_SYNC_CORS_ORIGINS`, `AUDIBLE_SYNC_DEBUG` (see `service.py`), plus `AUDIBLE_SYNC_SECRET_KEY` / `AUDIBLE_SYNC_SECRET_KEY_FILE`, which the CLI reads too (see `crypto.py`).
 
 ## Development
 
@@ -539,6 +557,7 @@ uv run pytest -k sanitize   # subset
 - For the scheduler, everything is injected: `Scheduler(load_settings=..., run=FakeRun(), state=..., last_run_start=lambda: ..., now=lambda: NOW)`. `FakeRun` sets `started`/`finished` events and can block until released or cancelled; call `_settle(scheduler)` before re-triggering after a run, because the fake signals `finished` a moment before the scheduler flips `running` off. The fixture stops every scheduler it made.
 - For cancellation in `download_books`, set the event from inside the fake `download_book` (or before the call) and assert on `release_book`, the claims made, and `stats.cancelled`. For `_stream_to_file`, yield the chunks from a generator that sets the event between them.
 - `tests/test_service.py` exercises `ServiceConfig.from_env` with explicit dicts, `resolve_api_token` against the `db` fixture, and `build()` with `configure_logging` and `seed_settings_from_ini` patched on `src.service`.
+- The secret key: `tests/conftest.py` has an **autouse** `secret_key` fixture that configures a fresh key per test, puts it in `AUDIBLE_SYNC_SECRET_KEY` and moves `crypto.DEFAULT_KEY_FILE` under `tmp_path`, so nothing a test does can read or write a key file in the repository and `add_account` always has a key to encrypt with. Reconfigure with `crypto.configure(crypto.generate_key())` to play the wrong key; `tests/test_main.py`'s ordering tests patch `load_secret_key`, `crypto.configure` and `encrypt_stored_secrets` on `src.main`. `tests/test_crypto.py` drives `load_secret_key` with explicit `env` dicts and checks the generated file's mode.
 - Book management: `tests/test_library.py` files real files under a temp `audiobook_folder`; for the legacy-path lookup it copies `tests/fixtures/silence.m4b` and sets `©cmt` to `ASIN: ...` with mutagen, exactly what `read_embedded_asin` reads. The transitions are tested against the `db` fixture; `refresh` with `Audible` and `authenticator_for` patched on `src.library`. The API tests patch `src.api.library.refresh` and drive the file actions with real files under a folder set through `PUT /api/settings`.
 - Extras: `tests/test_logbuffer.py` uses its own non-propagating logger at DEBUG so pytest's capture is not involved; `tests/test_notify.py` drives `send_webhook` with `httpx.MockTransport` and patches `src.notify.send_webhook` for the wrapper; the API tests patch `src.api.send_webhook` and attach the app's `log_buffer` to a test logger.
 - The bulk retry: `tests/test_database.py` drives `requeue_unavailable` with `_set` for the states the public API cannot reach, `tests/test_accounts.py` asserts `replace_account_auth` requeues only that account's consumable parked books, and the API tests park books with `claim_book_for_download` + `mark_book_unavailable`
@@ -561,6 +580,7 @@ Service (a quick local version with no Audible access is a scratch database, `HO
 - [ ] `PUT /api/settings {"sync_interval_minutes": 5}` → `next_run_at` moves without a restart; a bad bitrate → 422 carrying the validator text
 - [ ] The first service start seeds the settings table from `config.ini`; a later edit to the file is *not* picked up
 - [ ] The API token survives a restart when not set in the environment
+- [ ] The first start generates `secrets/secret.key` (0600) and the log says so; `accounts.auth` and `settings.api_token` read `enc:...` in the database; a restart with the same key reads them back; a start with `AUDIBLE_SYNC_SECRET_KEY` set to another key shows the account as `needs_login` with one ERROR line and a new API token, and the original key restores both; a database from the previous version has its plaintext rows rewritten on the first start (`Encrypted N stored secret(s)`)
 - [ ] A database from before accounts migrates on first start: one account, filled in from the mounted auth file, every book attached to it, the cursor and queue unchanged (checked against a copy of the live database on 2026-09-12)
 - [ ] A second marketplace's auth file imported with `POST /api/accounts/import` syncs as its own account with its own run rows; `max-download` applies to each account's run
 - [ ] `PATCH {enabled: false}` skips the account on the next run; an account with `needs_login` is skipped with a warning
@@ -606,7 +626,7 @@ docker compose run --rm -it audible-sync bash
 ## Docker
 
 - `Dockerfile`: `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
-- `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` through from the environment (empty means "generate one"), mounts `~/.audible`, `./data`, `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
+- `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` and `AUDIBLE_SYNC_SECRET_KEY` through from the environment (empty means "generate one"), mounts `~/.audible`, `./data`, `./secrets` (the key file, to be backed up separately from `./data`), `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
 - Run with `docker compose up -d`; `restart: unless-stopped` is right for the service. A one-shot run is `docker compose run --rm audible-sync uv run --no-sync python -m src.main`
 - `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/` and `audible.json`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored): a compose file with `build: ..` and its own `config/` mount.
 - Image: `ghcr.io/alexstansfield/audible-sync:latest` and `:vX.Y.Z`, published on `v*` tags
@@ -654,7 +674,7 @@ See `todo.md` for the authoritative list.
 
 ---
 
-**Document Version:** 4.14
+**Document Version:** 4.15
 **Last Updated:** 2026-11-01
-**Codebase Version:** Milestones 2 and 3 complete (background service with scheduler, run state and cancellation; bearer-token API for status/sync/runs/settings/accounts/login (device code, browser fallback)/books/logs/stats; library keyed per account; webhook after each run; the Docker image runs the service)
+**Codebase Version:** Milestones 2 and 3 complete (background service with scheduler, run state and cancellation; bearer-token API for status/sync/runs/settings/accounts/login (device code, browser fallback)/books/logs/stats; library keyed per account; credentials and API token encrypted at rest with a key outside `data/`; webhook after each run; the Docker image runs the service)
 **Primary Branch:** `dev`

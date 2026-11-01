@@ -1,8 +1,30 @@
 import itertools
 from dataclasses import replace
 
+import pytest
+
+from src import crypto
 from src.model import Account, Book
 from src.settings import Settings
+
+
+@pytest.fixture(autouse=True)
+def secret_key(monkeypatch, tmp_path):
+    """
+    Every test runs with its own secret key, configured the way an entry point would.
+
+    The key is also put in the environment and the default key file moved under
+    `tmp_path`, so a test that reaches `load_secret_key` (the entry points) neither
+    reads nor writes a key file in the repository.
+    """
+    key = crypto.generate_key()
+    monkeypatch.setenv(crypto.KEY_ENV, key.decode())
+    monkeypatch.delenv(crypto.KEY_FILE_ENV, raising=False)
+    monkeypatch.setattr(crypto, "DEFAULT_KEY_FILE", tmp_path / "secrets" / "secret.key")
+    crypto.configure(key)
+    yield key
+    crypto.configure(None)
+
 
 # Every test book gets a distinct row id, the way one read from the database would
 _book_ids = itertools.count(1)

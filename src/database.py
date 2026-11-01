@@ -1,10 +1,16 @@
 import json
+import logging
+import os
 import sqlite3
+import stat
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
+from src import crypto
 from src.model import Account, Book, BookStatus, SyncOutcome, SyncRun
 from src.paths import REPO_ROOT
+
+logger = logging.getLogger(__name__)
 
 DB_FILE = str(REPO_ROOT / "data" / "audible_sync.db")
 
@@ -38,6 +44,14 @@ def init_db():
     # rather than of the connection, so setting it once here holds for every later
     # connection - including ones opened by a process that never calls init_db.
     cursor.execute("PRAGMA journal_mode=WAL")
+
+    # The file holds credentials (encrypted, but still) and the API token: owner-only.
+    # Best effort - a bind mount or an odd file system may refuse, and that is not fatal.
+    # SQLite gives the -wal and -shm files the mode of the database file.
+    try:
+        os.chmod(DB_FILE, stat.S_IRUSR | stat.S_IWUSR)
+    except OSError:
+        logger.debug("Could not restrict the permissions of %s", DB_FILE, exc_info=True)
 
     # One row per marketplace login. `auth` is the Authenticator blob as JSON, NULL for
     # an account that has no working credentials yet (see `Account`).
@@ -1055,8 +1069,69 @@ def count_sync_runs(*, account_id: int | None = None) -> int:
 
 # --- accounts ------------------------------------------------------------------
 # One row per marketplace login. The credentials are stored as the JSON of
-# `Authenticator.to_dict()`; `src.accounts` is the only thing that encodes or decodes
-# them, this layer just keeps the text.
+# `Authenticator.to_dict()`, encrypted with the process's secret key (`src.crypto`);
+# `src.accounts` is the only thing that builds an `Authenticator` from the decoded
+# blob, this layer keeps the text and does the encrypting.
+
+# The settings-table key the API token is stored under, encrypted like the credentials
+API_TOKEN_SETTING = "api_token"
+
+# Accounts whose credentials do not decrypt, logged once per process rather than on
+# every poll of the status endpoint
+_undecryptable_logged: set[int] = set()
+
+
+def _encode_auth(auth: dict | None) -> str | None:
+    return crypto.encrypt(json.dumps(auth)) if auth is not None else None
+
+
+def _account_from_row(row: sqlite3.Row) -> Account:
+    """
+    An `Account` with its credentials decrypted.
+
+    A blob that does not decrypt - the key changed - reads as no credentials, so the
+    account shows `needs_login` and the pipeline skips it, **without** touching the
+    stored blob: restoring the right key brings the login back, and a re-login
+    replaces it either way.
+    """
+    data = dict(row)
+    stored = data.get("auth")
+    if stored:
+        try:
+            data["auth"] = crypto.decrypt(stored)
+        except crypto.WrongKey as error:
+            if data["id"] not in _undecryptable_logged:
+                _undecryptable_logged.add(data["id"])
+                logger.error("The credentials of account %s cannot be read: %s", data["id"], error)
+            data["auth"] = None
+    return Account.from_row(data)
+
+
+def encrypt_stored_secrets() -> int:
+    """
+    Encrypt every secret still stored in plain text, and return how many were.
+
+    The one-off migration for a database written before there was a key: the
+    credentials of each account and the API token. Run at every start after the key is
+    configured; a database that is already encrypted is left alone. Idempotent.
+    """
+    rewritten = 0
+    with closing(_get_connection()) as conn:
+        for row in conn.execute("SELECT id, auth FROM accounts WHERE auth IS NOT NULL").fetchall():
+            if not crypto.is_encrypted(row["auth"]):
+                conn.execute("UPDATE accounts SET auth = ? WHERE id = ?", (crypto.encrypt(row["auth"]), row["id"]))
+                rewritten += 1
+        row = conn.execute("SELECT value FROM settings WHERE key = ?", (API_TOKEN_SETTING,)).fetchone()
+        if row is not None and row["value"] and not crypto.is_encrypted(row["value"]):
+            conn.execute(
+                "UPDATE settings SET value = ?, updated_at = ? WHERE key = ?",
+                (crypto.encrypt(row["value"]), _utcnow(), API_TOKEN_SETTING),
+            )
+            rewritten += 1
+        conn.commit()
+    if rewritten:
+        logger.info("Encrypted %d stored secret(s) that were in plain text", rewritten)
+    return rewritten
 
 
 def add_account(
@@ -1078,7 +1153,7 @@ def add_account(
                 name,
                 country_code,
                 customer_name,
-                json.dumps(auth) if auth is not None else None,
+                _encode_auth(auth),
                 monitor_existing,
                 _utcnow(),
             ),
@@ -1090,13 +1165,13 @@ def add_account(
 def get_accounts() -> list[Account]:
     """Every account, oldest first."""
     with closing(_get_connection()) as conn:
-        return [Account.from_row(row) for row in conn.execute("SELECT * FROM accounts ORDER BY id")]
+        return [_account_from_row(row) for row in conn.execute("SELECT * FROM accounts ORDER BY id")]
 
 
 def get_account(account_id: int) -> Account | None:
     with closing(_get_connection()) as conn:
         row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
-    return Account.from_row(row) if row is not None else None
+    return _account_from_row(row) if row is not None else None
 
 
 def update_account(
@@ -1132,7 +1207,7 @@ def save_account_auth(account_id: int, auth: dict | None) -> None:
     with closing(_get_connection()) as conn:
         conn.execute(
             "UPDATE accounts SET auth = ? WHERE id = ?",
-            (json.dumps(auth) if auth is not None else None, account_id),
+            (_encode_auth(auth), account_id),
         )
         conn.commit()
 

@@ -15,6 +15,10 @@ Environment:
                                logged at every start so it can be copied from the log
     AUDIBLE_SYNC_CORS_ORIGINS  Comma-separated origins allowed to call from a browser
     AUDIBLE_SYNC_DEBUG         `true` forces DEBUG logging whatever the settings say
+    AUDIBLE_SYNC_SECRET_KEY    The key the stored credentials and API token are
+                               encrypted with (see `src/crypto.py`). If unset, the
+                               key file is used, generated on the first start
+    AUDIBLE_SYNC_SECRET_KEY_FILE  Where that key file is; default `secrets/secret.key`
 """
 
 import logging
@@ -25,9 +29,11 @@ from dataclasses import dataclass
 
 import uvicorn
 
+from src import crypto
 from src.accounts import ensure_account_from_auth_file
 from src.api import create_app
-from src.database import get_settings, init_db, save_settings
+from src.crypto import load_secret_key
+from src.database import API_TOKEN_SETTING, encrypt_stored_secrets, get_settings, init_db, save_settings
 from src.logbuffer import RingBufferHandler
 from src.main import configure_logging, run_pipeline
 from src.runstate import RunState, StateProgress
@@ -39,7 +45,6 @@ logger = logging.getLogger("src.service" if __name__ == "__main__" else __name__
 
 # Kept in the settings table under a key `Settings.from_db` does not know, so it is
 # stored beside the rest but never appears in `GET /api/settings`
-_API_TOKEN_KEY = "api_token"
 
 DEFAULT_HOST = "0.0.0.0"
 DEFAULT_PORT = 8080
@@ -85,11 +90,14 @@ def resolve_api_token(configured: str | None) -> str:
     """
     if configured:
         return configured
-    stored = get_settings().get(_API_TOKEN_KEY)
+    stored = get_settings().get(API_TOKEN_SETTING)
     if stored:
-        return stored
+        try:
+            return crypto.decrypt(stored)
+        except crypto.WrongKey as error:
+            logger.error("The stored API token cannot be read, generating a new one: %s", error)
     token = secrets.token_urlsafe(32)
-    save_settings({_API_TOKEN_KEY: token})
+    save_settings({API_TOKEN_SETTING: crypto.encrypt(token)})
     logger.info("Generated a new API token and stored it in the settings table")
     return token
 
@@ -109,6 +117,10 @@ def build(config: ServiceConfig):
     log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
     logging.getLogger().addHandler(log_buffer)
     # An installation from before there were accounts has its auth file made into one
+    # The secret key before anything that stores or reads credentials: the import
+    # below writes them, and the API token lives encrypted in the settings table
+    crypto.configure(load_secret_key())
+    encrypt_stored_secrets()
     ensure_account_from_auth_file(settings.auth_file)
 
     api_token = resolve_api_token(config.api_token)
