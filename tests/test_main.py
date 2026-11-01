@@ -66,6 +66,14 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
         return stats
 
     monkeypatch.setattr(main_module, "get_accounts", lambda: accounts)
+    # The loop reads each account again at its turn; `calls["removed"]` plays one deleted meanwhile
+    monkeypatch.setattr(
+        main_module,
+        "get_account",
+        lambda account_id: (
+            None if account_id in calls.get("removed", ()) else next((a for a in accounts if a.id == account_id), None)
+        ),
+    )
     monkeypatch.setattr(main_module, "authenticator_for", lambda account: f"auth-{account.id}")
     monkeypatch.setattr(main_module, "Audible", FakeAudible)
     monkeypatch.setattr(
@@ -312,6 +320,31 @@ def test_run_pipeline_gives_every_account_its_turn_then_raises_the_first_error(t
 
     assert calls["synced_accounts"] == [1, 2]
     assert [kw["outcome"] for _, kw in calls["finished_all"]] == [SyncOutcome.FAILED, SyncOutcome.FAILED]
+
+
+def test_run_pipeline_skips_an_account_removed_after_the_run_began(tmp_path, monkeypatch, caplog):
+    """The list is read once; an account deleted while an earlier one runs must not be synced."""
+    caplog.set_level(logging.INFO, logger="src.main")
+    calls = {"removed": {2}}
+    _patch_pipeline(monkeypatch, calls, accounts=[make_account(id=1), make_account(id=2, name="Gone")])
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["synced_accounts"] == [1]
+    assert "Skipping Gone: removed since the run began" in caplog.text
+
+
+def test_run_pipeline_reads_each_account_again_at_its_turn(tmp_path, monkeypatch):
+    """Disabled while an earlier account ran: the fresh row decides, not the stale list."""
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, accounts=[make_account(id=1), make_account(id=2)])
+    monkeypatch.setattr(
+        main_module, "get_account", lambda account_id: make_account(id=account_id, enabled=account_id != 2)
+    )
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["synced_accounts"] == [1]
 
 
 def test_run_pipeline_stops_between_accounts_when_cancelled(tmp_path, monkeypatch):

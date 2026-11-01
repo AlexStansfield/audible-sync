@@ -295,8 +295,16 @@ def create_app(
         first, so it does not linger on the account's device list. That is best effort:
         a login that no longer works cannot deregister itself, and the account is
         removed either way.
+
+        409 while the run in flight is on this account: its sync would leave rows behind
+        for an account that no longer exists, and its download a book on disk with no
+        row. An account the run has not reached yet is fine - the run reads each account
+        again at its turn and skips one that has gone.
         """
         account = _account_or_404(account_id)
+        current = state.snapshot()
+        if current is not None and (current.get("account") or {}).get("id") == account_id:
+            raise HTTPException(status_code=409, detail=f"{account.name} is being synced; cancel the run first")
         if deregister and not account.needs_login:
             try:
                 authenticator_for(account).deregister_device()

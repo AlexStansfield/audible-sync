@@ -493,6 +493,27 @@ def test_delete_account_does_not_try_to_deregister_one_without_credentials(api, 
     assert api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"}).status_code == 200
 
 
+def test_delete_account_is_refused_while_the_run_is_on_it(api):
+    account_id = _account()
+    api.state.begin(5)
+    api.state.set_account({"id": account_id, "name": "Main", "country_code": "uk"})
+
+    response = api.delete(f"/api/accounts/{account_id}", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "cancel the run first" in response.json()["detail"]
+    assert database.get_account(account_id) is not None
+
+
+def test_delete_account_is_allowed_while_the_run_is_on_another(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    api.state.begin(5)
+    api.state.set_account({"id": other, "name": "Other", "country_code": "us"})
+
+    assert api.delete(f"/api/accounts/{account_id}", headers=AUTH).status_code == 200
+
+
 def test_list_runs_can_be_limited_to_one_account(api):
     account_id = _account()
     other = _account("Other", "us")

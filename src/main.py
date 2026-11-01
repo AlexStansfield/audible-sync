@@ -85,7 +85,8 @@ def run_pipeline(
     One account failing does not stop the others: its run is recorded and the loop
     moves on, and the first error is raised again once every account has had its turn,
     so a one-shot CLI run still exits non-zero. An account that is disabled or has no
-    credentials is skipped with a warning.
+    credentials is skipped with a warning. Each account is read again at its turn, so
+    one removed, disabled or logged out while an earlier one was running is skipped.
 
     Args:
         settings: Validated settings (see `Settings.from_db`)
@@ -106,10 +107,17 @@ def run_pipeline(
         return
 
     first_error: Exception | None = None
-    for account in accounts:
+    for listed in accounts:
         if cancel is not None and cancel.is_set():
-            logger.info("Sync cancelled before %s", account.name)
+            logger.info("Sync cancelled before %s", listed.name)
             break
+        # Read again at its turn: the list is hours old by the last account, which may
+        # have been deleted, disabled or logged out since (the API refuses to delete an
+        # account only while the run is on it)
+        account = get_account(listed.id)
+        if account is None:
+            logger.info("Skipping %s: removed since the run began", listed.name)
+            continue
         if not account.enabled:
             logger.info("Skipping %s: disabled", account.name)
             continue
