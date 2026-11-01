@@ -216,13 +216,23 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     monkeypatch.setattr(main_module, "load_secret_key", lambda: order.append("key") or "k")
     monkeypatch.setattr(main_module.crypto, "configure", lambda key: order.append(("configure", key)))
     monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
+    monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: order.append("check key") or 0)
     monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
 
     main([])
 
     # The key after logging, so where it came from is reported
-    assert order[:7] == ["init_db", "seed", "settings", ("logging", True), "key", ("configure", "k"), "encrypt"]
-    step, passed_settings, progress = order[7]
+    assert order[:8] == [
+        "init_db",
+        "seed",
+        "settings",
+        ("logging", True),
+        "key",
+        ("configure", "k"),
+        "encrypt",
+        "check key",
+    ]
+    step, passed_settings, progress = order[8]
     assert (step, passed_settings) == ("pipeline", settings)
     # The bar is a terminal concern the CLI injects, like the logging config above
     assert isinstance(progress, main_module.TqdmProgress)
@@ -387,7 +397,29 @@ def _patch_prepare(monkeypatch, order):
     monkeypatch.setattr(main_module.Settings, "from_db", classmethod(lambda cls: settings))
     monkeypatch.setattr(main_module, "configure_logging", lambda debug: order.append("logging"))
     monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
+    monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: 0)
     return settings
+
+
+def test_a_command_warns_when_the_stored_secrets_were_written_under_another_key(monkeypatch, caplog):
+    """A CLI on the host next to a service in Docker: a login stored now would be lost on the service."""
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: 2)
+    monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: None)
+
+    main(["run"])
+
+    assert "2 stored secret(s) were encrypted with another key" in caplog.text
+    assert "AUDIBLE_SYNC_SECRET_KEY" in caplog.text
+
+
+def test_a_command_says_nothing_when_the_key_reads_the_stored_secrets(monkeypatch, caplog):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: None)
+
+    main(["run"])
+
+    assert "another key" not in caplog.text
 
 
 def test_run_is_the_default_command(monkeypatch):

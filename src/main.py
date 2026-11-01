@@ -14,6 +14,7 @@ from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, LoginFailed, discard_device, login_interactively, login_with_code
 from src.crypto import load_secret_key
 from src.database import (
+    count_unreadable_secrets,
     encrypt_stored_secrets,
     finish_sync_run,
     get_account,
@@ -234,7 +235,27 @@ def _prepare() -> Settings:
     # stores or reads credentials needs it
     crypto.configure(load_secret_key())
     encrypt_stored_secrets()
+    _warn_about_another_key()
     return settings
+
+
+def _warn_about_another_key() -> None:
+    """
+    Say so when the stored secrets were written under another key than this process has.
+
+    The usual cause is a CLI on the host next to a service in Docker: the CLI finds no
+    `secrets/secret.key` where it looks, generates one, and a login stored with it is
+    unreadable to the service. A warning rather than a refusal, because a key that was
+    really lost leaves logging in again as the only way back.
+    """
+    unreadable = count_unreadable_secrets()
+    if unreadable:
+        logger.warning(
+            "%d stored secret(s) were encrypted with another key than this one, so the service and this "
+            "command are not using the same key: credentials stored now will be unreadable to the service. "
+            "Set AUDIBLE_SYNC_SECRET_KEY or AUDIBLE_SYNC_SECRET_KEY_FILE to the service's key",
+            unreadable,
+        )
 
 
 def run_command() -> None:

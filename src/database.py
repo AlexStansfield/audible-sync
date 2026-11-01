@@ -1144,6 +1144,28 @@ def encrypt_stored_secrets() -> int:
     return rewritten
 
 
+def count_unreadable_secrets() -> int:
+    """
+    How many stored secrets the configured key cannot decrypt.
+
+    Non-zero means this process holds another key than the one that wrote them - a CLI
+    on the host that generated its own `secrets/secret.key` while the service's key is
+    in `AUDIBLE_SYNC_SECRET_KEY`, say. Anything it stores now is unreadable to the other.
+    """
+    with closing(_get_connection()) as conn:
+        values = [row["auth"] for row in conn.execute("SELECT auth FROM accounts WHERE auth IS NOT NULL")]
+        values += [
+            row["value"] for row in conn.execute("SELECT value FROM settings WHERE key = ?", (API_TOKEN_SETTING,))
+        ]
+    unreadable = 0
+    for value in values:
+        try:
+            crypto.decrypt(value)
+        except crypto.WrongKey:
+            unreadable += 1
+    return unreadable
+
+
 def add_account(
     name: str,
     country_code: str,

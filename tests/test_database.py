@@ -1090,6 +1090,19 @@ def test_the_credentials_are_stored_encrypted(db):
     assert _stored_auth(account_id) is None
 
 
+def test_count_unreadable_secrets_counts_what_another_key_wrote(db):
+    database.add_account("Alex (UK)", "uk", auth={"access_token": "Atna|old-key"})
+    database.save_settings({database.API_TOKEN_SETTING: crypto.encrypt("token")})
+    database.add_account("Pending", "de", auth=None)  # nothing stored, nothing to read
+    assert database.count_unreadable_secrets() == 0
+    written = len([a for a in database.get_accounts() if a.auth is not None]) + 1  # and the token
+
+    crypto.configure(crypto.generate_key())  # this process now holds another key
+    database.add_account("Alex (US)", "us", auth={"access_token": "Atna|new-key"})
+
+    assert database.count_unreadable_secrets() == written
+
+
 def test_save_account_auth_reports_whether_the_account_was_there(db):
     account_id = database.add_account("Alex (UK)", "uk", auth=None)
 
