@@ -262,6 +262,9 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
 | `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
 | `POST /api/settings/webhook/test` | `{"url"?}`: send a sample event to `url`, or to the configured webhook; `502` with the reason if it fails |
+| `GET /api/settings/api-token` | The API token masked to its last four characters (`last4`), and its `source`: `env` (`AUDIBLE_SYNC_API_TOKEN`) or `stored` |
+| `POST /api/settings/api-token/regenerate` | Replace the token: the new one is returned this once, and the old one stops working at once. `409` when `AUDIBLE_SYNC_API_TOKEN` sets it - change it there |
+| `GET /api/system` | The app and FFmpeg versions and whether libopus is available, the audiobook folder's free and total space with a `low_space` flag (under 5% or 50 GB free, whichever is smaller), where the secret key comes from, and the database size |
 | `GET /api/logs?limit=&level=` | The newest log lines (up to 1000 are kept), oldest first, at or above `level` |
 | `GET /api/stats` | For a dashboard: per account and in total, books by status, monitored/unmonitored, bytes on disk, the last run, and when the next one is due |
 | `GET /api/marketplaces` | The Audible marketplaces you can sign in to: `country_code`, `domain`, `name` |

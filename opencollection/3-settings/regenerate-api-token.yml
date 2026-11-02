@@ -1,0 +1,15 @@
+info:
+  name: Regenerate the API token
+  type: http
+  seq: 5
+http:
+  method: POST
+  url: "{{baseUrl}}/api/settings/api-token/regenerate"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Replaces the stored token. The new `token` is returned this once and never logged; the
+  old one stops working on the very next request - including this collection's
+  `apiToken`, so paste the new one into the environment. 409 when `AUDIBLE_SYNC_API_TOKEN`
+  sets the token: change it there.

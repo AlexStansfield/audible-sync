@@ -1,0 +1,16 @@
+info:
+  name: System
+  type: http
+  seq: 6
+http:
+  method: GET
+  url: "{{baseUrl}}/api/system"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  What the Settings screen's System card shows: `version`, `ffmpeg_version` (the first
+  line of `ffmpeg -version`, null without FFmpeg) and `libopus` (whether the Opus format
+  can be used), `audiobook_folder` (`path`, `free_bytes`, `total_bytes` and `low_space`:
+  under 5% or 50 GB free, whichever is smaller), `key_source` (`env` or `file`) with
+  `key_file`, and `database_bytes` (the file and its write-ahead log).
