@@ -16,8 +16,13 @@ export function formatBytes(bytes: number): string {
     value /= 1000;
     unit += 1;
   }
-  // Three significant figures at most: 1.2 GB, 24.5 GB, 243 MB
-  const text = value >= 100 ? value.toFixed(0) : value.toFixed(1);
+  // Three significant figures at most: 1.2 GB, 24.5 GB, 243 MB. Rounded first, so
+  // 999.6 MB, which rounds to 1000, reads 1 GB rather than 1000 MB
+  let text = value >= 100 ? value.toFixed(0) : value.toFixed(1);
+  if (Number(text) >= 1000 && unit < UNITS.length - 1) {
+    unit += 1;
+    text = (Number(text) / 1000).toFixed(1);
+  }
   return `${text.replace(/\.0$/, "")} ${UNITS[unit]}`;
 }
 

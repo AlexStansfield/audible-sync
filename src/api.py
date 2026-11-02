@@ -759,8 +759,9 @@ def create_app(
 # cookie; `.` and `..` alone are not segments anyone means
 _BASE_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
 # The app's own first path segments - the API, the docs, the build's files and the web
-# app's pages. Behind a proxy that strips the prefix, a request for `/api/...` under a
-# base of `/api` cannot be told from one that kept it, so such a base is refused
+# app's pages (web/src/app/routes.tsx; a test fails when a page is missing here).
+# Behind a proxy that strips the prefix, a request for `/api/...` under a base of
+# `/api` cannot be told from one that kept it, so such a base is refused
 _RESERVED_SEGMENTS = frozenset(
     {"api", "assets", "docs", "redoc", "openapi.json", "index.html", "favicon.svg"}
     | {"login", "library", "accounts", "activity", "settings", "profile"}
@@ -852,7 +853,13 @@ def _serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
     cached: dict[str, object] = {}
 
     def index_page() -> HTMLResponse:
-        stat = index.stat()
+        try:
+            stat = index.stat()
+        except OSError:
+            # Mid-rebuild Vite has emptied the folder: the last good page, not a 500
+            if "page" in cached:
+                return HTMLResponse(cached["page"], headers=_REVALIDATE)
+            raise
         stamp = (stat.st_mtime_ns, stat.st_size)
         if cached.get("stamp") != stamp:
             # The web app takes its router's basename and the API's address from <base href>

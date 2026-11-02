@@ -43,7 +43,7 @@ export function ProfilePage() {
         </span>
       </header>
       {me.isPending && <SkeletonCard rows={2} label="Loading your sign-in" />}
-      {me.isError && (
+      {me.isError && !me.data && (
         <ErrorCard title="Could not load your sign-in" error={me.error} onRetry={() => void me.refetch()} />
       )}
       {me.data && (

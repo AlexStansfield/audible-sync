@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useMatches, useNavigate } from "react-router";
-import { api, onUnauthorized } from "../api/client";
+import { api, onUnauthorized, unwrap } from "../api/client";
 import { useRefreshAfterRun, useStatus } from "../api/queries";
 import { useToast } from "../components/Toasts";
 import { loginPath } from "../lib/next";
@@ -37,8 +37,9 @@ export function Layout() {
   );
 
   const signOut = useCallback(async () => {
-    const { error } = await api.POST("/api/auth/logout");
-    if (error) {
+    try {
+      await unwrap(api.POST("/api/auth/logout"));
+    } catch (error) {
       toast.error("Could not sign out", error);
       return;
     }

@@ -4,7 +4,7 @@
  * wait. "Forgot your password?" swaps the form for the reset command.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useEffect, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { ApiError, api, unwrap } from "../api/client";
 import { keys, type Me } from "../api/queries";
@@ -42,7 +42,11 @@ export function LoginPage() {
   const forgetSession = useForgetSession();
   const [forgot, setForgot] = useState(false);
 
-  // Whatever an earlier session loaded goes; if this browser is still signed in, on
+  const nextRef = useRef(next);
+  nextRef.current = next;
+
+  // On arrival: whatever an earlier session loaded goes, and a browser still signed in
+  // goes on. Once, not again when `next` changes
   useEffect(() => {
     forgetSession();
     let current = true;
@@ -50,7 +54,7 @@ export function LoginPage() {
       ({ data }) => {
         if (current && data) {
           client.setQueryData(keys.me, data);
-          navigate(next, { replace: true });
+          navigate(nextRef.current, { replace: true });
         }
       },
       () => undefined,
@@ -58,7 +62,7 @@ export function LoginPage() {
     return () => {
       current = false;
     };
-  }, [forgetSession, client, navigate, next]);
+  }, [forgetSession, client, navigate]);
 
   useEffect(() => {
     document.title = "Sign in · Audible Sync";

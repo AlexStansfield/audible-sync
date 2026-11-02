@@ -14,6 +14,10 @@ describe("formatBytes", () => {
     [1_234_000_000, "1.2 GB"],
     [24_560_000_000, "24.6 GB"],
     [3_000_000_000_000, "3 TB"],
+    // Just under a boundary: rounded first, so never "1000 KB"
+    [999_400, "999 KB"],
+    [999_999, "1 MB"],
+    [999_600_000, "1 GB"],
   ])("%d bytes is %s", (bytes, text) => {
     expect(formatBytes(bytes)).toBe(text);
   });

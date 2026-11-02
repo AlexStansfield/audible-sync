@@ -9,12 +9,18 @@
 import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema";
 
+/**
+ * The path the app is served under, from the page's base URL: `/audible-sync`, or ""
+ * at the root. The router's basename and the API's address both come from this.
+ */
+export function basePath(baseURI: string = document.baseURI): string {
+  // A base names a folder; anything after its last slash is a file name
+  return new URL(baseURI).pathname.replace(/[^/]*$/, "").replace(/\/$/, "");
+}
+
 /** The service's address: the page's base URL without its trailing slash. */
 export function apiBaseUrl(baseURI: string = document.baseURI): string {
-  const url = new URL(baseURI);
-  // A base names a folder; anything after its last slash is a file name
-  const folder = url.pathname.replace(/[^/]*$/, "");
-  return `${url.origin}${folder.replace(/\/$/, "")}`;
+  return `${new URL(baseURI).origin}${basePath(baseURI)}`;
 }
 
 /** The API answered with an error status; `detail` is its message, ready to show. */

@@ -18,10 +18,12 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (me.isPending) {
     return <div className={styles.centred} role="status" aria-busy="true" aria-label="Loading" />;
   }
-  if (me.isError) {
-    if (me.error instanceof ApiError && me.error.status === 401) {
-      return <Navigate to={loginPath(location.pathname + location.search)} replace />;
-    }
+  if (me.error instanceof ApiError && me.error.status === 401) {
+    return <Navigate to={loginPath(location.pathname + location.search)} replace />;
+  }
+  // A failed refetch keeps the user it had: the session is not in doubt, only the
+  // request, so the page stays rather than turning into an error card
+  if (me.isError && !me.data) {
     return (
       <div className={styles.centred}>
         <div className={styles.narrow}>

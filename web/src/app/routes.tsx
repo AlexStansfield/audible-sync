@@ -4,6 +4,7 @@
  * inside the layout too.
  */
 import type { RouteObject } from "react-router";
+import { basePath } from "../api/client";
 import { LoginPage } from "../auth/LoginPage";
 import { RequireAuth } from "../auth/RequireAuth";
 import { Layout, type RouteHandle } from "../layout/Layout";
@@ -39,6 +40,5 @@ export const routes: RouteObject[] = [
  * <base href> it writes into the page (`/audible-sync/` → `/audible-sync`).
  */
 export function basenameFrom(baseURI: string): string {
-  const path = new URL(baseURI).pathname.replace(/[^/]*$/, "").replace(/\/$/, "");
-  return path || "/";
+  return basePath(baseURI) || "/";
 }

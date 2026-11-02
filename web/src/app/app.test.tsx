@@ -80,6 +80,17 @@ describe("signing in", () => {
     await waitFor(() => expect(where(router)).toBe("/profile"));
   });
 
+  it("forgets the previous session once on arrival, not again when next changes", async () => {
+    const api = fakeApi({ "GET /api/auth/me": fail(401, "Not authenticated") });
+    const { router } = renderApp("/login?next=%2Flibrary");
+    await screen.findByLabelText("Username");
+    await waitFor(() => expect(api.calls.filter((call) => call.path === "/api/auth/me")).toHaveLength(1));
+
+    await act(() => router.navigate("/login?next=%2Factivity"));
+
+    expect(api.calls.filter((call) => call.path === "/api/auth/me")).toHaveLength(1);
+  });
+
   it("ignores a next that leaves the app", async () => {
     const api = fakeApi({ "GET /api/auth/me": fail(401, "Not authenticated") });
     const { router } = renderApp("/login?next=%2F%2Fevil.example");
@@ -183,6 +194,42 @@ describe("the layout", () => {
     await screen.findByRole("heading", { name: "Sign in to Audible Sync" });
     expect(where(router)).toBe("/login");
     expect(api.calls.some((call) => call.method === "POST" && call.path === "/api/auth/logout")).toBe(true);
+  });
+
+  it("keeps the page when a background check of the sign-in fails", async () => {
+    const api = fakeApi(signedIn());
+    const { client } = renderApp("/profile");
+    await screen.findByRole("form", { name: "Password" });
+
+    api.routes["GET /api/auth/me"] = fail(502, "Bad Gateway");
+    await act(() => client.refetchQueries({ queryKey: ["me"] }));
+
+    expect(screen.getByRole("form", { name: "Password" })).toBeInTheDocument();
+    expect(screen.queryByText("Could not check your sign-in")).not.toBeInTheDocument();
+    expect(screen.queryByText("Could not load your sign-in")).not.toBeInTheDocument();
+  });
+
+  it("says why signing out failed, in words", async () => {
+    fakeApi(signedIn({ "POST /api/auth/logout": fail(500, "database is locked") }));
+    const { router } = renderApp("/settings");
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+
+    await userEvent.click(within(nav).getByRole("button", { name: "Sign out" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Could not sign out");
+    expect(alert).toHaveTextContent("database is locked");
+    expect(where(router)).toBe("/settings");
+  });
+
+  it("reports a sign-out that gets no answer instead of failing silently", async () => {
+    fakeApi(signedIn({ "POST /api/auth/logout": unreachable() }));
+    renderApp("/settings");
+    const nav = await screen.findByRole("navigation", { name: "Main" });
+
+    await userEvent.click(within(nav).getByRole("button", { name: "Sign out" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("No response from the service");
   });
 
   it("answers an unknown address with the 404 page inside the layout", async () => {
