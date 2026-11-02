@@ -153,6 +153,7 @@ def create_app(
     log_buffer: RingBufferHandler | None = None,
     login_throttle: LoginThrottle | None = None,
     secure_cookie: bool = False,
+    web_dir: Path | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -171,6 +172,8 @@ def create_app(
         secure_cookie: Always mark the session cookie `Secure`. Without it the cookie is
             `Secure` only when the request arrived over https, which behind a
             TLS-terminating reverse proxy it never appears to
+        web_dir: The built web app (`web/dist`), served for every path outside `/api`;
+            nothing is served when it is None or holds no `index.html`
     """
     logins = logins or PendingLogins()
     throttle = login_throttle or LoginThrottle()
@@ -610,7 +613,43 @@ def create_app(
 
     app.include_router(open_router)
     app.include_router(router)
+    if web_dir is not None and (web_dir / "index.html").is_file():
+        _serve_web_app(app, web_dir)
     return app
+
+
+# Vite names everything under assets/ after its content, so a file there never changes
+_IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
+# index.html names the current assets, so it is checked on every load
+_REVALIDATE = {"Cache-Control": "no-cache"}
+
+
+def _serve_web_app(app: FastAPI, web_dir: Path) -> None:
+    """
+    Serve the single-page app: a file that exists under `web_dir`, else `index.html`
+    so the browser's router handles deep links like `/library?status=failed`.
+
+    Registered after the API routes, so it only sees what they did not match. A path
+    under `/api` is still a JSON 404, so a mistyped API URL never answers with HTML,
+    and a missing file under `assets/` is a 404 rather than a page that would be
+    parsed as script.
+    """
+    root = web_dir.resolve()
+    index = root / "index.html"
+
+    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
+    def web_app(path: str) -> FileResponse:
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        if path:
+            candidate = (root / path).resolve()
+            # resolve() folds any `..`, so this is what keeps a request inside web_dir
+            if candidate.is_relative_to(root) and candidate.is_file():
+                headers = _IMMUTABLE if candidate.is_relative_to(root / "assets") else None
+                return FileResponse(candidate, headers=headers)
+            if path.startswith("assets/"):
+                raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(index, headers=_REVALIDATE)
 
 
 def _book_or_404(book_id: int):

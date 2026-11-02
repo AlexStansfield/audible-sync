@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,3 +188,20 @@ def test_a_generated_token_and_password_never_reach_the_logs_endpoint(db, monkey
     for handler in list(logging.getLogger().handlers):
         if isinstance(handler, RingBufferHandler):
             logging.getLogger().removeHandler(handler)
+
+
+def test_the_web_app_build_defaults_to_web_dist_and_can_be_moved():
+    assert ServiceConfig.from_env({}).web_dir == service.REPO_ROOT / "web" / "dist"
+    assert ServiceConfig.from_env({"AUDIBLE_SYNC_WEB_DIR": "/srv/ui"}).web_dir == Path("/srv/ui")
+    # A relative path is anchored to the repository, like every other path
+    assert ServiceConfig.from_env({"AUDIBLE_SYNC_WEB_DIR": "ui"}).web_dir == service.REPO_ROOT / "ui"
+
+
+def test_build_serves_the_web_app_it_is_pointed_at(db, monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+    (tmp_path / "index.html").write_text("<p>app</p>")
+
+    client = TestClient(service.build(ServiceConfig(api_token="tok", web_dir=tmp_path)))
+
+    assert client.get("/library").text == "<p>app</p>"

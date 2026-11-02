@@ -1414,3 +1414,76 @@ def test_webhook_test_reports_a_failure(api, monkeypatch):
 
     assert response.status_code == 502
     assert "connection refused" in response.json()["detail"]
+
+
+# --- the web app's build ---------------------------------------------------------
+
+
+@pytest.fixture
+def web(db, tmp_path):
+    """An app serving a stand-in build: index.html, a hashed asset and a favicon."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<!doctype html><title>Audible Sync</title>")
+    (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
+    (dist / "favicon.svg").write_text("<svg/>")
+    (tmp_path / "secret.txt").write_text("outside")
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, web_dir=dist)
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("path", ["/", "/library", "/library?status=failed", "/books/12", "/settings/"])
+def test_every_page_of_the_app_gets_index_html(web, path):
+    response = web.get(path)
+
+    assert response.status_code == 200
+    assert "<title>Audible Sync</title>" in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
+def test_an_asset_is_served_and_cached_for_good(web):
+    response = web.get("/assets/app-1a2b.js")
+
+    assert response.status_code == 200
+    assert response.text == "console.log('app')"
+    assert "immutable" in response.headers["cache-control"]
+
+
+def test_a_file_outside_assets_is_served_without_the_long_cache(web):
+    response = web.get("/favicon.svg")
+
+    assert response.text == "<svg/>"
+    assert "immutable" not in response.headers.get("cache-control", "")
+
+
+def test_a_missing_asset_is_a_404_not_the_page(web):
+    assert web.get("/assets/gone-9z9z.js").status_code == 404
+
+
+@pytest.mark.parametrize("path", ["/api/nope", "/api", "/api/books/1/nothing"])
+def test_an_unknown_api_path_is_json_never_the_page(web, path):
+    response = web.get(path, headers=AUTH)
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
+def test_the_api_still_answers_beside_the_app(web):
+    assert web.get("/api/health").json()["status"] == "ok"
+    assert web.get("/api/status").status_code == 401
+    assert web.get("/openapi.json").status_code == 200
+
+
+@pytest.mark.parametrize("path", ["/..%2Fsecret.txt", "/assets/..%2F..%2Fsecret.txt", "/%2E%2E/secret.txt"])
+def test_a_path_cannot_climb_out_of_the_build(web, path):
+    response = web.get(path)
+
+    assert "outside" not in response.text
+
+
+def test_nothing_is_served_without_a_build(db, tmp_path):
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, web_dir=tmp_path / "missing")
+    client = TestClient(app)
+
+    assert client.get("/").status_code == 404
+    assert client.get("/api/health").status_code == 200
