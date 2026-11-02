@@ -11,7 +11,7 @@ bending to the other. Anything that maps straight from a dataclass uses
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.model import BookStatus, SyncOutcome
 from src.runstate import RunStage
@@ -282,6 +282,52 @@ class Requeued(BaseModel):
     """How many books a bulk retry put back in the queue."""
 
     requeued: int
+
+
+class BookFilter(BaseModel):
+    """The library listing's filters, for a bulk action on everything they match."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int | None = None
+    status: BookStatus | None = None
+    monitored: bool | None = None
+    q: Annotated[str | None, Field(max_length=200)] = None
+
+
+MAX_BULK_IDS = 10_000
+
+
+class BulkRequest(BaseModel):
+    """
+    One action on many books: the `ids` selected, or every book `filter` matches.
+    Exactly one of the two.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["monitor", "unmonitor", "retry", "delete_files"]
+    ids: Annotated[list[int] | None, Field(max_length=MAX_BULK_IDS)] = None
+    filter: BookFilter | None = None
+
+    @model_validator(mode="after")
+    def _one_selection(self) -> "BulkRequest":
+        if (self.ids is None) == (self.filter is None):
+            raise ValueError("give exactly one of ids or filter")
+        return self
+
+
+class BulkSkip(BaseModel):
+    id: int
+    reason: Literal["not_found", "busy", "downloaded", "no_files"]
+
+
+class BulkResultOut(BaseModel):
+    """`updated` books changed, `queued` of them now wait for a download, the rest skipped."""
+
+    updated: int
+    queued: int
+    skipped: list[BulkSkip]
 
 
 class LogEntry(BaseModel):

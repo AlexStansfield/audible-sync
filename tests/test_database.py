@@ -1544,6 +1544,19 @@ def test_list_books_sorts(db):
     assert database.list_books(sort="downloaded_at")[0][0].asin == "B003"
 
 
+@pytest.mark.parametrize(
+    "filters",
+    [{}, {"q": "dune"}, {"status": BookStatus.DOWNLOADED}, {"monitored": False}, {"account_id": ACCOUNT, "q": "a"}],
+)
+def test_book_ids_matching_selects_what_the_listing_shows(db, filters):
+    _shelf(db)
+
+    listed, total = database.list_books(limit=100, **filters)
+
+    assert database.book_ids_matching(**filters) == sorted(b.id for b in listed)
+    assert len(database.book_ids_matching(**filters)) == total
+
+
 def test_list_books_rejects_an_unknown_sort(db):
     with pytest.raises(ValueError, match="sort must be one of"):
         database.list_books(sort="colour")

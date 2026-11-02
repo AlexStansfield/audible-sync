@@ -9,11 +9,20 @@ way back to the start.
 """
 
 import logging
+from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 from src.accounts import authenticator_for, persist_auth_if_changed
 from src.audible_client import Audible
-from src.database import clear_book_files, get_account, get_book, reset_for_download, update_books
+from src.database import (
+    clear_book_files,
+    get_account,
+    get_book,
+    reset_for_download,
+    set_monitored,
+    update_books,
+)
 from src.encoding import output_extension, read_embedded_asin
 from src.model import Book, BookStatus
 from src.naming import book_output_paths
@@ -50,6 +59,14 @@ def audio_path_for(book: Book, settings: Settings) -> Path | None:
     return None
 
 
+def book_files(book: Book, settings: Settings) -> list[Path]:
+    """The book's audio, PDF, cover and annotations that exist on disk."""
+    candidates = [audio_path_for(book, settings)] + [
+        Path(p) for p in (book.pdf_path, book.cover_path, book.annotations_path) if p
+    ]
+    return [path for path in candidates if path is not None and path.is_file()]
+
+
 def delete_book_files(book: Book, settings: Settings) -> list[Path]:
     """
     Remove the audio, PDF, cover and annotations, and any folders left empty.
@@ -60,14 +77,10 @@ def delete_book_files(book: Book, settings: Settings) -> list[Path]:
     holds another book is left alone.
     """
     removed: list[Path] = []
-    candidates = [audio_path_for(book, settings)] + [
-        Path(p) for p in (book.pdf_path, book.cover_path, book.annotations_path) if p
-    ]
-    for path in candidates:
-        if path is not None and path.is_file():
-            path.unlink()
-            removed.append(path)
-            logger.info("Removed %s", path)
+    for path in book_files(book, settings):
+        path.unlink()
+        removed.append(path)
+        logger.info("Removed %s", path)
 
     root = Path(settings.audiobook_folder).resolve()
     for path in removed:
@@ -166,3 +179,80 @@ def refresh(book: Book) -> Book:
             logger.exception("Could not store the refreshed credentials of %r", account)
     update_books(account.id, [fresh])
     return get_book(book.id)
+
+
+class BulkAction(StrEnum):
+    MONITOR = "monitor"
+    UNMONITOR = "unmonitor"
+    RETRY = "retry"
+    DELETE_FILES = "delete_files"
+
+
+class SkipReason(StrEnum):
+    """Why a bulk action left a book alone; the UI words it."""
+
+    NOT_FOUND = "not_found"
+    BUSY = "busy"  # a run is downloading it
+    DOWNLOADED = "downloaded"  # retry on a book that is already downloaded
+    NO_FILES = "no_files"  # delete_files on a book with nothing on disk
+
+
+@dataclass
+class BulkResult:
+    """
+    What a bulk action did: `updated` books changed, `queued` of them now wait for a
+    download, and the rest were `skipped` with a reason each.
+    """
+
+    updated: int = 0
+    queued: int = 0
+    skipped: list[tuple[int, SkipReason]] = field(default_factory=list)
+
+
+def bulk(action: BulkAction | str, book_ids: list[int], settings: Settings) -> BulkResult:
+    """
+    Apply one action to many books, book by book, through the single-book functions.
+
+    A book a run is downloading is skipped for every action, as the single-book routes
+    refuse it, so the rules live in one place. `monitor` counts as queued only the
+    books that are `waiting_download`: a failed or parked book keeps its status until
+    it is retried. A duplicate id is acted on once.
+    """
+    action = BulkAction(action)
+    result = BulkResult()
+    for book_id in dict.fromkeys(book_ids):
+        book = get_book(book_id)
+        if book is None:
+            result.skipped.append((book_id, SkipReason.NOT_FOUND))
+            continue
+        try:
+            reason = _bulk_one(action, book, settings)
+        except BookBusy:
+            reason = SkipReason.BUSY
+        if reason is not None:
+            result.skipped.append((book_id, reason))
+            continue
+        result.updated += 1
+        if action is BulkAction.RETRY or (action is BulkAction.MONITOR and book.status is BookStatus.WAITING_DOWNLOAD):
+            result.queued += 1
+    logger.info(
+        "Bulk %s: %d updated, %d queued, %d skipped", action, result.updated, result.queued, len(result.skipped)
+    )
+    return result
+
+
+def _bulk_one(action: BulkAction, book: Book, settings: Settings) -> SkipReason | None:
+    """One book of a bulk action: None when it was done, else why not."""
+    _not_busy(book)
+    match action:
+        case BulkAction.MONITOR | BulkAction.UNMONITOR:
+            set_monitored(book.id, action is BulkAction.MONITOR)
+        case BulkAction.RETRY:
+            if book.status is BookStatus.DOWNLOADED:
+                return SkipReason.DOWNLOADED
+            retry(book)
+        case BulkAction.DELETE_FILES:
+            if not book_files(book, settings):
+                return SkipReason.NO_FILES
+            delete_download(book, settings)
+    return None

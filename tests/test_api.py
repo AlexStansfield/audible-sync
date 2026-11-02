@@ -1244,6 +1244,79 @@ def test_retry_unavailable_rejects_an_unknown_field(api):
     assert response.status_code == 422
 
 
+def test_bulk_by_ids(api):
+    waiting, failed = _shelve(_account(), make_book("B001"), make_book("B002"), monitor_new=False)
+    database.claim_book_for_download(failed.id)
+    database.mark_book_failed(failed.id, "boom", max_attempts=1)
+
+    response = api.post(
+        "/api/books/bulk", json={"action": "monitor", "ids": [waiting.id, failed.id, 999]}, headers=AUTH
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"updated": 2, "queued": 1, "skipped": [{"id": 999, "reason": "not_found"}]}
+    assert database.get_book(waiting.id).monitored and database.get_book(failed.id).monitored
+
+
+def test_bulk_by_filter_acts_on_what_the_listing_matches(api):
+    account_id = _account()
+    other = _account("Other", "us")
+    _shelve(account_id, make_book("B001", "Dune"), make_book("B002", "Foundation"), monitor_new=False)
+    (theirs,) = _shelve(other, make_book("B003", "Dune Messiah"), monitor_new=False)
+    query = {"account_id": account_id, "monitored": False, "q": "dune"}
+    listed = api.get("/api/books", params=query, headers=AUTH).json()
+
+    response = api.post("/api/books/bulk", json={"action": "monitor", "filter": query}, headers=AUTH)
+
+    assert response.json() == {"updated": listed["total"], "queued": 1, "skipped": []}
+    assert [b["asin"] for b in api.get("/api/books", params={"monitored": True}, headers=AUTH).json()["items"]] == [
+        "B001"
+    ]
+    assert database.get_book(theirs.id).monitored is False
+
+
+def test_bulk_skips_a_book_a_run_holds(api):
+    (book,) = _shelve(_account(), make_book("B001"))
+    database.claim_book_for_download(book.id)
+
+    response = api.post("/api/books/bulk", json={"action": "unmonitor", "ids": [book.id]}, headers=AUTH)
+
+    assert response.json() == {"updated": 0, "queued": 0, "skipped": [{"id": book.id, "reason": "busy"}]}
+
+
+def test_bulk_delete_files(api, tmp_path):
+    book, audio, _ = _downloaded(api, tmp_path)
+
+    response = api.post("/api/books/bulk", json={"action": "delete_files", "ids": [book.id]}, headers=AUTH)
+
+    assert response.json() == {"updated": 1, "queued": 0, "skipped": []}
+    assert not audio.exists()
+    assert database.get_book(book.id).monitored is False
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"action": "monitor"},
+        {"action": "monitor", "ids": [1], "filter": {}},
+        {"action": "explode", "ids": [1]},
+        {"action": "monitor", "filter": {"colour": "red"}},
+        {"action": "monitor", "ids": [1], "extra": True},
+    ],
+)
+def test_bulk_rejects_a_bad_body(api, body):
+    assert api.post("/api/books/bulk", json=body, headers=AUTH).status_code == 422
+
+
+def test_bulk_filter_404s_for_an_unknown_account(api):
+    response = api.post("/api/books/bulk", json={"action": "monitor", "filter": {"account_id": 999}}, headers=AUTH)
+    assert response.status_code == 404
+
+
+def test_bulk_needs_auth(api):
+    assert api.post("/api/books/bulk", json={"action": "monitor", "ids": []}).status_code == 401
+
+
 def test_refresh_re_reads_the_book(api, monkeypatch):
     (book,) = _shelve(_account(), make_book("B001", "Old"))
     monkeypatch.setattr(
