@@ -233,6 +233,24 @@ describe("monitoring a book", () => {
     expect(await screen.findByRole("button", { name: "Stop monitoring Book 40" })).toBeEnabled();
   });
 
+  it("holds that book's bookmark, and only that one, until the change is answered", async () => {
+    let release: () => void = () => undefined;
+    library({
+      "PATCH /api/books/2": () =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(Response.json(book({ id: 2, monitored: false })));
+        }),
+    });
+    renderApp("/library");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Stop monitoring Golden Son" }));
+    expect(await screen.findByRole("button", { name: "Monitor Golden Son" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop monitoring Red Rising" })).toBeEnabled();
+    release();
+    await waitFor(() => expect(screen.getByRole("button", { name: /Golden Son/ })).toBeEnabled());
+  });
+
   it("puts it back and says so when the service refuses", async () => {
     library({ "PATCH /api/books/2": fail(500, "database is locked") });
     renderApp("/library");

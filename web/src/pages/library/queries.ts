@@ -2,8 +2,9 @@
  * What the Library reads and changes. Keys start with `books` (or `stats`), so the end
  * of a run refetches them (`AFTER_RUN`).
  */
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../../api/client";
+import { refreshAfterBookChange } from "../../api/queries";
 import type { components } from "../../api/schema";
 import { useToast } from "../../components/Toasts";
 import { type LibraryQuery, listParams } from "./libraryQuery";
@@ -11,10 +12,10 @@ import { type LibraryQuery, listParams } from "./libraryQuery";
 type BookList = components["schemas"]["BookList"];
 type BulkRequest = components["schemas"]["BulkRequest"];
 
-export const listKey = (query: LibraryQuery) => ["books", "list", listParams(query)] as const;
+/** Every monitoring change the Library makes, so the page can tell which books have one pending. */
+export const MONITOR_KEY = ["monitor-book"] as const;
 
-/** What a change to books moves: every listing, the totals, the queue, the sidebar's count. */
-const CHANGED_BY_BOOKS = [["books"], ["stats"], ["queue"]] as const;
+export const listKey = (query: LibraryQuery) => ["books", "list", listParams(query)] as const;
 
 /** One page of the library; the previous page stays on show while the next loads. */
 export function useLibrary(query: LibraryQuery) {
@@ -34,6 +35,7 @@ export function useMonitorBook(query: LibraryQuery) {
   const toast = useToast();
   const key = listKey(query);
   return useMutation({
+    mutationKey: MONITOR_KEY,
     mutationFn: ({ id, monitored }: { id: number; monitored: boolean }) =>
       unwrap(api.PATCH("/api/books/{book_id}", { params: { path: { book_id: id } }, body: { monitored } })),
     onMutate: async ({ id, monitored }) => {
@@ -52,9 +54,21 @@ export function useMonitorBook(query: LibraryQuery) {
       toast.error(monitored ? "Could not monitor the book" : "Could not stop monitoring the book", error);
     },
     onSettled: () => {
-      for (const queryKey of CHANGED_BY_BOOKS) void client.invalidateQueries({ queryKey: [...queryKey] });
+      void refreshAfterBookChange(client);
     },
   });
+}
+
+/**
+ * The books with a monitoring change in flight. Their controls wait for it: a second
+ * change would save the first one's optimistic value as the one to roll back to.
+ */
+export function usePendingMonitors(): ReadonlySet<number> {
+  const ids = useMutationState({
+    filters: { mutationKey: MONITOR_KEY, status: "pending" },
+    select: (mutation) => (mutation.state.variables as { id: number } | undefined)?.id,
+  });
+  return new Set(ids.filter((id): id is number => id !== undefined));
 }
 
 /** `POST /api/books/bulk`; the caller words the result. */
@@ -63,7 +77,7 @@ export function useBulkAction() {
   return useMutation({
     mutationFn: (body: BulkRequest) => unwrap(api.POST("/api/books/bulk", { body })),
     onSettled: () => {
-      for (const queryKey of CHANGED_BY_BOOKS) void client.invalidateQueries({ queryKey: [...queryKey] });
+      void refreshAfterBookChange(client);
     },
   });
 }

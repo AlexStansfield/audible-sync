@@ -4,17 +4,13 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../../api/client";
+import { bookKey, refreshAfterBookChange } from "../../api/queries";
 import type { components } from "../../api/schema";
 import { useToast } from "../../components/Toasts";
 
 type Book = components["schemas"]["BookOut"];
 
 export type BookActionName = "redownload" | "retry" | "delete-files" | "refresh";
-
-/** What a change to one book moves: the listings, the totals, the queue. */
-const CHANGED_BY_BOOKS = [["books"], ["stats"], ["queue"]] as const;
-
-export const bookKey = (id: number) => ["books", id] as const;
 
 /** `max_attempts`, for "1 of 3". */
 export function useMaxAttempts() {
@@ -44,7 +40,7 @@ export function useMonitor(bookId: number) {
       toast.error(monitored ? "Could not monitor the book" : "Could not stop monitoring the book", error);
     },
     onSettled: () => {
-      for (const queryKey of CHANGED_BY_BOOKS) void client.invalidateQueries({ queryKey: [...queryKey] });
+      void refreshAfterBookChange(client);
     },
   });
 }
@@ -67,7 +63,7 @@ export function useBookAction(bookId: number) {
       }
     },
     onSettled: () => {
-      for (const queryKey of CHANGED_BY_BOOKS) void client.invalidateQueries({ queryKey: [...queryKey] });
+      void refreshAfterBookChange(client);
     },
   });
 }

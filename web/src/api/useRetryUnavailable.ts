@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../components/Toasts";
 import { plural } from "../lib/format";
 import { api, unwrap } from "./client";
+import { refreshAfterBookChange } from "./queries";
 
 /** The result of Retry unavailable. */
 export function requeuedText(requeued: number): string {
@@ -26,7 +27,7 @@ export function useRetryUnavailable() {
       ),
     onSuccess: ({ requeued }) => {
       toast.success(requeuedText(requeued));
-      for (const queryKey of [["stats"], ["books"], ["queue"]]) void client.invalidateQueries({ queryKey });
+      void refreshAfterBookChange(client);
     },
     onError: (error) => toast.error("Could not retry the unavailable books", error),
   });

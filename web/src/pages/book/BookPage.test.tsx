@@ -136,7 +136,41 @@ describe("Book detail", () => {
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("button", { name: "Redownload" }));
+    await user.click(screen.getByRole("button", { name: "Delete and redownload" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("A run is downloading this book");
+  });
+
+  it("confirms a redownload, which deletes the files first", async () => {
+    const api = page(DUNE, { "POST /api/books/7/redownload": ok({ status: "queued", removed: ["/a.m4b"] }) });
+    renderApp("/library/7");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Redownload" }));
+    const dialog = screen.getByRole("dialog", { name: "Redownload One Word Kill?" });
+    expect(dialog).toHaveTextContent("The files are deleted now");
+    await user.click(within(dialog).getByRole("button", { name: "Keep files" }));
+    expect(api.calls.some((call) => call.path === "/api/books/7/redownload")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: "Redownload" }));
+    await user.click(screen.getByRole("button", { name: "Delete and redownload" }));
+    expect(await screen.findByText(/queued for the next run/)).toBeInTheDocument();
+  });
+
+  it("offers no retry for a title Audible withdrew, but does for a refused licence", async () => {
+    const api = page(book({ id: 7, status: "unavailable", is_consumable: false }));
+    renderApp("/library/7");
+    expect(await screen.findByText("Audible withdrew this title")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry download" })).not.toBeInTheDocument();
+
+    api.routes["GET /api/books/7"] = ok(book({ id: 7, status: "unavailable", is_consumable: true }));
+    renderApp("/library/7");
+    expect(await screen.findByRole("button", { name: "Retry download" })).toBeInTheDocument();
+  });
+
+  it("links an author listed twice twice", async () => {
+    page(book({ ...DUNE, authors: ["Mark Lawrence", "Mark Lawrence"] }));
+    renderApp("/library/7");
+    expect(await screen.findAllByRole("link", { name: "Mark Lawrence" })).toHaveLength(2);
   });
 
   it("points a refresh refused for want of a sign-in at Accounts, and words Audible not answering", async () => {
@@ -228,9 +262,74 @@ describe("a book being downloaded", () => {
     });
     renderApp("/library/7");
 
-    expect(await screen.findByText(/Marked as downloading since .*; no run is working on it\./)).toBeInTheDocument();
+    expect(await screen.findByText(/Marked as downloading since [^T]*; no run is working on it\./)).toBeInTheDocument();
     expect(screen.queryByText(/Downloading in run/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Cancel run" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Redownload" })).toBeDisabled();
+  });
+
+  it("says nothing about a stale claim before the status has answered", async () => {
+    let answer: () => void = () => undefined;
+    page(book({ ...DUNE, status: "downloading" }), {
+      "GET /api/status": () =>
+        new Promise<Response>((resolve) => {
+          answer = () => resolve(Response.json(running(7)));
+        }),
+    });
+    renderApp("/library/7");
+
+    expect(await screen.findByRole("heading", { level: 1, name: "One Word Kill" })).toBeInTheDocument();
+    expect(screen.queryByText(/no run is working on it/)).not.toBeInTheDocument();
+    answer();
+    expect(await screen.findByText("Downloading in run #148")).toBeInTheDocument();
+    expect(screen.queryByText(/no run is working on it/)).not.toBeInTheDocument();
+  });
+
+  it("does not call the book stale while it is read again after the run moves on", async () => {
+    let stored: Book = book({ ...DUNE, status: "downloading" });
+    let answer: () => void = () => undefined;
+    let held = false;
+    const api = page(stored, {
+      "GET /api/status": ok(running(7)),
+      "GET /api/books/7": () => {
+        if (!held) return Response.json(stored);
+        return new Promise<Response>((resolve) => {
+          answer = () => resolve(Response.json(stored));
+        });
+      },
+    });
+    const { client } = renderApp("/library/7");
+    expect(await screen.findByText("Downloading in run #148")).toBeInTheDocument();
+
+    // The run finishes this book and takes up the next; the read of this one is held
+    held = true;
+    stored = { ...stored, status: "downloaded" };
+    api.routes["GET /api/status"] = ok(running(8));
+    await client.refetchQueries({ queryKey: ["status"] });
+    await waitFor(() => expect(screen.queryByText("Downloading in run #148")).not.toBeInTheDocument());
+    expect(screen.queryByText(/no run is working on it/)).not.toBeInTheDocument();
+
+    answer();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Redownload" })).toBeEnabled());
+    expect(screen.queryByText(/no run is working on it/)).not.toBeInTheDocument();
+  });
+});
+
+describe("monitoring, one change at a time", () => {
+  it("holds the switch until its change is answered", async () => {
+    let answer: () => void = () => undefined;
+    page(DUNE, {
+      "PATCH /api/books/7": () =>
+        new Promise<Response>((resolve) => {
+          answer = () => resolve(Response.json({ ...DUNE, monitored: false }));
+        }),
+    });
+    renderApp("/library/7");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("switch", { name: "Monitored" }));
+    expect(screen.getByRole("switch", { name: "Monitored" })).toBeDisabled();
+    answer();
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Monitored" })).toBeEnabled());
   });
 });

@@ -58,6 +58,17 @@ export function useBookCount() {
   });
 }
 
+/** One book's query, which Book detail and the Dashboard's run card read. */
+export const bookKey = (id: number) => ["books", id] as const;
+
+/** What a change to books moves: every listing and book, the totals, the queue. */
+const CHANGED_BY_BOOKS = [["books"], ["stats"], ["queue"]] as const;
+
+/** Refetches what a change to one or more books moves (monitoring, an action, a retry). */
+export function refreshAfterBookChange(client: QueryClient): Promise<unknown> {
+  return Promise.all(CHANGED_BY_BOOKS.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] })));
+}
+
 export function refreshAfterRun(client: QueryClient): Promise<unknown> {
   return Promise.all(AFTER_RUN.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] })));
 }

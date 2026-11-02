@@ -90,6 +90,13 @@ export function formatClock(iso: string, now: Date = new Date(), locale?: string
   return formatTime(iso, now, locale);
 }
 
+/**
+ * `formatTime` inside a sentence: `since today 08:14`, not `since Today 08:14`.
+ */
+export function formatTimeInSentence(iso: string, now: Date = new Date(), locale?: string): string {
+  return formatTime(iso, now, locale).replace(/^(Today|Yesterday|Tomorrow)\b/, (word) => word.toLowerCase());
+}
+
 /** A short date: `1 Nov` this year, `1 Nov 2024` before. */
 export function formatDay(iso: string, now: Date = new Date(), locale?: string): string {
   const date = new Date(iso);

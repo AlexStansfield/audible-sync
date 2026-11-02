@@ -6,10 +6,10 @@
  * A book the API does not have is the 404 page.
  */
 import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ApiError } from "../../api/client";
-import { useStatus } from "../../api/queries";
+import { bookKey, useStatus } from "../../api/queries";
 import type { components } from "../../api/schema";
 import { useSyncActions } from "../../api/useSyncActions";
 import { StatusChip } from "../../components/Chip";
@@ -21,13 +21,13 @@ import { ProgressBar } from "../../components/ProgressBar";
 import { Skeleton } from "../../components/Skeleton";
 import { Switch } from "../../components/Switch";
 import { useToast } from "../../components/Toasts";
-import { formatDate, formatLength, formatTime } from "../../lib/format";
+import { formatDate, formatLength, formatTime, formatTimeInSentence } from "../../lib/format";
 import { useBook } from "../dashboard/queries";
 import { bookOfRun } from "../dashboard/text";
 import { liveBook } from "../library/live";
 import { NotFoundPage } from "../NotFoundPage";
 import styles from "./Book.module.css";
-import { type BookActionName, bookKey, useBookAction, useMaxAttempts, useMonitor } from "./queries";
+import { type BookActionName, useBookAction, useMaxAttempts, useMonitor } from "./queries";
 import { attemptsText, fileRows, formatLabel, listeningText, problem, seriesLabel, transferText } from "./text";
 
 type Book = components["schemas"]["BookOut"];
@@ -56,12 +56,24 @@ function BookView({ bookId }: { bookId: number }) {
   const run = status.data?.current_run;
   const liveHere = run?.book?.id === bookId;
 
-  // The run moving on from this book (or ending) changes it: read it again
+  // The run moving on from this book (or ending) changes it: read it again. Until that
+  // read lands the cached row still says downloading with no run on it, which is not the
+  // stale claim the note is about. A layout effect, so that moment is never painted.
   const wasLive = useRef(liveHere);
-  useEffect(() => {
-    if (wasLive.current && !liveHere) void client.invalidateQueries({ queryKey: bookKey(bookId) });
+  const [rereading, setRereading] = useState(false);
+  useLayoutEffect(() => {
+    if (wasLive.current && !liveHere) {
+      setRereading(true);
+      void client.invalidateQueries({ queryKey: bookKey(bookId) });
+    }
     wasLive.current = liveHere;
   }, [liveHere, bookId, client]);
+  // Any answer to that read, the book or an error, ends the wait
+  const answered = book.dataUpdatedAt + book.errorUpdatedAt;
+  useEffect(() => {
+    void answered;
+    setRereading(false);
+  }, [answered]);
 
   if (book.isError && !book.data) {
     if (book.error instanceof ApiError && book.error.status === 404) return <NotFoundPage kind="book" />;
@@ -72,30 +84,46 @@ function BookView({ bookId }: { bookId: number }) {
     <BookDetail
       book={book.data}
       run={liveHere ? (run ?? null) : null}
+      // Only a status that has answered can say no run holds the book
+      runKnown={status.data !== undefined && !rereading}
       account={status.data?.accounts.find((one) => one.id === book.data.account_id)}
     />
   );
 }
 
-function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | null; account: Account | undefined }) {
+function BookDetail({
+  book,
+  run,
+  runKnown,
+  account,
+}: {
+  book: Book;
+  run: RunSnapshot | null;
+  runKnown: boolean;
+  account: Account | undefined;
+}) {
   const maxAttempts = useMaxAttempts();
   const monitor = useMonitor(book.id);
   const action = useBookAction(book.id);
   const { cancel } = useSyncActions();
   const toast = useToast();
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // Redownload and Delete files both remove the files, so both confirm
+  const [confirming, setConfirming] = useState<"redownload" | "delete-files" | null>(null);
   const [notice, setNotice] = useState<{ text: string; signIn?: boolean } | null>(null);
 
   // The row says downloading, or a run has it in hand before the row was read again
   const downloading = book.status === "downloading" || run !== null;
-  const stale = downloading && run === null;
+  const stale = downloading && run === null && runKnown;
+  // A title Audible withdrew comes back on its own; a retry would be a certain refusal,
+  // which counts towards the run's circuit breaker (the bulk retry skips it too)
+  const canRetry = book.status === "failed" || (book.status === "unavailable" && book.is_consumable !== false);
   const shownStatus = run ? "downloading" : book.status;
 
   const act = (name: BookActionName) => {
     setNotice(null);
     action.mutate(name, {
       onSuccess: (result) => {
-        setConfirmDelete(false);
+        setConfirming(null);
         if (name === "redownload") toast.success("The files are deleted and the book is queued for the next run.");
         if (name === "retry") toast.success("Queued for the next run.");
         if (name === "refresh") toast.success("Refreshed from Audible.");
@@ -109,7 +137,7 @@ function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | nul
         }
       },
       onError: (error) => {
-        setConfirmDelete(false);
+        setConfirming(null);
         const status = error instanceof ApiError ? error.status : undefined;
         if (name === "refresh" && status === 409) {
           // The only 409 a refresh has: the account holds no working credentials
@@ -213,7 +241,7 @@ function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | nul
               <div className={styles.staleText}>
                 <span className={styles.strong}>
                   {book.last_attempt_at
-                    ? `Marked as downloading since ${formatTime(book.last_attempt_at)}; no run is working on it.`
+                    ? `Marked as downloading since ${formatTimeInSentence(book.last_attempt_at)}; no run is working on it.`
                     : "Marked as downloading; no run is working on it."}
                 </span>
                 <span className={styles.secondary}>
@@ -241,6 +269,8 @@ function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | nul
               <Switch
                 checked={book.monitored}
                 labelledBy="monitored-label"
+                // A second change would save the first one's optimistic value to roll back to
+                disabled={monitor.isPending}
                 onChange={(monitored) => monitor.mutate(monitored)}
               />
               <span id="monitored-label">Monitored</span>
@@ -251,7 +281,7 @@ function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | nul
                   type="button"
                   className="btn btn-secondary"
                   disabled={downloading || busy}
-                  onClick={() => act("redownload")}
+                  onClick={() => setConfirming("redownload")}
                 >
                   Redownload
                 </button>
@@ -259,13 +289,13 @@ function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | nul
                   type="button"
                   className="btn btn-danger-outline"
                   disabled={downloading || busy}
-                  onClick={() => setConfirmDelete(true)}
+                  onClick={() => setConfirming("delete-files")}
                 >
                   Delete files
                 </button>
               </>
             )}
-            {!downloading && (book.status === "failed" || book.status === "unavailable") && (
+            {!downloading && canRetry && (
               <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act("retry")}>
                 Retry download
               </button>
@@ -319,17 +349,31 @@ function BookDetail({ book, run, account }: { book: Book; run: RunSnapshot | nul
       </div>
 
       <ConfirmDialog
-        open={confirmDelete}
+        open={confirming === "delete-files"}
         title={`Delete the files for ${book.title}?`}
         confirmLabel="Delete files"
         cancelLabel="Keep files"
         busy={busy}
         onConfirm={() => act("delete-files")}
-        onCancel={() => setConfirmDelete(false)}
+        onCancel={() => setConfirming(null)}
       >
         <p className={styles.dialogText}>
           The audio, cover and annotations are removed from your audiobooks folder, along with any folders left empty.
           The book is unmonitored so it will not download again. It stays in your library.
+        </p>
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirming === "redownload"}
+        title={`Redownload ${book.title}?`}
+        confirmLabel="Delete and redownload"
+        cancelLabel="Keep files"
+        busy={busy}
+        onConfirm={() => act("redownload")}
+        onCancel={() => setConfirming(null)}
+      >
+        <p className={styles.dialogText}>
+          The files are deleted now and the book is fetched again on the next run. If Audible refuses the licence then,
+          the book is left without them until it can be downloaded.
         </p>
       </ConfirmDialog>
     </>
@@ -351,7 +395,8 @@ function Credits({ book }: { book: Book }) {
         <>
           By{" "}
           {book.authors.map((author, index) => (
-            <span key={author}>
+            // biome-ignore lint/suspicious/noArrayIndexKey: Audible can list one author twice
+            <span key={index}>
               {index > 0 && ", "}
               <Link to={`/library?q=${encodeURIComponent(author)}`}>{author}</Link>
             </span>
