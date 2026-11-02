@@ -176,6 +176,9 @@ describe("the Dashboard", () => {
     const runs = await screen.findByRole("region", { name: "Recent runs" });
     expect(await within(runs).findByText("5 downloaded · 1 failed")).toBeInTheDocument();
     expect(within(runs).getAllByText(/Alex \(UK\)/).length).toBeGreaterThan(0);
+    // Cut short when long, so the line has its whole text as a title
+    const line = within(runs).getAllByText(/· Alex \(UK\)$/)[0];
+    expect(line).toHaveAttribute("title", line?.textContent);
   });
 
   it("lists what needs attention and retries the unavailable books", async () => {

@@ -560,27 +560,31 @@ function RunsCard({ accounts, liveRunId }: { accounts: Account[]; liveRunId: num
         <p className={styles.empty}>No runs yet.</p>
       ) : (
         <ul className={styles.list}>
-          {runs.data.items.map((run) => (
-            <li key={run.id}>
-              <Link to="/activity" className={styles.row}>
-                <span className={styles.outcome}>
-                  {isInterrupted(run, liveRunId) ? (
-                    <Chip colour="var(--bad)">Interrupted</Chip>
-                  ) : (
-                    <OutcomeChip outcome={run.outcome} />
-                  )}
-                </span>
-                <span className={styles.rowText}>
-                  <span className={styles.runWhen}>
-                    {[formatTime(run.started_at), run.account_id != null && names.get(run.account_id)]
-                      .filter(Boolean)
-                      .join(" · ")}
+          {runs.data.items.map((run) => {
+            // One line, cut short when the account's name is long; the title has it whole
+            const when = [formatTime(run.started_at), run.account_id != null && names.get(run.account_id)]
+              .filter(Boolean)
+              .join(" · ");
+            return (
+              <li key={run.id}>
+                <Link to="/activity" className={styles.row}>
+                  <span className={styles.outcome}>
+                    {isInterrupted(run, liveRunId) ? (
+                      <Chip colour="var(--bad)">Interrupted</Chip>
+                    ) : (
+                      <OutcomeChip outcome={run.outcome} />
+                    )}
                   </span>
-                  <span className={styles.small}>{runDetail(run, liveRunId)}</span>
-                </span>
-              </Link>
-            </li>
-          ))}
+                  <span className={styles.rowText}>
+                    <span className={styles.runWhen} title={when}>
+                      {when}
+                    </span>
+                    <span className={styles.small}>{runDetail(run, liveRunId)}</span>
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
