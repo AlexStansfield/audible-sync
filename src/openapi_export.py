@@ -25,6 +25,7 @@ class _NoScheduler:
 
 
 def openapi_schema() -> dict:
+    """The API's OpenAPI schema, from an app built with stand-ins; nothing is started or stored."""
     app = create_app(
         scheduler=_NoScheduler(),  # type: ignore[arg-type]
         state=RunState(),
@@ -35,6 +36,7 @@ def openapi_schema() -> dict:
 
 
 def main(argv: list[str] | None = None) -> None:
+    """Write the schema to the one path given, sorted and indented so a diff reads cleanly."""
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
         raise SystemExit("usage: python -m src.openapi_export OUTPUT.json")

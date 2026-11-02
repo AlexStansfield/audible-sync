@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiBaseUrl, apiPath, detailOf, makeClient, NetworkError, onUnauthorized, unwrap } from "./client";
+import {
+  ApiError,
+  apiBaseUrl,
+  apiPath,
+  detailOf,
+  makeClient,
+  NetworkError,
+  onUnauthorized,
+  onUnreachable,
+  unwrap,
+} from "./client";
 
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -19,9 +29,15 @@ describe("apiBaseUrl", () => {
 });
 
 describe("apiPath", () => {
-  it("drops the base path in front of /api", () => {
-    expect(apiPath("http://my.domain/audible-sync/api/books/12?x=1")).toBe("/api/books/12");
-    expect(apiPath("http://nas:8080/api/status")).toBe("/api/status");
+  it("drops the client's base path in front of /api", () => {
+    expect(apiPath("http://my.domain/audible-sync/api/books/12?x=1", "http://my.domain/audible-sync")).toBe(
+      "/api/books/12",
+    );
+    expect(apiPath("http://nas:8080/api/status", "http://nas:8080")).toBe("/api/status");
+  });
+
+  it("drops the whole base even when it has an api segment of its own", () => {
+    expect(apiPath("http://my.domain/x/api/sync/api/books/12", "http://my.domain/x/api/sync")).toBe("/api/books/12");
   });
 });
 
@@ -77,6 +93,40 @@ describe("unwrap", () => {
     });
 
     await expect(unwrap(client.GET("/api/status"))).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it("calls the unreachable listeners when nothing answers", async () => {
+    const listener = vi.fn();
+    const stop = onUnreachable(listener);
+    const client = makeClient("http://nas:8080", async () => {
+      throw new TypeError("Failed to fetch");
+    });
+
+    await unwrap(client.GET("/api/status")).catch(() => undefined);
+    stop();
+
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes a cancelled request's AbortError on without calling the service unreachable", async () => {
+    const listener = vi.fn();
+    const stop = onUnreachable(listener);
+    const controller = new AbortController();
+    const client = makeClient("http://nas:8080", (input) => {
+      const request = input as Request; // openapi-fetch always hands fetch a Request
+      const aborted = new Promise<Response>((_, reject) => {
+        request.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+      controller.abort();
+      return aborted;
+    });
+
+    const error = await unwrap(client.GET("/api/status", { signal: controller.signal })).catch((e: unknown) => e);
+    stop();
+
+    expect(error).not.toBeInstanceOf(NetworkError);
+    expect(error).toMatchObject({ name: "AbortError" });
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("calls the unauthorized listeners on a 401, but not for a failed sign-in", async () => {

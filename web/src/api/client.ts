@@ -90,29 +90,39 @@ export function onUnreachable(listener: Listener): () => void {
 // Wrong credentials there are the form's own error, not an ended session
 const SIGN_IN = "/api/auth/login";
 
-/** The API path of a URL, without the base path in front: `/api/books/12`. */
-export function apiPath(url: string): string {
+/** The API path of a URL, without the client's base path in front: `/api/books/12`. */
+export function apiPath(url: string, baseUrl: string = apiBaseUrl()): string {
   const { pathname } = new URL(url, "http://localhost/");
-  const at = pathname.indexOf("/api/");
-  return at >= 0 ? pathname.slice(at) : pathname;
+  const base = new URL(baseUrl, "http://localhost/").pathname.replace(/\/$/, "");
+  return base && pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : pathname;
+}
+
+/** A request cancelled on purpose (TanStack Query's signal, an unmount), not a lost service. */
+function isAbort(error: unknown, request: Request): boolean {
+  return request.signal.aborted || (error instanceof Error && error.name === "AbortError");
 }
 
 // What each response answered, so an error can name its request ("GET /api/books/12")
 const requests = new WeakMap<Response, { method: string; path: string }>();
 
-const events: Middleware = {
-  onResponse({ request, response, schemaPath }) {
-    requests.set(response, { method: request.method, path: apiPath(request.url) });
-    if (response.status === 401 && schemaPath !== SIGN_IN) {
-      for (const listener of unauthorizedListeners) listener();
-    }
-    return undefined;
-  },
-  onError({ error, request }) {
-    for (const listener of unreachableListeners) listener();
-    return new NetworkError(request.method, apiPath(request.url), error);
-  },
-};
+function events(baseUrl: string): Middleware {
+  return {
+    onResponse({ request, response, schemaPath }) {
+      requests.set(response, { method: request.method, path: apiPath(request.url, baseUrl) });
+      if (response.status === 401 && schemaPath !== SIGN_IN) {
+        for (const listener of unauthorizedListeners) listener();
+      }
+      return undefined;
+    },
+    onError({ error, request }) {
+      if (isAbort(error, request)) {
+        return undefined; // the AbortError itself goes on, which is what TanStack Query expects
+      }
+      for (const listener of unreachableListeners) listener();
+      return new NetworkError(request.method, apiPath(request.url, baseUrl), error);
+    },
+  };
+}
 
 export function makeClient(baseUrl: string, fetchImpl?: typeof fetch) {
   const client = createClient<paths>({
@@ -121,7 +131,7 @@ export function makeClient(baseUrl: string, fetchImpl?: typeof fetch) {
     // Looked up per request rather than captured now, so a test can stub the global
     fetch: fetchImpl ?? ((request: Request) => globalThis.fetch(request)),
   });
-  client.use(events);
+  client.use(events(baseUrl));
   return client;
 }
 

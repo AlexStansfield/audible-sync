@@ -758,6 +758,13 @@ def create_app(
 # One or more segments of URL-safe characters that need no escaping in HTML or a
 # cookie; `.` and `..` alone are not segments anyone means
 _BASE_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
+# The app's own first path segments - the API, the docs, the build's files and the web
+# app's pages. Behind a proxy that strips the prefix, a request for `/api/...` under a
+# base of `/api` cannot be told from one that kept it, so such a base is refused
+_RESERVED_SEGMENTS = frozenset(
+    {"api", "assets", "docs", "redoc", "openapi.json", "index.html", "favicon.svg"}
+    | {"login", "library", "accounts", "activity", "settings", "profile"}
+)
 
 
 def normalise_base_path(value: str) -> str:
@@ -771,6 +778,11 @@ def normalise_base_path(value: str) -> str:
     for segment in trimmed.split("/"):
         if not _BASE_SEGMENT.fullmatch(segment) or segment in (".", ".."):
             raise ValueError(f"The base path must be URL path segments of letters, digits and .-_~, got {value!r}")
+    first = trimmed.split("/", 1)[0]
+    if first.lower() in _RESERVED_SEGMENTS:
+        raise ValueError(
+            f"The base path cannot start with /{first}, which is one of the app's own paths, got {value!r}"
+        )
     return f"/{trimmed}"
 
 
@@ -834,16 +846,25 @@ def _serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
     """
     root = web_dir.resolve()
     index = root / "index.html"
-    # Read once: a new build means a new image, or at least a restart. The web app takes
-    # its router's basename and the API's address from <base href>
-    page = index.read_text(encoding="utf-8")
-    page, found = _BASE_MARKER.subn(f'<base href="{base_path}/">', page, count=1)
-    if not found and base_path:
-        logger.warning('%s has no <base href="/"> to point at %s; the web app will not load there', index, base_path)
     others = list(app.router.routes)  # everything registered before this route
+    # The rewritten page, kept until the file changes: a rebuild beside a running service
+    # (`npm run build`) replaces the hashed assets the previous page names
+    cached: dict[str, object] = {}
 
     def index_page() -> HTMLResponse:
-        return HTMLResponse(page, headers=_REVALIDATE)
+        stat = index.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        if cached.get("stamp") != stamp:
+            # The web app takes its router's basename and the API's address from <base href>
+            page, found = _BASE_MARKER.subn(f'<base href="{base_path}/">', index.read_text(encoding="utf-8"), count=1)
+            if not found and base_path:
+                logger.warning(
+                    '%s has no <base href="/"> to point at %s; the web app will not load there', index, base_path
+                )
+            cached.update(stamp=stamp, page=page)
+        return HTMLResponse(cached["page"], headers=_REVALIDATE)
+
+    index_page()  # read at start, so a build without the marker is reported then
 
     @app.api_route("/{path:path}", methods=_ALL_METHODS, include_in_schema=False)
     def web_app(request: Request, path: str) -> Response:
@@ -858,7 +879,8 @@ def _serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
             candidate = (root / path).resolve()
             # resolve() folds any `..`, so this is what keeps a request inside web_dir
             if candidate.is_relative_to(root) and candidate.is_file():
-                if candidate == index:
+                # resolve() follows a symlinked index.html, so compare it resolved too
+                if candidate == index.resolve():
                     return index_page()
                 headers = _IMMUTABLE if candidate.is_relative_to(root / "assets") else None
                 return FileResponse(candidate, headers=headers)

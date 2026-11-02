@@ -243,7 +243,7 @@ The service reads these environment variables:
 
 ### Behind a reverse proxy, under a path
 
-To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`.
+To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`. The path cannot start with one of the app's own (`/api`, `/assets`, `/docs`, `/library`, `/settings` and the other pages); the service refuses to start with one.
 
 nginx, stripping the prefix (the trailing `/` on both lines matters):
 
