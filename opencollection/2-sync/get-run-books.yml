@@ -1,0 +1,21 @@
+info:
+  name: A run's books
+  type: http
+  seq: 5
+http:
+  method: GET
+  url: "{{baseUrl}}/api/sync/runs/:id/books"
+  params:
+    - name: id
+      value: "1"
+      type: path
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  The books a run took on, in three lists, each in the order the run finished them:
+  `downloaded` (with `bytes`, the filed audio's size, and `seconds`), `failed` and
+  `refused` (Audible would not license it) with the `error`. Each carries `book_id` (null
+  once the book has left the library), `asin`, `title` and `cover_url`. A book the run
+  handed back (cancelled, credentials) is not listed. `recorded` is false for a run from
+  before the per-book records, rather than three empty lists. 404 for an unknown run.

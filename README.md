@@ -245,6 +245,7 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |
 | `GET /api/sync/runs?limit=&offset=&account_id=` | Run history, newest first, with a `total`; optionally one account's |
 | `GET /api/sync/runs/{id}` | One run |
+| `GET /api/sync/runs/{id}/books` | The run's books in three lists - `downloaded` (with size and time), `failed` and `refused` (with the error) - each in the order the run finished them; `recorded: false` for a run from before the per-book records |
 | `GET /api/settings` | Every runtime setting |
 | `PUT /api/settings` | Change some settings: send only the fields to change, `null` clears an optional one. A bad value is a `422` carrying the reason; the change applies to the next run |
 | `GET /api/accounts` | Every account (never the credentials), with `needs_login` for one that has none |
