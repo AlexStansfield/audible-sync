@@ -53,9 +53,10 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
             raise synced
         return synced
 
-    def fake_download(client, settings, progress=None, *, account_id=None, state=None, cancel=None):
+    def fake_download(client, settings, progress=None, *, account_id=None, state=None, cancel=None, run_id=None):
         calls["downloaded"] = (client, settings)
         calls["download_account"] = account_id
+        calls["download_run_id"] = run_id
         calls["progress"] = progress
         calls["state"] = state
         calls["cancel"] = cancel
@@ -142,6 +143,8 @@ def test_run_pipeline_records_a_successful_run(tmp_path, monkeypatch):
 
     run_id, recorded = calls["finished"]
     assert run_id == 7
+    # The downloads record their books against the same run
+    assert calls["download_run_id"] == 7
     assert recorded == {
         "outcome": SyncOutcome.SUCCESS,
         "books_seen": 5,

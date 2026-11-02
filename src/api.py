@@ -48,6 +48,7 @@ from src.database import (
     get_account,
     get_accounts,
     get_book,
+    get_run_books,
     get_sync_run,
     get_sync_runs,
     library_stats,
@@ -58,7 +59,7 @@ from src.database import (
     update_account,
 )
 from src.logbuffer import RingBufferHandler
-from src.model import Account, BookStatus
+from src.model import Account, BookStatus, RunBookOutcome
 from src.notify import send_webhook
 from src.paths import REPO_ROOT
 from src.runstate import RunState
@@ -90,6 +91,8 @@ from src.schemas import (
     QueueOut,
     Requeued,
     RetryUnavailable,
+    RunBookOut,
+    RunBooks,
     SettingsOut,
     SettingsUpdate,
     SignIn,
@@ -342,6 +345,22 @@ def create_app(
         if run is None:
             raise HTTPException(status_code=404, detail=f"No run with id {run_id}")
         return run
+
+    @router.get("/sync/runs/{run_id}/books", response_model=RunBooks)
+    def get_run_books_route(run_id: int) -> RunBooks:
+        """
+        The books a run downloaded, failed and was refused, for the Activity screen.
+        `recorded` is false on a run from before the per-book records, which says so
+        rather than showing three empty lists.
+        """
+        run = get_sync_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"No run with id {run_id}")
+        groups: dict[str, list[RunBookOut]] = {outcome.value: [] for outcome in RunBookOutcome}
+        for record in get_run_books(run_id):
+            if record.outcome in groups:
+                groups[record.outcome].append(RunBookOut.model_validate(record))
+        return RunBooks(run_id=run_id, recorded=run.books_recorded, **groups)
 
     @router.get("/settings", response_model=SettingsOut)
     def get_settings() -> SettingsOut:

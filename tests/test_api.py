@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import threading
 
 import httpx
@@ -446,6 +447,7 @@ def test_get_run(api, monkeypatch):
         "books_downloaded": 0,
         "books_failed": 0,
         "error": None,
+        "books_recorded": True,
     }
 
 
@@ -1715,3 +1717,52 @@ def test_the_queue_limit_is_bounded(api, limit):
 
 def test_the_queue_needs_auth(api):
     assert api.get("/api/queue").status_code == 401
+
+
+# --- a run's books ----------------------------------------------------------------------
+
+
+def test_a_runs_books_come_back_in_their_three_outcomes(api):
+    account_id = _account()
+    one, two, three, four = _shelve(account_id, *(make_book(f"B00{n}", f"Book {n}") for n in range(1, 5)))
+    run_id = database.start_sync_run(account_id)
+    database.record_run_book(run_id, one, "downloaded", bytes=2048, seconds=30.0)
+    database.record_run_book(run_id, two, "failed", error="RuntimeError: boom")
+    database.record_run_book(run_id, three, "refused", error="Denied")
+    database.record_run_book(run_id, four, "downloaded", bytes=10, seconds=1.0)
+
+    response = api.get(f"/api/sync/runs/{run_id}/books", headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["run_id"], body["recorded"]) == (run_id, True)
+    assert [b["asin"] for b in body["downloaded"]] == ["B001", "B004"]
+    assert body["downloaded"][0] | {"finished_at": None} == {
+        "book_id": one.id,
+        "asin": "B001",
+        "title": "Book 1",
+        "cover_url": one.cover_url,
+        "error": None,
+        "bytes": 2048,
+        "seconds": 30.0,
+        "finished_at": None,
+    }
+    assert [(b["asin"], b["error"]) for b in body["failed"]] == [("B002", "RuntimeError: boom")]
+    assert [(b["asin"], b["error"]) for b in body["refused"]] == [("B003", "Denied")]
+
+
+def test_a_run_from_before_the_records_says_so(api):
+    run_id = database.start_sync_run(_account())
+    conn = sqlite3.connect(database.DB_FILE)
+    conn.execute("UPDATE sync_runs SET books_recorded = 0 WHERE id = ?", (run_id,))
+    conn.commit()
+    conn.close()
+
+    body = api.get(f"/api/sync/runs/{run_id}/books", headers=AUTH).json()
+
+    assert body == {"run_id": run_id, "recorded": False, "downloaded": [], "failed": [], "refused": []}
+    assert api.get(f"/api/sync/runs/{run_id}", headers=AUTH).json()["books_recorded"] is False
+
+
+def test_a_runs_books_404_for_an_unknown_run(api):
+    assert api.get("/api/sync/runs/999/books", headers=AUTH).status_code == 404

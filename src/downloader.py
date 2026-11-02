@@ -3,6 +3,7 @@ import logging
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import NamedTuple
 
@@ -17,6 +18,7 @@ from src.database import (
     mark_book_downloaded,
     mark_book_failed,
     mark_book_unavailable,
+    record_run_book,
     release_book,
 )
 from src.encoding import (
@@ -29,7 +31,7 @@ from src.encoding import (
     read_embedded_asin,
     write_m4b_extra_tags,
 )
-from src.model import Book, BookStatus
+from src.model import Book, BookStatus, RunBookOutcome
 from src.naming import book_output_paths, sanitize_filename, temp_book_folder
 from src.progress import NullProgress, Progress
 from src.runstate import RunState
@@ -720,10 +722,10 @@ def _download_accessories(downloader: Downloader, book: Book, temp_dir: Path, sa
     return accessories
 
 
-def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: Settings):
+def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: Settings) -> Path:
     """
-    Download, decrypt and file a single book. Raises on any failure so the
-    caller can decide how to handle it.
+    Download, decrypt and file a single book, returning where the audio was filed.
+    Raises on any failure so the caller can decide how to handle it.
 
     Args:
         downloader: Downloader bound to an authenticated Audible client
@@ -787,6 +789,29 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
 
     # Record where everything went and the completed status in one statement
     mark_book_downloaded(book.id, encoding_format=settings.encoding_format, file_path=str(to_path), **final_paths)
+    return to_path
+
+
+def _record(run_id: int | None, book: Book, outcome: RunBookOutcome, started: float, **details) -> None:
+    """
+    Record the book against the run, when there is a run to record it against.
+
+    A record is the Activity screen's detail, not the download: a write that fails is
+    logged and the run carries on, so it can never turn a downloaded book into a failure.
+    """
+    if run_id is None:
+        return
+    try:
+        record_run_book(run_id, book, outcome, seconds=round(time.monotonic() - started, 1), **details)
+    except Exception:
+        logger.exception("Could not record %s (%s) against run %s", book.title, book.asin, run_id)
+
+
+def _file_size(path: Path) -> int | None:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
 
 
 def download_books(
@@ -797,6 +822,7 @@ def download_books(
     account_id: int | None = None,
     state: RunState | None = None,
     cancel: threading.Event | None = None,
+    run_id: int | None = None,
 ) -> DownloadStats:
     """
     Download, decrypt and file every book waiting for download.
@@ -842,6 +868,11 @@ def download_books(
     None never stops.
 
     `progress` is where byte progress for each transfer is reported; see `src.progress`.
+
+    `run_id` is the `sync_runs` row each book is recorded against (`sync_run_books`): a
+    book downloaded, failed or refused a licence gets a row, with its size and time or
+    the error. A book handed back - the credentials failed, the run was cancelled, or
+    another run held it - is not recorded: nothing became of it.
 
     Returns the counts the run record is written from. `attempted` is how many slots
     were used, which is also what `state` reports as `books_done` against the cap.
@@ -905,9 +936,11 @@ def download_books(
             continue
 
         temp_dir = temp_book_folder(settings.download_folder, asin, title)
+        started = time.monotonic()
 
         try:
-            _process_book(downloader, book, temp_dir, settings)
+            filed = _process_book(downloader, book, temp_dir, settings)
+            _record(run_id, book, RunBookOutcome.DOWNLOADED, started, bytes=_file_size(filed))
             succeeded += 1
             attempted += 1
             streak = 0
@@ -940,13 +973,16 @@ def download_books(
                 "Audible will not license %s (%s) for download, parking it until retried: %s", title, asin, error
             )
             mark_book_unavailable(book.id, str(error))
+            _record(run_id, book, RunBookOutcome.REFUSED, started, error=str(error))
             unavailable.append((asin, title))
             streak += 1
             # No slot used: nothing was downloaded, and the next book in the queue
             # deserves the go this one could not have
         except Exception as error:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
-            status = mark_book_failed(book.id, f"{type(error).__name__}: {error}", max_attempts=settings.max_attempts)
+            reason = f"{type(error).__name__}: {error}"
+            status = mark_book_failed(book.id, reason, max_attempts=settings.max_attempts)
+            _record(run_id, book, RunBookOutcome.FAILED, started, error=reason)
             if status is BookStatus.FAILED:
                 logger.warning("Giving up on %s (%s) after %d attempts", title, asin, settings.max_attempts)
             failed.append((asin, title))

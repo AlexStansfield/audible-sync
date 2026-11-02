@@ -6,7 +6,7 @@ import pytest
 
 import src.database as database
 from src import crypto
-from src.model import Account, Book, BookStatus, SyncOutcome, SyncRun
+from src.model import Account, Book, BookStatus, RunBookOutcome, SyncOutcome, SyncRun
 from tests.conftest import ACCOUNT_ID as ACCOUNT
 from tests.conftest import make_book
 
@@ -841,6 +841,7 @@ def test_init_db_creates_sync_runs_table_with_all_columns(db):
         "books_downloaded",
         "books_failed",
         "error",
+        "books_recorded",
     }
 
 
@@ -883,6 +884,7 @@ def test_finish_sync_run_records_the_outcome_and_counters(db, monkeypatch):
         books_downloaded=3,
         books_failed=1,
         error="RuntimeError: disk full",
+        books_recorded=True,
     )
 
 
@@ -1610,3 +1612,67 @@ def test_replace_account_auth_if_unchanged_writes_only_over_what_it_expected(db)
     assert database.replace_account_auth_if_unchanged(ACCOUNT, {"v": 1}, {"v": 2}) is True
     assert database.get_account(ACCOUNT).auth == {"v": 2}
     assert database.replace_account_auth_if_unchanged(999, None, {"v": 3}) is False
+
+
+# --- per-run book records --------------------------------------------------------------
+
+
+def test_a_run_records_its_books_in_order(db):
+    database.update_books(ACCOUNT, [make_book("B001", "One", cover_url="https://img/1.jpg"), make_book("B002", "Two")])
+    run_id = database.start_sync_run(ACCOUNT)
+    one, two = database.get_book(_id("B001")), database.get_book(_id("B002"))
+
+    database.record_run_book(run_id, one, "downloaded", bytes=1000, seconds=12.5)
+    database.record_run_book(run_id, two, RunBookOutcome.FAILED, error="RuntimeError: boom", seconds=0.4)
+
+    records = database.get_run_books(run_id)
+    assert [(r.book_id, r.asin, r.title, r.outcome) for r in records] == [
+        (one.id, "B001", "One", RunBookOutcome.DOWNLOADED),
+        (two.id, "B002", "Two", RunBookOutcome.FAILED),
+    ]
+    assert (records[0].bytes, records[0].seconds, records[0].cover_url) == (1000, 12.5, "https://img/1.jpg")
+    assert records[1].error == "RuntimeError: boom"
+    assert database.get_run_books(run_id + 1) == []
+
+
+def test_a_record_outlives_its_book(db):
+    database.update_books(ACCOUNT, [make_book("B001", "One")])
+    run_id = database.start_sync_run(ACCOUNT)
+    database.record_run_book(run_id, database.get_book(_id("B001")), "refused", error="Denied")
+    conn = sqlite3.connect(db)
+    conn.execute("DELETE FROM library")
+    conn.commit()
+    conn.close()
+
+    (record,) = database.get_run_books(run_id)
+
+    assert (record.book_id, record.asin, record.title, record.cover_url) == (None, "B001", "One", None)
+
+
+def test_an_unknown_outcome_is_refused_on_write(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    run_id = database.start_sync_run(ACCOUNT)
+
+    with pytest.raises(ValueError):
+        database.record_run_book(run_id, database.get_book(_id("B001")), "exploded")
+
+
+def test_deleting_an_account_removes_its_run_records(db):
+    database.update_books(ACCOUNT, [make_book("B001")])
+    run_id = database.start_sync_run(ACCOUNT)
+    database.record_run_book(run_id, database.get_book(_id("B001")), "downloaded")
+
+    database.delete_account(ACCOUNT)
+
+    assert database.get_run_books(run_id) == []
+
+
+def test_runs_from_before_the_records_say_so(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "DB_FILE", str(_pre_accounts_database(tmp_path)))
+    database.init_db()
+
+    (old,) = database.get_sync_runs()
+    new = database.get_sync_run(database.start_sync_run(old.account_id))
+
+    assert old.books_recorded is False
+    assert new.books_recorded is True

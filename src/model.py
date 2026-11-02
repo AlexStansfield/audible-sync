@@ -368,6 +368,8 @@ class SyncRun:
     books_downloaded: int = 0
     books_failed: int = 0
     error: str | None = None
+    # Whether the run recorded its books in `sync_run_books`; False on runs from before
+    books_recorded: bool = False
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "SyncRun":
@@ -384,4 +386,53 @@ class SyncRun:
             books_downloaded=data.get("books_downloaded") or 0,
             books_failed=data.get("books_failed") or 0,
             error=data.get("error"),
+            books_recorded=bool(data.get("books_recorded")),
+        )
+
+
+class RunBookOutcome(StrEnum):
+    """What became of a book a run took on: the Activity screen's three columns."""
+
+    DOWNLOADED = "downloaded"
+    FAILED = "failed"
+    REFUSED = "refused"  # Audible would not license it; parked `unavailable`
+
+
+@dataclass
+class RunBook:
+    """
+    One row of `sync_run_books`. `asin` and `title` are the snapshot taken at the time;
+    `book_id` is None once the book's library row has gone, and `cover_url` comes from
+    that row while it is there.
+    """
+
+    run_id: int
+    asin: str
+    outcome: RunBookOutcome | str
+    finished_at: str
+    book_id: int | None = None
+    title: str | None = None
+    error: str | None = None
+    bytes: int | None = None
+    seconds: float | None = None
+    cover_url: str | None = None
+
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> "RunBook":
+        data = dict(row)
+        outcome = data["outcome"]
+        # Another version's outcome is kept as text, as `_sync_outcome` tolerates one
+        if outcome in RunBookOutcome._value2member_map_:
+            outcome = RunBookOutcome(outcome)
+        return cls(
+            run_id=data["run_id"],
+            asin=data["asin"],
+            outcome=outcome,
+            finished_at=data["finished_at"],
+            book_id=data.get("live_id"),
+            title=data.get("title"),
+            error=data.get("error"),
+            bytes=data.get("bytes"),
+            seconds=data.get("seconds"),
+            cover_url=data.get("cover_url"),
         )
