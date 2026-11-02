@@ -10,6 +10,7 @@ from src import api as api_module
 from src import audible_login as login_module
 from src import webauth
 from src.api import create_app, read_version
+from src.apitoken import ApiToken
 from src.audible_login import PendingLogins
 from src.logbuffer import RingBufferHandler
 from src.model import SyncOutcome
@@ -17,7 +18,7 @@ from src.runstate import RunStage, RunState
 from src.settings import Settings
 from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
 
-TOKEN = "s3cret"
+TOKEN = "s3cret-test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 
 
@@ -80,7 +81,12 @@ def api(db):
     logins = PendingLogins(http=amazon.client(), sleep=lambda seconds: stop.wait(min(seconds, 0.01)))
     log_buffer = RingBufferHandler(capacity=50)
     app = create_app(
-        scheduler=scheduler, state=state, api_token=TOKEN, version="test", logins=logins, log_buffer=log_buffer
+        scheduler=scheduler,
+        state=state,
+        api_token=ApiToken(TOKEN, "stored"),
+        version="test",
+        logins=logins,
+        log_buffer=log_buffer,
     )
     # No context manager: the lifespan (and so the scheduler) is exercised on its own
     client = TestClient(app)
@@ -160,7 +166,9 @@ def test_the_cookie_is_secure_over_https(api, user):
 
 
 def test_secure_cookie_marks_the_cookie_secure_over_http_too(db, user):
-    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, secure_cookie=True)
+    app = create_app(
+        scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), secure_cookie=True
+    )
 
     assert "Secure" in _sign_in(TestClient(app)).headers["set-cookie"]
 
@@ -538,7 +546,7 @@ def test_update_settings_applies_debug_to_the_logger_at_once(api):
 
 def test_lifespan_starts_and_stops_the_scheduler(db):
     scheduler = FakeScheduler()
-    app = create_app(scheduler=scheduler, state=RunState(), api_token=TOKEN)
+    app = create_app(scheduler=scheduler, state=RunState(), api_token=ApiToken(TOKEN, "stored"))
 
     with TestClient(app):
         assert (scheduler.started, scheduler.stopped) == (1, 0)
@@ -547,7 +555,12 @@ def test_lifespan_starts_and_stops_the_scheduler(db):
 
 
 def test_cors_allows_the_configured_origin(db):
-    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, cors_origins=["http://ui:5173"])
+    app = create_app(
+        scheduler=FakeScheduler(),
+        state=RunState(),
+        api_token=ApiToken(TOKEN, "stored"),
+        cors_origins=["http://ui:5173"],
+    )
     client = TestClient(app)
 
     response = client.options(
@@ -1406,7 +1419,7 @@ def test_logs_rejects_bad_parameters(api, params):
 
 
 def test_logs_is_empty_without_a_buffer(db):
-    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN)
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"))
 
     assert TestClient(app).get("/api/logs", headers=AUTH).json() == {"items": []}
 
@@ -1503,7 +1516,7 @@ def web(db, tmp_path):
     (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
     (dist / "favicon.svg").write_text("<svg/>")
     (tmp_path / "secret.txt").write_text("outside")
-    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, web_dir=dist)
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), web_dir=dist)
     return TestClient(app)
 
 
@@ -1557,7 +1570,9 @@ def test_a_path_cannot_climb_out_of_the_build(web, path):
 
 
 def test_nothing_is_served_without_a_build(db, tmp_path):
-    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, web_dir=tmp_path / "missing")
+    app = create_app(
+        scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), web_dir=tmp_path / "missing"
+    )
     client = TestClient(app)
 
     assert client.get("/").status_code == 404
@@ -1569,15 +1584,16 @@ def test_nothing_is_served_without_a_build(db, tmp_path):
 from types import SimpleNamespace  # noqa: E402
 
 from src import system  # noqa: E402
-from src.apitoken import ApiToken  # noqa: E402
 
 
 def test_the_token_is_shown_masked(api):
     assert api.get("/api/settings/api-token", headers=AUTH).json() == {"last4": TOKEN[-4:], "source": "stored"}
 
 
-def test_a_regenerated_token_works_at_once_and_the_old_one_does_not(api):
-    response = api.post("/api/settings/api-token/regenerate", headers=AUTH)
+def test_a_regenerated_token_works_at_once_and_the_old_one_does_not(api, user):
+    _sign_in(api)
+
+    response = api.post("/api/settings/api-token/regenerate")
 
     assert response.status_code == 200
     new = response.json()["token"]
@@ -1590,13 +1606,24 @@ def test_a_regenerated_token_works_at_once_and_the_old_one_does_not(api):
 def test_a_token_from_the_environment_is_not_regenerated(db):
     app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "env"))
     client = TestClient(app)
+    webauth.ensure_admin()
+    webauth.set_password(PASSWORD)
+    _sign_in(client)
 
-    response = client.post("/api/settings/api-token/regenerate", headers=AUTH)
+    response = client.post("/api/settings/api-token/regenerate")
 
     assert response.status_code == 409
     assert "AUDIBLE_SYNC_API_TOKEN" in response.json()["detail"]
     assert client.get("/api/status", headers=AUTH).status_code == 200
     assert client.get("/api/settings/api-token", headers=AUTH).json()["source"] == "env"
+
+
+def test_the_bearer_token_alone_cannot_regenerate_itself(api, user):
+    """A leaked token must not be able to lock its owner's scripts out."""
+    response = api.post("/api/settings/api-token/regenerate", headers=AUTH)
+
+    assert response.status_code == 403
+    assert api.get("/api/status", headers=AUTH).status_code == 200
 
 
 def test_the_token_endpoints_need_auth(api):
@@ -1625,6 +1652,21 @@ def test_system_reports_ffmpeg_the_disk_the_key_and_the_database(api, monkeypatc
     # The test environment sets AUDIBLE_SYNC_SECRET_KEY (tests/conftest.py)
     assert (body["key_source"], body["key_file"]) == ("env", None)
     assert body["database_bytes"] > 0
+
+
+def test_system_survives_a_folder_it_cannot_enter(api, monkeypatch, tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    api.put("/api/settings", headers=AUTH, json={"audiobook_folder": str(locked / "inner" / "books")})
+    monkeypatch.setattr(system, "ffmpeg", lambda: system.Ffmpeg(None, False))
+    locked.chmod(0)
+    try:
+        response = api.get("/api/system", headers=AUTH)
+    finally:
+        locked.chmod(0o755)
+
+    assert response.status_code == 200
+    assert response.json()["audiobook_folder"]["free_bytes"] is None
 
 
 def test_system_with_no_ffmpeg(api, monkeypatch):

@@ -110,3 +110,28 @@ def test_database_bytes_counts_the_write_ahead_log(tmp_path):
 
     assert system.database_bytes(db) == 120
     assert system.database_bytes(tmp_path / "missing.db") == 0
+
+
+def test_a_disk_behind_a_folder_it_cannot_enter_reports_nothing(tmp_path):
+    """Path.exists raises PermissionError there rather than answering False."""
+    locked = tmp_path / "locked"
+    (locked / "inner").mkdir(parents=True)
+    locked.chmod(0)
+    try:
+        result = system.disk(locked / "inner" / "books")
+    finally:
+        locked.chmod(0o755)
+
+    assert result == system.Disk(locked / "inner" / "books", None, None, False)
+
+
+def test_a_found_ffmpeg_is_kept_and_a_missing_one_is_asked_again(monkeypatch):
+    answers = [system.Ffmpeg(None, False), system.Ffmpeg("ffmpeg version 7.1", True)]
+    calls = []
+    monkeypatch.setattr(system, "_probed", None)
+    monkeypatch.setattr(system, "probe_ffmpeg", lambda: calls.append(1) or answers[len(calls) - 1])
+
+    assert system.ffmpeg().version is None
+    assert system.ffmpeg().version == "ffmpeg version 7.1"
+    assert system.ffmpeg().version == "ffmpeg version 7.1"
+    assert len(calls) == 2

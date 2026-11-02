@@ -156,7 +156,7 @@ def create_app(
     *,
     scheduler: Scheduler,
     state: RunState,
-    api_token: ApiToken | str,
+    api_token: ApiToken,
     cors_origins: list[str] | None = None,
     version: str | None = None,
     logins: PendingLogins | None = None,
@@ -172,8 +172,8 @@ def create_app(
         scheduler: Started on startup and stopped on shutdown, which is how a
             `docker stop` becomes a clean cancel
         state: The run in flight, as `/api/status` reports it
-        api_token: The bearer token every request except the health check must carry;
-            a plain string is read as a stored token, which is what the tests pass
+        api_token: The bearer token every request except the health check must carry,
+            held so that regenerating it applies at once
         cors_origins: Origins allowed to call from a browser, e.g. the UI's dev server
         version: Reported by the health check; defaults to `pyproject.toml`'s
         logins: The store of logins started and not yet completed; defaults to a fresh one
@@ -187,8 +187,6 @@ def create_app(
             nothing is served when it is None or holds no `index.html`
     """
     logins = logins or PendingLogins()
-    if isinstance(api_token, str):
-        api_token = ApiToken(api_token, "stored")
     throttle = login_throttle or LoginThrottle()
 
     @asynccontextmanager
@@ -377,11 +375,17 @@ def create_app(
         return ApiTokenInfo(last4=api_token.last4, source=api_token.source)
 
     @router.post("/settings/api-token/regenerate", response_model=NewApiToken)
-    def regenerate_api_token() -> NewApiToken:
+    def regenerate_api_token(request: Request) -> NewApiToken:
         """
         Replace the token; the old one stops working at once. The new one is returned
         this once and never logged. 409 when `AUDIBLE_SYNC_API_TOKEN` sets it.
+
+        Only from a signed-in web app (403 under the bearer token alone): a leaked token
+        must not be able to lock its owner's scripts out by rotating itself.
         """
+        session = request.cookies.get(SESSION_COOKIE)
+        if not (session and webauth.check_session(session)):
+            raise HTTPException(status_code=403, detail="Regenerate the API token from the signed-in web app")
         try:
             return NewApiToken(token=api_token.regenerate())
         except TokenFromEnv as error:
@@ -397,12 +401,7 @@ def create_app(
             version=app.version,
             ffmpeg_version=ffmpeg.version,
             libopus=ffmpeg.libopus,
-            audiobook_folder=DiskOut(
-                path=str(library_disk.path),
-                free_bytes=library_disk.free_bytes,
-                total_bytes=library_disk.total_bytes,
-                low_space=library_disk.low_space,
-            ),
+            audiobook_folder=DiskOut.model_validate(library_disk),
             key_source=key.kind,
             key_file=str(key.path) if key.path else None,
             database_bytes=system.database_bytes(database.DB_FILE),

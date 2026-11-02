@@ -6,7 +6,6 @@ on the disk they run on. A probe that fails reports nothing rather than raising:
 card is information, and a missing FFmpeg is exactly what it is there to show.
 """
 
-import functools
 import logging
 import shutil
 import subprocess
@@ -60,13 +59,29 @@ def probe_ffmpeg(run: Runner = subprocess.run) -> Ffmpeg:
     return Ffmpeg(version=first_line, libopus=libopus)
 
 
-@functools.cache
+_probed: Ffmpeg | None = None
+
+
 def ffmpeg() -> Ffmpeg:
-    """`probe_ffmpeg`, once per process: FFmpeg does not change under a running service."""
-    return probe_ffmpeg()
+    """
+    `probe_ffmpeg`, kept once it has found FFmpeg: a working FFmpeg does not change
+    under a running service. A failed probe is not kept, so FFmpeg installed later, or
+    a probe that timed out on a busy host, is found by the next call.
+    """
+    global _probed
+    if _probed is not None:
+        return _probed
+    found = probe_ffmpeg()
+    if found.version is not None:
+        _probed = found
+    return found
 
 
 def is_low_space(free: int, total: int) -> bool:
+    """
+    Whether `free` is under 5% of `total` or under 50 GB, whichever is the smaller line:
+    5% of a 20 TB array is no emergency, while 50 GB is most of a small disk.
+    """
     return free < min(total * LOW_SPACE_FRACTION, LOW_SPACE_BYTES)
 
 
@@ -77,9 +92,10 @@ def disk(path: Path, usage: Callable | None = None) -> Disk:
     """
     usage = usage or shutil.disk_usage
     probe = Path(path)
-    while not probe.exists() and probe.parent != probe:
-        probe = probe.parent
     try:
+        # Inside the try: exists() raises PermissionError for a parent it cannot enter
+        while not probe.exists() and probe.parent != probe:
+            probe = probe.parent
         result = usage(probe)
     except OSError as error:
         logger.warning("Could not read the free space of %s: %s", path, error)

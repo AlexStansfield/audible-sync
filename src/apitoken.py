@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 
 TokenSource = Literal["env", "stored"]
 
+# A token shorter than this shows no characters at all: four of a short token is most of it
+MIN_MASKED_LENGTH = 12
+
 
 class TokenFromEnv(Exception):
     """The token is set by `AUDIBLE_SYNC_API_TOKEN`; it is changed there."""
@@ -39,7 +42,8 @@ class ApiToken:
 
     @property
     def last4(self) -> str:
-        return self.value[-4:]
+        """The last four characters, or "" for a token too short to show any of."""
+        return self.value[-4:] if len(self.value) >= MIN_MASKED_LENGTH else ""
 
     def regenerate(self) -> str:
         """

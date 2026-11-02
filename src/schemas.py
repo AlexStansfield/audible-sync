@@ -347,10 +347,17 @@ class NewApiToken(BaseModel):
 
 
 class DiskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     path: str
     free_bytes: int | None
     total_bytes: int | None
     low_space: bool
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _path_as_text(cls, value: Any) -> Any:
+        return str(value) if isinstance(value, Path) else value
 
 
 class SystemInfo(BaseModel):

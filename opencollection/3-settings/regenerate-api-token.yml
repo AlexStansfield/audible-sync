@@ -9,7 +9,8 @@ http:
 settings:
   encodeUrl: true
 docs: |
-  Replaces the stored token. The new `token` is returned this once and never logged; the
+  Replaces the stored token. Needs a web app session: run Sign in first - with the bearer
+  token alone it is a 403, so a leaked token cannot rotate itself. The new `token` is returned this once and never logged; the
   old one stops working on the very next request - including this collection's
   `apiToken`, so paste the new one into the environment. 409 when `AUDIBLE_SYNC_API_TOKEN`
   sets the token: change it there.

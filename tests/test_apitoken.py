@@ -103,3 +103,8 @@ def test_the_token_never_shows_in_its_repr():
 
     assert "secret-value" not in repr(token)
     assert token.last4 == "abcd"
+
+
+@pytest.mark.parametrize("value", ["abcd", "x" * 11])
+def test_a_short_token_shows_none_of_itself(value):
+    assert apitoken.ApiToken(value, "env").last4 == ""

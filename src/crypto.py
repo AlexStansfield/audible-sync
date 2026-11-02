@@ -27,6 +27,7 @@ test through the autouse fixture in `tests/conftest.py`.
 import logging
 import os
 import stat
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
@@ -100,7 +101,7 @@ def load_secret_key(env: dict[str, str] | None = None) -> bytes:
     return _generate_key_file(path)
 
 
-def _key_file(env) -> Path:
+def _key_file(env: Mapping[str, str]) -> Path:
     return resolve_path(env[KEY_FILE_ENV]) if env.get(KEY_FILE_ENV) else DEFAULT_KEY_FILE
 
 
