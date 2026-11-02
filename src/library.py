@@ -18,7 +18,9 @@ from src.audible_client import Audible
 from src.database import (
     clear_book_files,
     get_account,
+    get_accounts,
     get_book,
+    get_books_to_download,
     reset_for_download,
     set_monitored,
     update_books,
@@ -272,3 +274,37 @@ def _bulk_one(action: BulkAction, book: Book, settings: Settings) -> SkipReason 
                 return SkipReason.NO_FILES
             delete_download(book, settings, files=files)
     return None
+
+
+@dataclass
+class Queue:
+    """
+    The next run's downloads in order: `planned` as (account id, book) pairs, and how
+    many monitored books wait in those accounts in all, the `max_download` cut ignored.
+    """
+
+    planned: list[tuple[int, Book]]
+    waiting: int
+
+
+def next_run_queue(settings: Settings) -> Queue:
+    """
+    What the next run will download, in the order it will: each enabled account that
+    can log in, in the order the pipeline takes them, its queue oldest purchase first
+    and cut at `max_download` - which is per account per run.
+
+    The same query the run uses (`get_books_to_download`), so a book a crashed run left
+    `downloading` shows once its claim is stale. A licence Audible refuses uses no slot,
+    so when refused titles head the queue the run reaches further down than this shows;
+    nothing can tell in advance which those are.
+    """
+    planned: list[tuple[int, Book]] = []
+    waiting = 0
+    for account in get_accounts():
+        if not account.enabled or account.needs_login:
+            continue
+        books = get_books_to_download(account_id=account.id)
+        waiting += len(books)
+        cut = books if settings.max_download is None else books[: settings.max_download]
+        planned.extend((account.id, book) for book in cut)
+    return Queue(planned=planned, waiting=waiting)

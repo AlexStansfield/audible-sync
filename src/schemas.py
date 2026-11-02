@@ -370,6 +370,25 @@ class SystemInfo(BaseModel):
     database_bytes: int
 
 
+class QueueItem(BaseModel):
+    position: int
+    account_id: int
+    book: BookOut
+
+
+class QueueOut(BaseModel):
+    """
+    The next run's downloads in order (the first `limit` of them), `total` it will take
+    on, `waiting` in those accounts in all, and the per-account `max_download` (None:
+    everything waiting).
+    """
+
+    items: list[QueueItem]
+    total: int
+    waiting: int
+    max_download: int | None
+
+
 class LogEntry(BaseModel):
     time: str
     level: str
