@@ -75,3 +75,26 @@ export function useRefreshAfterRun(running: boolean | undefined): void {
     }
   }, [running, client]);
 }
+
+/**
+ * While a run downloads, what it changes shows as it goes: each book it takes up -
+ * refused licences included, which use no slot and so leave `books_done` where it was -
+ * refetches `queryKeys` (the end of the run refetches everything anyway).
+ */
+export function useRefreshDuringRun(status: Status | undefined, queryKeys: readonly (readonly unknown[])[]): void {
+  const client = useQueryClient();
+  const run = status?.current_run;
+  const done = run ? `${run.books_done}:${run.book?.id ?? ""}` : undefined;
+  const seen = useRef(done);
+  // The keys are a constant at each call site; read the latest without re-running
+  const latest = useRef(queryKeys);
+  latest.current = queryKeys;
+  useEffect(() => {
+    if (done !== undefined && seen.current !== undefined && done !== seen.current) {
+      for (const queryKey of latest.current) {
+        void client.invalidateQueries({ queryKey: [...queryKey] });
+      }
+    }
+    seen.current = done;
+  }, [done, client]);
+}

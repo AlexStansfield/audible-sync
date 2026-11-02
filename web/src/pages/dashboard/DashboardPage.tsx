@@ -3,12 +3,11 @@
  * what downloaded lately, what runs next, what needs attention and the recent runs.
  * A new install with no accounts gets the welcome card instead (`firstRun`).
  */
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type CSSProperties, useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 import { Link } from "react-router";
-import { api, unwrap } from "../../api/client";
-import { type Status, useMe, useStatus } from "../../api/queries";
+import { type Status, useMe, useRefreshDuringRun, useStatus } from "../../api/queries";
 import type { components } from "../../api/schema";
+import { useRetryUnavailable } from "../../api/useRetryUnavailable";
 import { useSyncActions } from "../../api/useSyncActions";
 import { Chip, OutcomeChip } from "../../components/Chip";
 import { Cover } from "../../components/Cover";
@@ -16,20 +15,10 @@ import { ErrorCard } from "../../components/ErrorCard";
 import { Icon } from "../../components/Icon";
 import { ProgressBar } from "../../components/ProgressBar";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton";
-import { useToast } from "../../components/Toasts";
 import { BOOK_STATUS, formatBytes, formatClock, formatDay, formatTime, plural } from "../../lib/format";
 import styles from "./Dashboard.module.css";
 import { useBook, useLatestFailure, useRecentlyDownloaded, useRecentRuns, useStats, useUpNext } from "./queries";
-import {
-  bookOfRun,
-  isInterrupted,
-  nextRunText,
-  requeuedText,
-  runDetail,
-  stageLabel,
-  subtitle,
-  upNextHeader,
-} from "./text";
+import { bookOfRun, isInterrupted, nextRunText, runDetail, stageLabel, subtitle, upNextHeader } from "./text";
 
 type Account = components["schemas"]["AccountOut"];
 type Stats = components["schemas"]["Stats"];
@@ -41,7 +30,7 @@ export function DashboardPage() {
   const accounts = status.data?.accounts ?? [];
   const firstRun = status.data !== undefined && accounts.length === 0;
 
-  useRefreshDuringRun(status.data);
+  useRefreshDuringRun(status.data, DURING_RUN);
 
   return (
     <>
@@ -67,27 +56,8 @@ export function DashboardPage() {
   );
 }
 
-/**
- * While a run downloads, what it changes shows as it goes: each book it finishes
- * refetches the totals, the recent downloads and the queue (the end of the run
- * refetches everything anyway).
- */
-export function useRefreshDuringRun(status: Status | undefined) {
-  const client = useQueryClient();
-  // The book in hand changes on every book the run takes up, refused licences included,
-  // which use no slot and so leave books_done where it was
-  const run = status?.current_run;
-  const done = run ? `${run.books_done}:${run.book?.id ?? ""}` : undefined;
-  const seen = useRef(done);
-  useEffect(() => {
-    if (done !== undefined && seen.current !== undefined && done !== seen.current) {
-      for (const queryKey of [["stats"], ["books", "recent"], ["queue"]]) {
-        void client.invalidateQueries({ queryKey });
-      }
-    }
-    seen.current = done;
-  }, [done, client]);
-}
+/** What each book a run in flight takes up changes on this screen. */
+export const DURING_RUN = [["stats"], ["books", "recent"], ["queue"]] as const;
 
 function Header({ status, firstRun }: { status: Status | undefined; firstRun: boolean }) {
   const { start, cancel } = useSyncActions();
@@ -475,20 +445,11 @@ function UpNextCard({ status }: { status: Status }) {
 
 function AttentionCard({ accounts }: { accounts: Account[] }) {
   const stats = useStats();
-  const toast = useToast();
-  const client = useQueryClient();
   const unavailable = stats.data?.books.by_status.unavailable ?? 0;
   const failed = stats.data?.books.by_status.failed ?? 0;
   const latest = useLatestFailure(failed > 0);
   const signIn = accounts.filter((account) => account.needs_login);
-  const retry = useMutation({
-    mutationFn: () => unwrap(api.POST("/api/books/retry-unavailable", { body: {} })),
-    onSuccess: ({ requeued }) => {
-      toast.success(requeuedText(requeued));
-      for (const queryKey of [["stats"], ["books"], ["queue"]]) void client.invalidateQueries({ queryKey });
-    },
-    onError: (error) => toast.error("Could not retry the unavailable books", error),
-  });
+  const retry = useRetryUnavailable();
 
   if (!unavailable && !failed && !signIn.length) return null;
   return (
@@ -520,7 +481,7 @@ function AttentionCard({ accounts }: { accounts: Account[] }) {
               type="button"
               className="btn btn-secondary btn-small"
               disabled={retry.isPending}
-              onClick={() => retry.mutate()}
+              onClick={() => retry.mutate(undefined)}
             >
               Retry unavailable
             </button>
