@@ -1,0 +1,522 @@
+/* Settings (Settings.dc.html): one card per section, the about column beside the fields */
+
+/* The header stays in view down the long form, so Save is always to hand */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  max-width: 1040px;
+  padding: 12px 0;
+  margin: -12px 0;
+  background: var(--bg);
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.saveBar {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.unsaved {
+  font-size: 13px;
+  color: var(--accent-text);
+}
+
+.width {
+  max-width: 1040px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 1040px;
+}
+
+.section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  padding: 22px 24px;
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.about {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.description {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fields {
+  flex: 2 1 460px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.plainFieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plainFieldset > legend {
+  padding: 0;
+  margin-bottom: 8px;
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.columns2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* --- switches ----------------------------------------------------------------- */
+
+.switchRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.switchText {
+  display: flex;
+  flex-direction: column;
+}
+
+.switchLabel {
+  font-weight: 600;
+}
+
+.switchHint {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* --- theme -------------------------------------------------------------------- */
+
+.themes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.themeCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.themeCard:has(input:checked) {
+  border-color: var(--accent);
+}
+
+.themeCard:has(input:focus-visible),
+.formatCard:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.swatch {
+  display: flex;
+  gap: 3px;
+  width: 52px;
+  height: 40px;
+  flex: none;
+  padding: 4px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+}
+
+.swatchSide {
+  width: 12px;
+  border-radius: 2px;
+}
+
+.swatchCard {
+  flex: 1;
+  border-radius: 2px;
+}
+
+/* The swatches show each theme whatever the page's theme is, so their colours are fixed */
+.swatchSystem {
+  background: linear-gradient(90deg, #f4f5f7 50%, #0e1014 50%);
+}
+
+.swatchSystem .swatchSide {
+  background: #c6ccd5;
+}
+
+.swatchSystem .swatchCard {
+  background: #3a404c;
+}
+
+.swatchLight {
+  background: #f4f5f7;
+}
+
+.swatchLight .swatchSide {
+  background: #ffffff;
+}
+
+.swatchLight .swatchCard {
+  background: #e2e5ea;
+}
+
+.swatchDark {
+  background: #0e1014;
+}
+
+.swatchDark .swatchSide {
+  background: #161920;
+}
+
+.swatchDark .swatchCard {
+  background: #272c36;
+}
+
+/* --- schedule ------------------------------------------------------------------ */
+
+.interval {
+  display: flex;
+  gap: 10px;
+}
+
+.field .short,
+.interval .short {
+  width: 96px;
+}
+
+.interval .unit {
+  width: auto;
+  padding: 0 10px;
+}
+
+/* --- audio format -------------------------------------------------------------- */
+
+.formats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.formatCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.formatCard:has(input:checked) {
+  border-color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.formatCard input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.formatText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.formatTitle {
+  font-weight: 600;
+}
+
+.bitrate {
+  color: var(--accent-text);
+  font-family: var(--mono);
+}
+
+.range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+/* --- naming ------------------------------------------------------------------- */
+
+/* Raised above the global .input, which sets `font: inherit` */
+.fields .mono {
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.inserts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.inserts > .hint,
+.inserts > span {
+  margin-right: 4px;
+}
+
+.insert {
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line-strong);
+  background: var(--raised);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.insert:hover {
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.path {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* --- notifications ------------------------------------------------------------ */
+
+.inline {
+  display: flex;
+  gap: 10px;
+}
+
+.inline > .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ok {
+  font-size: 13px;
+  color: var(--ok);
+}
+
+/* --- API access ----------------------------------------------------------------- */
+
+.tokenRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.token {
+  flex: 1 1 300px;
+  min-width: 0;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line-strong);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 13px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.tokenFresh {
+  border-color: var(--accent);
+}
+
+.fresh {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent-text);
+}
+
+/* --- system ----------------------------------------------------------------------- */
+
+.disk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.diskLow {
+  border-color: var(--bad-line);
+}
+
+.diskHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.diskPath {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.diskFree {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ok);
+}
+
+.diskLow .diskFree {
+  color: var(--bad-text);
+}
+
+.meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.meterFill {
+  height: 100%;
+  background: var(--ok);
+}
+
+.diskLow .meterFill {
+  background: var(--bad);
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+}
+
+.facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.facts dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 500;
+}
+
+.aside {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.problem {
+  color: var(--bad-text);
+  font-weight: 400;
+}
+
+.dialogText {
+  margin: 0;
+  color: var(--text-2);
+}
+
+@media (max-width: 720px) {
+  .section {
+    padding: 18px 16px;
+  }
+
+  .columns,
+  .columns2,
+  .formats,
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .themes {
+    gap: 6px;
+  }
+
+  .themeCard {
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    font-size: 13px;
+  }
+
+  /* Below the phone's top bar */
+  .header {
+    top: 56px;
+  }
+}

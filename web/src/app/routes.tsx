@@ -11,11 +11,11 @@ import { Layout, type RouteHandle } from "../layout/Layout";
 import { AccountsPage } from "../pages/accounts/AccountsPage";
 import { ActivityPage } from "../pages/activity/ActivityPage";
 import { BookPage } from "../pages/book/BookPage";
-import { ComingSoon } from "../pages/ComingSoon";
 import { DashboardPage } from "../pages/dashboard/DashboardPage";
 import { LibraryPage } from "../pages/library/LibraryPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ProfilePage } from "../pages/ProfilePage";
+import { SettingsPage } from "../pages/settings/SettingsPage";
 
 const page = (title: string): RouteHandle => ({ title });
 
@@ -33,7 +33,7 @@ export const routes: RouteObject[] = [
       { path: "library/:id", element: <BookPage />, handle: page("Library") },
       { path: "activity", element: <ActivityPage />, handle: page("Activity") },
       { path: "accounts", element: <AccountsPage />, handle: page("Accounts") },
-      { path: "settings", element: <ComingSoon title="Settings" />, handle: page("Settings") },
+      { path: "settings", element: <SettingsPage />, handle: page("Settings") },
       { path: "profile", element: <ProfilePage />, handle: page("Your sign-in") },
       { path: "*", element: <NotFoundPage />, handle: page("Not found") },
     ],
