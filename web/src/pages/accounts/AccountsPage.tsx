@@ -3,9 +3,9 @@
  * marketplace login with its state, a Sync switch, Sign in (again) and a menu with
  * Rename and Remove; the help cards; and the sign-in dialog for adding one.
  */
-import { useMutationState } from "@tanstack/react-query";
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { ApiError } from "../../api/client";
+import { usePendingIds } from "../../api/usePendingIds";
 import { Chip } from "../../components/Chip";
 import { ConfirmDialog, Dialog } from "../../components/Dialog";
 import { ErrorCard, errorDetail } from "../../components/ErrorCard";
@@ -16,7 +16,15 @@ import { formatDate, formatTime } from "../../lib/format";
 import { useStats } from "../dashboard/queries";
 import styles from "./Accounts.module.css";
 import { type Account, accountDetail, accountState, type Marketplace, type Purpose, removeText } from "./login";
-import { useAccounts, useMarketplaces, useRemove, useRename, useSetEnabled } from "./queries";
+import {
+  ENABLED_KEY,
+  useAccounts,
+  useFollowStatus,
+  useMarketplaces,
+  useRemove,
+  useRename,
+  useSetEnabled,
+} from "./queries";
 import { SignInDialog } from "./SignInDialog";
 
 type Open =
@@ -29,6 +37,8 @@ export function AccountsPage() {
   const accounts = useAccounts();
   const marketplaces = useMarketplaces();
   const stats = useStats();
+  const saving = usePendingIds(ENABLED_KEY);
+  useFollowStatus();
   const [open, setOpen] = useState<Open>(null);
   const close = () => setOpen(null);
   const addAccount = () => setOpen({ kind: "sign-in", purpose: { kind: "add" } });
@@ -70,6 +80,7 @@ export function AccountsPage() {
               account={account}
               marketplace={marketplaces.data?.find((entry) => entry.country_code === account.country_code)}
               books={statsFor(account.id)?.books.total}
+              saving={saving.has(account.id)}
               onSignIn={() => setOpen({ kind: "sign-in", purpose: { kind: "relogin", account } })}
               onRename={() => setOpen({ kind: "rename", account })}
               onRemove={() => setOpen({ kind: "remove", account })}
@@ -113,6 +124,7 @@ function AccountCard({
   account,
   marketplace,
   books,
+  saving,
   onSignIn,
   onRename,
   onRemove,
@@ -120,16 +132,13 @@ function AccountCard({
   account: Account;
   marketplace: Marketplace | undefined;
   books: number | undefined;
+  /** Its Sync change is still saving: a second flip would roll back to the first's guess */
+  saving: boolean;
   onSignIn: () => void;
   onRename: () => void;
   onRemove: () => void;
 }) {
   const setEnabled = useSetEnabled();
-  // A second flip while the first is saving would roll back to the first's guess
-  const pending = useMutationState({
-    filters: { mutationKey: ["account-enabled"], status: "pending" },
-    select: (mutation) => (mutation.state.variables as { id: number } | undefined)?.id,
-  });
   const state = accountState(account);
   const nameId = `account-${account.id}-name`;
 
@@ -171,7 +180,7 @@ function AccountCard({
           <Switch
             checked={account.enabled}
             label={`Sync ${account.name}`}
-            disabled={pending.includes(account.id)}
+            disabled={saving}
             onChange={(enabled) => setEnabled.mutate({ id: account.id, enabled })}
           />
           <span aria-hidden="true">Sync</span>

@@ -65,15 +65,28 @@ export function marketplaceLabel(marketplace: Marketplace): string {
   return `${marketplace.name} (audible.${marketplace.domain})`;
 }
 
+/** A language Audible has one marketplace for, when the browser names no region. */
+const LANGUAGE_MARKETPLACE: Record<string, string> = { de: "de", fr: "fr", it: "it", es: "es", ja: "jp" };
+
 /**
  * The marketplace the add dialog starts on: the browser's own region when Audible has
- * one there (`en-GB` → `uk`, which is Audible's code for Great Britain), else the first.
+ * one there (`en-GB` → `uk`, which is Audible's code for Great Britain; a script subtag
+ * as in `pt-Latn-BR` is skipped), else the first language Audible has exactly one
+ * marketplace for (`de` → `de`; English is too many), else the first.
  */
 export function defaultMarketplace(marketplaces: readonly Marketplace[], languages: readonly string[]): string {
   const codes = new Set(marketplaces.map((marketplace) => marketplace.country_code));
   for (const language of languages) {
-    const region = language.split("-")[1]?.toLowerCase();
+    const region = language
+      .split("-")
+      .slice(1)
+      .find((part) => /^[a-z]{2}$/i.test(part))
+      ?.toLowerCase();
     const code = region === "gb" ? "uk" : region;
+    if (code && codes.has(code)) return code;
+  }
+  for (const language of languages) {
+    const code = LANGUAGE_MARKETPLACE[language.split("-")[0]?.toLowerCase() ?? ""];
     if (code && codes.has(code)) return code;
   }
   return marketplaces[0]?.country_code ?? "";

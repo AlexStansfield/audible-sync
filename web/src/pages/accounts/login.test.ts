@@ -47,6 +47,13 @@ describe("the sign-in dialog's rules", () => {
     expect(defaultMarketplace(MARKETPLACES, ["en-GB", "en"])).toBe("uk");
     expect(defaultMarketplace(MARKETPLACES, ["fr-CA"])).toBe("ca");
     expect(defaultMarketplace(MARKETPLACES, ["en", "nl-NL"])).toBe("de");
+    // A script subtag before the region
+    expect(defaultMarketplace(MARKETPLACES, ["en-Latn-GB"])).toBe("uk");
+    // No region at all: the language, where Audible has one marketplace for it
+    expect(defaultMarketplace(MARKETPLACES, ["de"])).toBe("de");
+    expect(defaultMarketplace([...MARKETPLACES].reverse(), ["en"])).toBe("ca");
+    // A region beats a language listed later
+    expect(defaultMarketplace(MARKETPLACES, ["fr", "en-US"])).toBe("us");
     expect(defaultMarketplace([], ["en-GB"])).toBe("");
   });
 

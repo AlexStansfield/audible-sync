@@ -20,6 +20,7 @@ import {
   dialogTitle,
   doneText,
   type Login,
+  type Marketplace,
   marketplaceLabel,
   type Purpose,
   remainingText,
@@ -29,6 +30,7 @@ import {
   stepLabels,
 } from "./login";
 import {
+  isForgotten,
   type LoginChoice,
   refreshAfterAccountChange,
   useCompleteLogin,
@@ -67,11 +69,18 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
     setStage({ step: "done", account });
   };
 
+  // A login started here may have become an account the dialog never heard of: a code
+  // confirmed after the last poll, or a pasted address finishing after the close
+  const close = () => {
+    if (stage.step !== "setup") void refreshAfterAccountChange(client, { books: true });
+    onClose();
+  };
+
   const index = stepIndex(stage);
   const startError = start.error ? `Could not start the sign-in: ${errorDetail(start.error)}` : null;
 
   return (
-    <Dialog open onClose={onClose} title={dialogTitle(purpose)} width={520} closeButton>
+    <Dialog open onClose={close} title={dialogTitle(purpose)} width={520} closeButton>
       <ol aria-label="Steps" className={styles.steps}>
         {stepLabels(purpose).map((label, i) => (
           <li
@@ -194,15 +203,12 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
         />
       )}
 
-      {stage.step === "done" && <DoneStep purpose={purpose} account={stage.account} onClose={onClose} />}
+      {stage.step === "done" && <DoneStep purpose={purpose} account={stage.account} onClose={close} />}
     </Dialog>
   );
 }
 
-function marketplaceName(
-  marketplaces: readonly { country_code: string; name: string; domain: string }[] | undefined,
-  code: string,
-) {
+function marketplaceName(marketplaces: readonly Marketplace[] | undefined, code: string) {
   const marketplace = marketplaces?.find((entry) => entry.country_code === code);
   return marketplace ? marketplaceLabel(marketplace) : code.toUpperCase();
 }
@@ -216,6 +222,18 @@ function FixedMarketplace({ label }: { label: string }) {
         {label}
       </div>
       <span className="hint">Fixed to this account's library. To use another marketplace, add a new account.</span>
+    </div>
+  );
+}
+
+function FailedHead({ error }: { error: string }) {
+  return (
+    <div className={styles.alertHead}>
+      <Icon name="warning" size={18} />
+      <span>
+        <span className={styles.failedTitle}>Sign-in failed</span>
+        <code className={styles.errorText}>{error}</code>
+      </span>
     </div>
   );
 }
@@ -272,7 +290,7 @@ function CodeStep({
   const now = useNow();
   const current = poll.data ?? login;
   // A 404: the service has forgotten the login, so the code is no use any more
-  const forgotten = poll.error instanceof ApiError && poll.error.status === 404;
+  const forgotten = isForgotten(poll.error);
   const state: CodeState = forgotten ? "expired" : current.status;
   const code = current.code ?? "";
   const address = current.verification_url ?? "";
@@ -357,13 +375,7 @@ function CodeStep({
 
       {state === "failed" && (
         <div role="alert" className={styles.failed}>
-          <div className={styles.alertHead}>
-            <Icon name="warning" size={18} />
-            <span>
-              <span className={styles.failedTitle}>Sign-in failed</span>
-              <code className={styles.errorText}>{current.error ?? "Amazon did not say why."}</code>
-            </span>
-          </div>
+          <FailedHead error={current.error ?? "Amazon did not say why."} />
           <div className={styles.codeActions}>
             <button type="button" className="btn btn-primary" onClick={onNewCode} disabled={starting}>
               Try again
@@ -403,7 +415,9 @@ function BrowserStep({
   // 400: no code in that address - the login stays open for the right one
   const pasteAgain = error?.status === 400 ? error.detail : null;
   // 404 (expired, finished) or 502 (Amazon rejected it): this login is over
-  const over = complete.error && !pasteAgain ? errorDetail(complete.error) : null;
+  const over = error && (error.status === 404 || error.status === 502) ? error.detail : null;
+  // Anything else (no answer, a 5xx on the way) says nothing about the login: try again
+  const retry = complete.error && !pasteAgain && !over ? errorDetail(complete.error) : null;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -455,21 +469,22 @@ function BrowserStep({
       </div>
       {over ? (
         <div role="alert" className={styles.failed}>
-          <div className={styles.alertHead}>
-            <Icon name="warning" size={18} />
-            <span>
-              <span className={styles.failedTitle}>Sign-in failed</span>
-              <code className={styles.errorText}>{over}</code>
-            </span>
-          </div>
+          <FailedHead error={over} />
           <button type="button" className="btn btn-primary" onClick={onRestart} disabled={starting}>
             Start again
           </button>
         </div>
       ) : (
-        <button type="submit" className="btn btn-primary btn-tall" disabled={complete.isPending || !address.trim()}>
-          {complete.isPending ? "Finishing…" : "Finish sign-in"}
-        </button>
+        <>
+          {retry && (
+            <p role="alert" className="alert-error">
+              Could not finish the sign-in: {retry} Try Finish sign-in again.
+            </p>
+          )}
+          <button type="submit" className="btn btn-primary btn-tall" disabled={complete.isPending || !address.trim()}>
+            {complete.isPending ? "Finishing…" : "Finish sign-in"}
+          </button>
+        </>
       )}
       {startError && (
         <p role="alert" className="alert-error">

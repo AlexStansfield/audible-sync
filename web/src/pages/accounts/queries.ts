@@ -3,26 +3,47 @@
  * `AFTER_RUN`'s keys, so the end of a run refetches its last-synced times.
  */
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, unwrap } from "../../api/client";
-import { keys } from "../../api/queries";
+import { useEffect, useRef } from "react";
+import { ApiError, api, unwrap } from "../../api/client";
+import { keys, useStatus } from "../../api/queries";
 import { useToast } from "../../components/Toasts";
 import { type Account, LOGIN_POLL, type Login, type Purpose } from "./login";
 
 export const ACCOUNTS_KEY = ["accounts"] as const;
+export const ENABLED_KEY = ["account-enabled"] as const;
 const loginKey = (loginId: string) => ["login", loginId] as const;
 
 /**
  * What a change to accounts moves: the list, the status (the sidebar's dot and the
- * Dashboard's accounts), the totals, the queue - and the library, which loses an account's
- * books when it goes.
+ * Dashboard's accounts), the totals, the queue - and, with `books`, the library and the
+ * run history, which lose an account's rows when it goes (and change when a sign-in
+ * again queues its refused books).
  */
 export function refreshAfterAccountChange(client: QueryClient, { books = false } = {}): Promise<unknown> {
-  const changed = [ACCOUNTS_KEY, keys.status, ["stats"], ["queue"], ...(books ? [["books"]] : [])];
+  const changed = [ACCOUNTS_KEY, keys.status, ["stats"], ["queue"], ...(books ? [["books"], ["runs"]] : [])];
   return Promise.all(changed.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] })));
 }
 
 export function useAccounts() {
   return useQuery({ queryKey: ACCOUNTS_KEY, queryFn: () => unwrap(api.GET("/api/accounts")) });
+}
+
+/**
+ * The polled status carries the accounts too. When its list moves - an account a code
+ * login confirmed after its dialog closed, a sign-in that cleared Needs sign-in - the
+ * list here is read again, within one status poll.
+ */
+export function useFollowStatus(): void {
+  const client = useQueryClient();
+  const status = useStatus();
+  const shape = status.data?.accounts.map((account) => `${account.id}:${account.needs_login}`).join(",");
+  const seen = useRef(shape);
+  useEffect(() => {
+    if (shape !== undefined && seen.current !== undefined && shape !== seen.current) {
+      void client.invalidateQueries({ queryKey: ACCOUNTS_KEY });
+    }
+    if (shape !== undefined) seen.current = shape;
+  }, [shape, client]);
 }
 
 /** The marketplaces never change while the service runs. */
@@ -39,7 +60,7 @@ export function useSetEnabled() {
   const client = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationKey: ["account-enabled"],
+    mutationKey: ENABLED_KEY,
     mutationFn: ({ id, enabled }: { id: number; enabled: boolean }) =>
       unwrap(api.PATCH("/api/accounts/{account_id}", { params: { path: { account_id: id } }, body: { enabled } })),
     onMutate: async ({ id, enabled }) => {
@@ -63,7 +84,9 @@ export function useRename() {
   return useMutation({
     mutationFn: ({ id, name }: { id: number; name: string }) =>
       unwrap(api.PATCH("/api/accounts/{account_id}", { params: { path: { account_id: id } }, body: { name } })),
-    onSuccess: () => refreshAfterAccountChange(client),
+    onSuccess: () => {
+      void refreshAfterAccountChange(client);
+    },
   });
 }
 
@@ -72,7 +95,9 @@ export function useRemove() {
   return useMutation({
     mutationFn: ({ id, deregister }: { id: number; deregister: boolean }) =>
       unwrap(api.DELETE("/api/accounts/{account_id}", { params: { path: { account_id: id }, query: { deregister } } })),
-    onSuccess: () => refreshAfterAccountChange(client, { books: true }),
+    onSuccess: () => {
+      void refreshAfterAccountChange(client, { books: true });
+    },
   });
 }
 
@@ -107,9 +132,10 @@ export function useStartLogin(purpose: Purpose) {
 }
 
 /**
- * A code login as it stands, every 3 s while it is waiting for the user. A 404 means
- * the service has forgotten it (a while after it ended, or a restart): the dialog reads
- * that as expired.
+ * A code login as it stands, every 3 s while it is waiting for the user. A failed poll
+ * (a dropped request, a 5xx from a proxy) only waits for the next one: the login is
+ * still going on the service. A 404 means the service has forgotten it (a while after it
+ * ended, or a restart): polling stops and the dialog reads that as expired.
  */
 export function useLoginStatus(login: Login | null) {
   const loginId = login?.login_id ?? "";
@@ -121,10 +147,16 @@ export function useLoginStatus(login: Login | null) {
     // The answer the start gave is as fresh as a poll; the first poll is one interval on
     initialDataUpdatedAt: () => Date.now(),
     staleTime: LOGIN_POLL,
-    // Until the service says it is confirmed, failed or expired
-    refetchInterval: (query) => (query.state.data?.status === "pending" && !query.state.error ? LOGIN_POLL : false),
+    // Until the service says it is confirmed, failed or expired, or has forgotten it
+    refetchInterval: (query) =>
+      query.state.data?.status === "pending" && !isForgotten(query.state.error) ? LOGIN_POLL : false,
     retry: false,
   });
+}
+
+/** A 404 from the login's poll: the service no longer knows it. */
+export function isForgotten(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
 }
 
 /** Step two of a browser sign-in: the pasted address. */

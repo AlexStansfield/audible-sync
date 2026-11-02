@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fail, fakeApi, json, ok, type Reply, signedIn } from "../../test/fakeApi";
+import { fail, fakeApi, json, ok, type Reply, signedIn, status } from "../../test/fakeApi";
 import { type Account, account, counts } from "../../test/fixtures";
 import { renderApp } from "../../test/render";
 import type { Login } from "./login";
@@ -256,6 +256,60 @@ describe("Accounts", () => {
     expect(within(dialog).queryByText("This code has expired")).not.toBeInTheDocument();
   });
 
+  it("keeps polling after a failed poll", async () => {
+    const user = fakeTime();
+    const answers = [json(502, { detail: "Bad Gateway" }), json(200, codeLogin({ status: "confirmed", account: UK }))];
+    page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "GET /api/accounts/login/abc": () =>
+        answers.shift() ?? json(200, codeLogin({ status: "confirmed", account: UK })),
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    await waitFor(() => expect(answers).toHaveLength(1));
+    expect(within(dialog).getByText("Waiting for you to enter the code…")).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(await within(dialog).findByText("Alex (UK) is connected")).toBeInTheDocument();
+  });
+
+  it("reads the accounts again when a dialog with a login in it is closed", async () => {
+    const api = page([UK], { "POST /api/accounts/login": () => json(202, codeLogin()) });
+    renderApp("/accounts");
+    const reads = () => api.calls.filter((call) => call.method === "GET" && call.path === "/api/accounts").length;
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    const before = reads();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(reads()).toBe(before + 1));
+  });
+
+  it("reads the accounts again when the polled status's accounts change", async () => {
+    fakeTime();
+    const DE = account({ id: 4, name: "Alex (DE)", country_code: "de" });
+    let accounts = [UK];
+    const api = page([UK], {
+      "GET /api/accounts": () => json(200, accounts),
+      "GET /api/status": () => json(200, status({ accounts })),
+    });
+    renderApp("/accounts");
+    await screen.findByRole("heading", { name: "Alex (UK)" });
+
+    // A code login confirmed after its dialog was closed
+    accounts = [UK, DE];
+    await act(() => vi.advanceTimersByTimeAsync(10_000));
+    expect(await screen.findByRole("heading", { name: "Alex (DE)" })).toBeInTheDocument();
+    expect(api.calls.filter((call) => call.path === "/api/accounts").length).toBeGreaterThan(1);
+  });
+
   it("starts a new code afresh even if the service reused the login's id", async () => {
     const user = fakeTime();
     let expired = true;
@@ -339,6 +393,37 @@ describe("Accounts", () => {
     expect(api.sent("POST /api/accounts/login/web")[1]).toEqual({
       response_url: "https://www.amazon.de/ap/maplanding?openid.oa2.authorization_code=x",
     });
+  });
+
+  it("keeps the browser sign-in open when finishing it gets no proper answer", async () => {
+    let tries = 0;
+    page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser"
+          ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
+          : json(202, codeLogin());
+      },
+      "POST /api/accounts/login/web": () => {
+        tries += 1;
+        return tries === 1
+          ? json(500, { detail: "Internal Server Error" })
+          : json(201, { ...codeLogin({ login_id: "web", method: "browser", status: "confirmed" }), account: UK });
+      },
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+    await userEvent.type(await within(dialog).findByRole("textbox", { name: /page not found/ }), "https://x/y");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Finish sign-in" }));
+
+    expect(await within(dialog).findByText(/Could not finish the sign-in: Internal Server Error/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Start again" })).not.toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Finish sign-in" }));
+    expect(await within(dialog).findByText("Alex (UK) is connected")).toBeInTheDocument();
   });
 
   it("offers to start again when the browser sign-in has gone", async () => {
