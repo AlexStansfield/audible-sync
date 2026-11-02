@@ -49,10 +49,11 @@ def test_set_book_reports_the_book_and_the_queue_position():
     state = RunState()
     state.begin(1)
 
-    state.set_book(make_book("B1", "One"), done=2, total=5)
+    book = make_book("B1", "One")
+    state.set_book(book, done=2, total=5)
     snapshot = state.snapshot()
 
-    assert snapshot["book"] == {"asin": "B1", "title": "One"}
+    assert snapshot["book"] == {"id": book.id, "asin": "B1", "title": "One"}
     assert (snapshot["books_done"], snapshot["books_total"]) == (2, 5)
 
 

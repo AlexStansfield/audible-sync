@@ -83,7 +83,8 @@ class RunState:
         `total` how many it took on; `book` is None once the loop is over.
         """
         with self._lock:
-            self._book = None if book is None else {"asin": book.asin, "title": book.title}
+            # The row id, because the same ASIN can be in two accounts
+            self._book = None if book is None else {"id": book.id, "asin": book.asin, "title": book.title}
             self._books_done = done
             self._books_total = total
             # A new book means the previous transfer, if any, is over
