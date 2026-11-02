@@ -15,17 +15,28 @@ body{margin:0;background:#0e1014}
 [data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
 [data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
 a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
-@media (max-width: 720px){[data-shell="nav"]{flex-direction:row!important;align-items:center;overflow-x:auto;padding:8px 10px!important;border-right:0!important;border-bottom:1px solid var(--line);gap:2px!important}[data-shell="nav"] > a{flex:none;padding:8px 10px!important}[data-shell="brand"]{padding:4px 6px 4px 2px!important;flex:none}[data-shell="brand-text"]{display:none!important}[data-shell="nav-foot"]{margin:0!important;border-top:0!important;flex-direction:row!important;align-items:center;padding:0 6px!important;flex:none;gap:14px!important}[data-shell="main"]{padding:20px 16px 40px!important}}
+[data-shell="topbar"],[data-shell="close"],[data-shell="backdrop"]{display:none!important}
+@media (max-width: 720px){[data-shell="topbar"]{display:flex!important}[data-shell="close"]{display:flex!important}[data-shell="nav"]{display:none!important}[data-shell="nav"][data-open="true"]{display:flex!important;position:fixed;top:0;bottom:0;left:0;z-index:30;width:min(300px,86vw);overflow-y:auto;box-shadow:0 0 48px rgba(0,0,0,0.4)}[data-shell="backdrop"]{display:block!important}[data-shell="brand"]{padding:4px 4px 18px 10px!important}[data-shell="main"]{padding:20px 16px 40px!important}}
 </style>
 </helmet>
 <div data-theme="{{theme}}" style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
 
-<nav aria-label="Main" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<header data-shell="topbar" style="flex: 1 1 100%; align-items: center; gap: 8px; min-height: 56px; padding: 0 12px 0 4px; background: var(--nav); border-bottom: 1px solid var(--line); box-sizing: border-box">
+<button type="button" aria-label="Open menu" aria-controls="main-nav" aria-expanded="{{navOpen}}" onClick="{{openNav}}" style="width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+<span aria-hidden="true" style="width: 28px; height: 28px; flex: none; border-radius: 7px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg></span>
+<span style="font-weight: 700; font-size: 16px">Library</span>
+<a href="Profile.dc.html" aria-label="Your sign-in" style="margin-left: auto; width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--raised); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">A</a>
+</header>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{ false }}">
+<button type="button" data-shell="backdrop" aria-label="Close menu" tabindex="-1" onClick="{{closeNav}}" style="position: fixed; inset: 0; z-index: 25; border: 0; padding: 0; background: rgba(5,6,8,0.6); cursor: pointer"></button>
+</sc-if>
+<nav aria-label="Main" id="main-nav" data-open="{{navOpen}}" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
 <div data-shell="brand" style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
 <div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
 <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
 </div>
 <div data-shell="brand-text" style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
+<button type="button" data-shell="close" aria-label="Close menu" onClick="{{closeNav}}" style="margin-left: auto; width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; align-items: center; justify-content: center"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
 </div>
 <a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
@@ -169,7 +180,7 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 </sc-if>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"status":{"editor":"enum","options":["downloaded","downloading","failed","unavailable","waiting"],"default":"downloaded"},"monitored":{"editor":"boolean","default":true},"sizeKnown":{"editor":"boolean","default":true},"confirmDelete":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1100}}'>
+<script type="text/x-dc" data-dc-script data-props='{"mobileMenu":{"editor":"boolean","default":false},"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"status":{"editor":"enum","options":["downloaded","downloading","failed","unavailable","waiting"],"default":"downloaded"},"monitored":{"editor":"boolean","default":true},"sizeKnown":{"editor":"boolean","default":true},"confirmDelete":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1100}}'>
 class Component extends DCLogic {
   renderVals() {
     const status = this.props.status ?? 'downloaded';
@@ -188,6 +199,9 @@ class Component extends DCLogic {
     const base = 'audiobooks/Mark Lawrence/Impossible Times/1 - One Word Kill/One Word Kill';
     return {
       theme: this.props.theme ?? 'dark',
+      navOpen: (this.state && this.state.navOpen != null) ? this.state.navOpen : (this.props.mobileMenu ?? false),
+      openNav: () => this.setState({ navOpen: true }),
+      closeNav: () => this.setState({ navOpen: false }),
       statusLabel: meta[0], chipBg: meta[1], chipFg: meta[2],
       isDownloaded: dl,
       downloading,

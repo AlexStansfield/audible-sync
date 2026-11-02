@@ -270,7 +270,9 @@ Each run row has a chevron button that expands a row underneath, listing the run
 
 ### Phone layout
 
-At 720px and narrower, the sidebar becomes a horizontally scrolling bar above the content (logo, links, then the service state, username and Sign out), and the page padding drops to 20px top and 16px at the sides. The Dashboard totals and covers, and the Library grid, use `repeat(auto-fill/auto-fit, minmax(...))` so they drop columns by themselves (two covers across at 390px). Toolbars and button rows wrap; the Library table keeps its minimum width and scrolls sideways inside its card. The `Phone*` frames show the Dashboard and both Library views at 390px, in dark and light.
+At 720px and narrower the sidebar is hidden and a **56px top bar** takes its place: a menu button on the left, the logo and the page name, and your avatar on the right (linking to Your sign-in). The menu button opens the **sidebar as a drawer** from the left, `min(300px, 86vw)` wide, over a page dimmed to 60%. It has the same links, the current page highlighted, the service state, the username and Sign out, plus a close button beside the logo. The X, the backdrop and Escape close it, and so does picking a page. While it is open, focus moves into it and is trapped there, the page behind does not scroll, and the menu button has `aria-expanded="true"` and `aria-controls` pointing at the nav (variant `mobileMenu`).
+
+Page padding drops to 20px top and 16px at the sides. The Dashboard totals and covers, and the Library grid, use `repeat(auto-fill/auto-fit, minmax(...))` so they drop columns by themselves (two covers across at 390px). Toolbars and button rows wrap; the Library table keeps its minimum width and scrolls sideways inside its card. The `Phone*` frames show the Dashboard, both Library views and the open menu at 390px, in dark and light.
 
 ## Behaviour common to every screen
 
