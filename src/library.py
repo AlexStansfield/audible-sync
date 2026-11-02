@@ -18,7 +18,9 @@ from src.audible_client import Audible
 from src.database import (
     clear_book_files,
     get_account,
+    get_accounts,
     get_book,
+    get_books_to_download,
     reset_for_download,
     set_monitored,
     update_books,
@@ -272,3 +274,44 @@ def _bulk_one(action: BulkAction, book: Book, settings: Settings) -> SkipReason 
                 return SkipReason.NO_FILES
             delete_download(book, settings, files=files)
     return None
+
+
+@dataclass
+class Queue:
+    """
+    The next run's downloads in order: `planned` as (account id, book) pairs, and how
+    many monitored books wait in those accounts in all, the `max_download` cut ignored.
+    """
+
+    planned: list[tuple[int, Book]]
+    waiting: int
+
+
+def next_run_queue(settings: Settings) -> Queue:
+    """
+    The books still to come, from the queue as it stands now: each account a run takes
+    (`Account.runnable`), in the order the pipeline takes them, its queue oldest
+    purchase first and cut at `max_download` - which is per account per run.
+
+    The same query the run uses (`get_books_to_download`), so a book a crashed run left
+    `downloading` shows once its claim is stale. It is a plan, not a promise, for three
+    reasons nothing can know in advance:
+
+    - a licence Audible refuses uses no slot, so the run reaches further down;
+    - the run syncs before it downloads, and a withdrawn title Audible offers again
+      rejoins the queue at its old purchase date, taking a slot from the end of this
+      list (new purchases are the newest, so they only ever join the end);
+    - while a run is in flight, its head is what that run has left: the book it is on
+      is not listed (it is `current_run.book` in `/api/status`), and the accounts it has
+      finished are listed again as the next run will find them.
+    """
+    planned: list[tuple[int, Book]] = []
+    waiting = 0
+    for account in get_accounts():
+        if not account.runnable:
+            continue
+        books = get_books_to_download(account_id=account.id)
+        waiting += len(books)
+        cut = books if settings.max_download is None else books[: settings.max_download]
+        planned.extend((account.id, book) for book in cut)
+    return Queue(planned=planned, waiting=waiting)

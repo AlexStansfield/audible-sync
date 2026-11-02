@@ -370,6 +370,27 @@ class SystemInfo(BaseModel):
     database_bytes: int
 
 
+class QueueItem(BaseModel):
+    position: int
+    account_id: int
+    book: BookOut
+
+
+class QueueOut(BaseModel):
+    """
+    The books still to come, in the order a run takes them (the first `limit`), from
+    the queue as it stands now. `total` is how many are planned before any refusals
+    (a refused licence uses no slot, so a run can take on more), `waiting` how many
+    wait in those accounts in all, and `max_download` the per-account cut (None:
+    everything waiting). See `library.next_run_queue` for why it is a plan.
+    """
+
+    items: list[QueueItem]
+    total: int
+    waiting: int
+    max_download: int | None
+
+
 class LogEntry(BaseModel):
     time: str
     level: str

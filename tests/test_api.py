@@ -1675,3 +1675,43 @@ def test_system_with_no_ffmpeg(api, monkeypatch):
     body = api.get("/api/system", headers=AUTH).json()
 
     assert (body["ffmpeg_version"], body["libopus"]) == (None, False)
+
+
+# --- the queue ------------------------------------------------------------------------
+
+
+def test_the_queue_lists_the_next_runs_books_in_order(api):
+    first = _account()
+    second = _account("Other", "us")
+    _shelve(first, *(make_book(f"A{n}", date_added=f"2024-01-0{n}T00:00:00Z") for n in (3, 1, 2)))
+    _shelve(second, make_book("B1", "Second account's"))
+    api.put("/api/settings", headers=AUTH, json={"max_download": 2})
+
+    response = api.get("/api/queue", params={"limit": 2}, headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [(i["position"], i["account_id"], i["book"]["asin"]) for i in body["items"]] == [
+        (1, first, "A1"),
+        (2, first, "A2"),
+    ]
+    assert (body["total"], body["waiting"], body["max_download"]) == (3, 4, 2)
+    assert body["items"][0]["book"]["title"]
+
+
+def test_an_empty_queue(api):
+    assert api.get("/api/queue", headers=AUTH).json() == {
+        "items": [],
+        "total": 0,
+        "waiting": 0,
+        "max_download": None,
+    }
+
+
+@pytest.mark.parametrize("limit", [0, 201])
+def test_the_queue_limit_is_bounded(api, limit):
+    assert api.get("/api/queue", params={"limit": limit}, headers=AUTH).status_code == 422
+
+
+def test_the_queue_needs_auth(api):
+    assert api.get("/api/queue").status_code == 401

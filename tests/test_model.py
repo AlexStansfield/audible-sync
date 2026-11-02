@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from src.model import Book, BookStatus, sort_series
+from src.model import Account, Book, BookStatus, sort_series
 from tests.conftest import make_book
 
 ALL_COLUMNS = (
@@ -292,3 +292,13 @@ def test_sort_series_puts_the_primary_first():
     sorted_series = sort_series([entry("The Dune Sequence", "12"), entry("Dune", "1")])
 
     assert [s["title"] for s in sorted_series] == ["Dune", "The Dune Sequence"]
+
+
+@pytest.mark.parametrize(
+    ("enabled", "auth", "runnable"),
+    [(True, {"locale_code": "uk"}, True), (False, {"locale_code": "uk"}, False), (True, None, False)],
+)
+def test_an_account_is_runnable_when_enabled_with_credentials(enabled, auth, runnable):
+    account = Account(id=1, name="A", country_code="uk", auth=auth, enabled=enabled)
+
+    assert account.runnable is runnable

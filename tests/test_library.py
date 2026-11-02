@@ -487,3 +487,63 @@ def test_bulk_delete_files_looks_for_the_files_once(db, tmp_path, monkeypatch):
 
     assert len(calls) == 1
     assert not Path(book.file_path).exists()
+
+
+# --- the next run's queue -------------------------------------------------------------
+
+
+def _queue_account(name, *, books, enabled=True, auth=True):
+    account_id = database.add_account(name, "uk", auth={"locale_code": "uk"} if auth else None)
+    if not enabled:
+        database.update_account(account_id, enabled=False)
+    database.update_books(
+        account_id, [make_book(asin, date_added=f"2024-01-{day:02d}T00:00:00Z") for asin, day in books]
+    )
+    return account_id
+
+
+def _planned(queue):
+    return [(account_id, book.asin) for account_id, book in queue.planned]
+
+
+def test_the_queue_is_each_account_in_turn_oldest_first_cut_at_max_download(db):
+    first = _queue_account("First", books=[("A3", 3), ("A1", 1), ("A2", 2)])
+    second = _queue_account("Second", books=[("B2", 2), ("B1", 1)])
+
+    queue = library.next_run_queue(make_settings(max_download=2))
+
+    assert _planned(queue) == [(first, "A1"), (first, "A2"), (second, "B1"), (second, "B2")]
+    assert queue.waiting == 5
+
+
+def test_without_max_download_the_queue_is_everything_waiting(db):
+    account_id = _queue_account("Only", books=[("A1", 1), ("A2", 2), ("A3", 3)])
+
+    queue = library.next_run_queue(make_settings(max_download=None))
+
+    assert [asin for _, asin in _planned(queue)] == ["A1", "A2", "A3"]
+    assert {a for a, _ in _planned(queue)} == {account_id}
+
+
+def test_the_queue_leaves_out_accounts_the_run_skips(db):
+    _queue_account("Disabled", books=[("D1", 1)], enabled=False)
+    _queue_account("Logged out", books=[("L1", 1)], auth=False)
+    live = _queue_account("Live", books=[("A1", 1)])
+
+    queue = library.next_run_queue(make_settings())
+
+    assert _planned(queue) == [(live, "A1")]
+    assert queue.waiting == 1
+
+
+def test_the_queue_is_the_books_the_run_would_take(db):
+    account_id = _queue_account("Only", books=[("A1", 1), ("A2", 2), ("A3", 3), ("A4", 4)])
+    a1, a2, a3 = (database.get_book_by_asin(a, account_id=account_id).id for a in ("A1", "A2", "A3"))
+    database.set_monitored(a1, False)  # not wanted
+    database.claim_book_for_download(a2)  # a live run holds it
+    database.claim_book_for_download(a3)
+    database.mark_book_failed(a3, "boom", max_attempts=1)  # gave up
+
+    queue = library.next_run_queue(make_settings())
+
+    assert [asin for _, asin in _planned(queue)] == ["A4"]

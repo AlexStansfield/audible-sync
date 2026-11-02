@@ -86,6 +86,8 @@ from src.schemas import (
     Message,
     NewApiToken,
     PasswordChange,
+    QueueItem,
+    QueueOut,
     Requeued,
     RetryUnavailable,
     SettingsOut,
@@ -624,6 +626,27 @@ def create_app(
             updated=result.updated,
             queued=result.queued,
             skipped=[BulkSkip(id=book_id, reason=reason) for book_id, reason in result.skipped],
+        )
+
+    @router.get("/queue", response_model=QueueOut)
+    def get_queue(limit: Annotated[int, Query(ge=1, le=200)] = 50) -> QueueOut:
+        """
+        The books still to come, in the order a run takes them: each enabled account
+        that can log in, oldest purchase first, cut at `max_download` per account. A
+        plan rather than a promise (refusals, titles the sync restores, a run in flight;
+        see `library.next_run_queue`). `limit` is how many to list; `total` (planned)
+        and `waiting` count them all.
+        """
+        settings = Settings.from_db()
+        queue = library.next_run_queue(settings)
+        return QueueOut(
+            items=[
+                QueueItem(position=position, account_id=account_id, book=book)
+                for position, (account_id, book) in enumerate(queue.planned[:limit], start=1)
+            ],
+            total=len(queue.planned),
+            waiting=queue.waiting,
+            max_download=settings.max_download,
         )
 
     @router.get("/books/{book_id}", response_model=BookOut)

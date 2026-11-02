@@ -310,6 +310,14 @@ class Account:
     def needs_login(self) -> bool:
         return self.auth is None
 
+    @property
+    def runnable(self) -> bool:
+        """
+        Whether a run takes this account: enabled, and with credentials to log in with.
+        The one rule `run_pipeline` and the API's queue both read, so they cannot drift.
+        """
+        return self.enabled and not self.needs_login
+
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "Account":
         data = dict(row)
