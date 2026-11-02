@@ -431,3 +431,59 @@ def test_book_files_lists_only_what_exists(tmp_path):
         folder / "Title_cover.jpg",
         folder / "Title_annotations.json",
     ]
+
+
+def test_bulk_skips_a_book_that_fails_and_carries_on(db, tmp_path, monkeypatch, caplog):
+    first, broken, last = _shelf("B001", "B002", "B003", monitored=False)
+    real = library.set_monitored
+
+    def set_monitored(book_id, monitored):
+        if book_id == broken:
+            raise PermissionError("read-only")
+        return real(book_id, monitored)
+
+    monkeypatch.setattr(library, "set_monitored", set_monitored)
+
+    result = library.bulk("monitor", [first, broken, last], _settings(tmp_path))
+
+    assert result.updated == 2
+    assert result.skipped == [(broken, library.SkipReason.ERROR)]
+    assert database.get_book(last).monitored
+    assert "read-only" in caplog.text
+
+
+def test_bulk_retry_leaves_a_title_audible_withdrew_to_the_sync(db, tmp_path):
+    """Each would be a certain refusal, and a queue of them trips the circuit breaker."""
+    database.update_books(ACCOUNT_ID, [make_book("B001", is_consumable=False), make_book("B002")])
+    withdrawn, refused = (database.get_book_by_asin(a).id for a in ("B001", "B002"))
+    _park(withdrawn)
+    _park(refused)
+
+    result = library.bulk("retry", [withdrawn, refused], _settings(tmp_path))
+
+    assert (result.updated, result.queued) == (1, 1)
+    assert result.skipped == [(withdrawn, library.SkipReason.WITHDRAWN)]
+    assert database.get_book(withdrawn).status is BookStatus.UNAVAILABLE
+
+
+def test_bulk_delete_files_tidies_a_downloaded_book_whose_files_have_gone(db, tmp_path):
+    book, settings = _stored(tmp_path)
+    shutil.rmtree(settings.audiobook_folder)
+
+    result = library.bulk("delete_files", [book.id], settings)
+
+    assert (result.updated, result.skipped) == (1, [])
+    after = database.get_book(book.id)
+    assert (after.status, after.monitored, after.file_path) == (BookStatus.WAITING_DOWNLOAD, False, None)
+
+
+def test_bulk_delete_files_looks_for_the_files_once(db, tmp_path, monkeypatch):
+    book, settings = _stored(tmp_path)
+    calls = []
+    real = library.book_files
+    monkeypatch.setattr(library, "book_files", lambda *a: calls.append(a) or real(*a))
+
+    library.bulk("delete_files", [book.id], settings)
+
+    assert len(calls) == 1
+    assert not Path(book.file_path).exists()

@@ -1302,6 +1302,8 @@ def test_bulk_delete_files(api, tmp_path):
         {"action": "explode", "ids": [1]},
         {"action": "monitor", "filter": {"colour": "red"}},
         {"action": "monitor", "ids": [1], "extra": True},
+        {"action": "monitor", "ids": [0]},
+        {"action": "monitor", "ids": [10**20]},
     ],
 )
 def test_bulk_rejects_a_bad_body(api, body):

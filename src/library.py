@@ -67,7 +67,7 @@ def book_files(book: Book, settings: Settings) -> list[Path]:
     return [path for path in candidates if path is not None and path.is_file()]
 
 
-def delete_book_files(book: Book, settings: Settings) -> list[Path]:
+def delete_book_files(book: Book, settings: Settings, *, files: list[Path] | None = None) -> list[Path]:
     """
     Remove the audio, PDF, cover and annotations, and any folders left empty.
 
@@ -77,7 +77,7 @@ def delete_book_files(book: Book, settings: Settings) -> list[Path]:
     holds another book is left alone.
     """
     removed: list[Path] = []
-    for path in book_files(book, settings):
+    for path in book_files(book, settings) if files is None else files:
         path.unlink()
         removed.append(path)
         logger.info("Removed %s", path)
@@ -115,16 +115,17 @@ def _reset(book: Book, *, monitored: bool) -> None:
         raise BookBusy(f"{book.title} ({book.asin}) was claimed by a run; cancel the run first")
 
 
-def delete_download(book: Book, settings: Settings) -> list[Path]:
+def delete_download(book: Book, settings: Settings, *, files: list[Path] | None = None) -> list[Path]:
     """
     Remove the files and stop wanting the book: it goes back to `waiting_download`
-    unmonitored, so it is not fetched again until somebody asks.
+    unmonitored, so it is not fetched again until somebody asks. `files` is what
+    `book_files` returned, for a caller that has already looked.
 
     Raises:
         BookBusy: if a run is downloading it
     """
     _not_busy(book)
-    removed = delete_book_files(book, settings)
+    removed = delete_book_files(book, settings, files=files)
     clear_book_files(book.id)
     _reset(book, monitored=False)
     return removed
@@ -194,7 +195,9 @@ class SkipReason(StrEnum):
     NOT_FOUND = "not_found"
     BUSY = "busy"  # a run is downloading it
     DOWNLOADED = "downloaded"  # retry on a book that is already downloaded
-    NO_FILES = "no_files"  # delete_files on a book with nothing on disk
+    WITHDRAWN = "withdrawn"  # retry on a title Audible withdrew; the sync brings it back
+    NO_FILES = "no_files"  # delete_files on a book never downloaded, with nothing on disk
+    ERROR = "error"  # something went wrong with this book; the log has the traceback
 
 
 @dataclass
@@ -213,10 +216,13 @@ def bulk(action: BulkAction | str, book_ids: list[int], settings: Settings) -> B
     """
     Apply one action to many books, book by book, through the single-book functions.
 
-    A book a run is downloading is skipped for every action, as the single-book routes
-    refuse it, so the rules live in one place. `monitor` counts as queued only the
-    books that are `waiting_download`: a failed or parked book keeps its status until
-    it is retried. A duplicate id is acted on once.
+    A book a run is downloading is skipped for every action - monitor included, unlike
+    `PATCH /api/books/{id}`, because the design's result banner reports it that way.
+    `monitor` counts as queued only the books that are `waiting_download`: a failed or
+    parked book keeps its status until it is retried. A duplicate id is acted on once.
+
+    One book failing (a file on a read-only share, say) is logged and skipped as
+    `error`, and the batch carries on, so the result always accounts for every book.
     """
     action = BulkAction(action)
     result = BulkResult()
@@ -229,6 +235,9 @@ def bulk(action: BulkAction | str, book_ids: list[int], settings: Settings) -> B
             reason = _bulk_one(action, book, settings)
         except BookBusy:
             reason = SkipReason.BUSY
+        except Exception:
+            logger.exception("Bulk %s failed on %r", action, book)
+            reason = SkipReason.ERROR
         if reason is not None:
             result.skipped.append((book_id, reason))
             continue
@@ -250,9 +259,16 @@ def _bulk_one(action: BulkAction, book: Book, settings: Settings) -> SkipReason 
         case BulkAction.RETRY:
             if book.status is BookStatus.DOWNLOADED:
                 return SkipReason.DOWNLOADED
+            # A certain refusal, and a queue of them trips the circuit breaker; this is
+            # why `requeue_unavailable` leaves them to the sync too
+            if book.status is BookStatus.UNAVAILABLE and not book.is_consumable:
+                return SkipReason.WITHDRAWN
             retry(book)
         case BulkAction.DELETE_FILES:
-            if not book_files(book, settings):
+            files = book_files(book, settings)
+            # A downloaded book whose files have gone is still tidied, as the
+            # single-book route does, so it stops claiming paths that are not there
+            if not files and book.status is not BookStatus.DOWNLOADED:
                 return SkipReason.NO_FILES
-            delete_download(book, settings)
+            delete_download(book, settings, files=files)
     return None

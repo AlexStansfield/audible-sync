@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from src.library import BulkAction, SkipReason
 from src.model import BookStatus, SyncOutcome
 from src.runstate import RunStage
 from src.webauth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
@@ -296,6 +297,8 @@ class BookFilter(BaseModel):
 
 
 MAX_BULK_IDS = 10_000
+# SQLite's INTEGER range: a larger id is a 422 here rather than an OverflowError there
+BookId = Annotated[int, Field(ge=1, le=2**63 - 1)]
 
 
 class BulkRequest(BaseModel):
@@ -306,8 +309,8 @@ class BulkRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action: Literal["monitor", "unmonitor", "retry", "delete_files"]
-    ids: Annotated[list[int] | None, Field(max_length=MAX_BULK_IDS)] = None
+    action: BulkAction
+    ids: Annotated[list[BookId] | None, Field(max_length=MAX_BULK_IDS)] = None
     filter: BookFilter | None = None
 
     @model_validator(mode="after")
@@ -319,7 +322,7 @@ class BulkRequest(BaseModel):
 
 class BulkSkip(BaseModel):
     id: int
-    reason: Literal["not_found", "busy", "downloaded", "no_files"]
+    reason: SkipReason
 
 
 class BulkResultOut(BaseModel):

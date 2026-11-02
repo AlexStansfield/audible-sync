@@ -28,5 +28,8 @@ docs: |
   the monitored books that were already waiting - a failed or parked book keeps its status
   until retried) and `skipped`, a list of `{id, reason}`: `busy` (a run is downloading it),
   `downloaded` (retry on a downloaded book; redownload is the single-book action for that),
-  `no_files` (delete_files on a book with nothing on disk) or `not_found`. Delete files
-  also unmonitors, as the single-book action does.
+  `withdrawn` (retry on a title Audible withdrew - the sync restores it when it is offered
+  again), `no_files` (delete_files on a book never downloaded with nothing on disk; a
+  downloaded book whose files have gone is tidied), `not_found`, or `error` (that book
+  failed; the log says why, and the rest of the batch still ran). Delete files also
+  unmonitors, as the single-book action does.
