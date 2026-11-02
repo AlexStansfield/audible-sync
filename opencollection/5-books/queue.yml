@@ -1,0 +1,21 @@
+info:
+  name: Up next
+  type: http
+  seq: 11
+http:
+  method: GET
+  url: "{{baseUrl}}/api/queue?limit=4"
+  params:
+    - name: limit
+      value: "4"
+      type: query
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  What the next run will download, in order: each enabled account that can log in, in
+  the order the run takes them, its waiting monitored books oldest purchase first, cut at
+  `max_download` per account. `items` are the first `limit` (`position`, `account_id`,
+  `book`); `total` is how many the run will take on, `waiting` how many wait in those
+  accounts in all (the "+N more waiting"), `max_download` null for everything waiting.
+  A licence Audible refuses uses no slot, so a run can reach further down than this.
