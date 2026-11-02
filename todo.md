@@ -110,12 +110,12 @@ A web application that exposes a UI to the API allowing you to login to audible,
 The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 
 - [x] Design: every screen, light and dark themes, behaviour and API mapping (`docs/design/`)
-- [ ] Backend: an `admin` user created on the first start with a generated password logged once; password hash stored encrypted
-- [ ] Backend: session sign-in (`/api/auth/login`, `/logout`, `/me`) accepted beside the bearer token; rate-limited failures
-- [ ] Backend: change the username and password (current password required; a password change ends other sessions)
-- [ ] Backend: a server-side way to reset a forgotten password
-- [ ] Backend: add the book's row `id` to `current_run.book` in `GET /api/status` (`RunState.set_book`, `BookRef`). Today it carries only `asin` and `title`. The Dashboard run card needs the id for the cover. Book detail needs it to know the run is on this book, because the same ASIN can exist in two accounts
-- [ ] Backend: serve the built web app from FastAPI with an `index.html` fallback
+- [x] Backend: an `admin` user created on the first start with a generated password logged once; password hash stored encrypted
+- [x] Backend: session sign-in (`/api/auth/login`, `/logout`, `/me`) accepted beside the bearer token; rate-limited failures
+- [x] Backend: change the username and password (current password required; a password change ends other sessions)
+- [x] Backend: a server-side way to reset a forgotten password
+- [x] Backend: add the book's row `id` to `current_run.book` in `GET /api/status` (`RunState.set_book`, `BookRef`). Today it carries only `asin` and `title`. The Dashboard run card needs the id for the cover. Book detail needs it to know the run is on this book, because the same ASIN can exist in two accounts
+- [x] Backend: serve the built web app from FastAPI with an `index.html` fallback
 - [ ] Docker and CI: a Node build stage for `web/`; lint, type-check and build it in CI
 - [ ] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
 - [ ] Web: sign-in and Your sign-in
@@ -124,9 +124,11 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [ ] Web: Accounts with the code and browser sign-in flows
 - [ ] Web: Activity (runs, log) and Settings
 - [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password
-- [ ] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
+- [x] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
 - [ ] Web: Library bulk selection (grid and table), action bar, delete confirmation, result message
-- [ ] Backend: API token last four and regenerate; `GET /api/system` (versions, disk space, key source, database size)
+- [x] Backend: API token last four and regenerate; `GET /api/system` (versions, disk space, key source, database size)
 - [ ] Web: Settings API access and System sections; Dashboard Up next card
-- [ ] Backend and web (later): per-book run records and the expandable run row in Activity
+- [x] Backend: per-book run records (`sync_run_books`, `GET /api/sync/runs/{id}/books`)
+- [x] Backend: `GET /api/queue` for the Dashboard's Up next card
+- [ ] Web (later): the expandable run row in Activity
 

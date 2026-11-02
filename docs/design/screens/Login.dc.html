@@ -31,8 +31,8 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <section aria-labelledby="fp-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 26px; display: flex; flex-direction: column; gap: 16px">
 <h2 id="fp-h" style="margin: 0; font-size: 18px; font-weight: 700">Reset your password</h2>
 <p style="margin: 0; color: var(--text-2)">Audible Sync has no email, so a forgotten password is reset on the server it runs on. Run this command there. It sets a new password and prints it once in the terminal.</p>
-<code style="display: block; padding: 12px 14px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text)">[RESET COMMAND]</code>
-<p style="margin: 0; font-size: 13px; color: var(--muted)">Then sign in with the new password and choose your own under Your sign-in. Every other browser is signed out.</p>
+<code style="display: block; padding: 12px 14px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text)">docker compose exec audible-sync uv run --no-sync python -m src.main reset-password</code>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Then sign in with the new password and choose your own under Your sign-in. Every browser, this one included, is signed out. Add <code>--username</code> to put the username back to admin as well.</p>
 <button type="button" onClick="{{back}}" style="min-height: 46px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Back to sign in</button>
 </section>
 </sc-if>
