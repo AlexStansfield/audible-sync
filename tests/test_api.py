@@ -1843,3 +1843,113 @@ def test_a_post_to_a_page_of_the_app_is_a_404(web):
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Not Found"}
+
+
+# --- served under a base path behind a reverse proxy ----------------------------------
+
+from src.api import normalise_base_path  # noqa: E402
+
+BASE = "/audible-sync"
+
+
+@pytest.fixture
+def prefixed(db, tmp_path):
+    """The app under /audible-sync, with a build whose index.html carries Vite's <base href="/">."""
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text('<!doctype html><head><base href="/"></head><title>Audible Sync</title>')
+    (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
+    app = create_app(
+        scheduler=FakeScheduler(),
+        state=RunState(),
+        api_token=ApiToken(TOKEN, "stored"),
+        web_dir=dist,
+        base_path=BASE,
+    )
+    return TestClient(app)
+
+
+@pytest.mark.parametrize("prefix", [BASE, ""], ids=["passed through", "stripped"])
+def test_the_api_answers_whether_the_proxy_strips_the_prefix_or_not(prefixed, prefix):
+    assert prefixed.get(f"{prefix}/api/health").json()["status"] == "ok"
+    assert prefixed.get(f"{prefix}/api/status").status_code == 401
+    assert prefixed.get(f"{prefix}/api/status", headers=AUTH).status_code == 200
+
+
+@pytest.mark.parametrize("prefix", [BASE, ""], ids=["passed through", "stripped"])
+@pytest.mark.parametrize("page", ["/", "/library?status=failed", "/index.html"])
+def test_the_page_tells_the_web_app_its_base(prefixed, prefix, page):
+    response = prefixed.get(f"{prefix}{page}")
+
+    assert response.status_code == 200
+    assert '<base href="/audible-sync/">' in response.text
+    assert '<base href="/">' not in response.text
+    assert response.headers["cache-control"] == "no-cache"
+
+
+@pytest.mark.parametrize("prefix", [BASE, ""], ids=["passed through", "stripped"])
+def test_assets_and_unknown_api_paths_behave_as_at_the_root(prefixed, prefix):
+    assert prefixed.get(f"{prefix}/assets/app-1a2b.js").text == "console.log('app')"
+    assert prefixed.get(f"{prefix}/assets/gone.js").status_code == 404
+    assert prefixed.get(f"{prefix}/api/nope", headers=AUTH).json() == {"detail": "Not Found"}
+    response = prefixed.post(f"{prefix}/api/health")
+    assert response.status_code == 405
+    assert "GET" in response.headers["allow"]
+
+
+def test_the_prefix_without_its_slash_is_redirected_to_it(prefixed):
+    response = prefixed.get(f"{BASE}?next=%2Flibrary", follow_redirects=False)
+
+    assert response.status_code == 308
+    assert response.headers["location"] == f"{BASE}/?next=%2Flibrary"
+
+
+def test_the_docs_find_the_schema_under_the_prefix(prefixed):
+    assert prefixed.get(f"{BASE}/openapi.json").status_code == 200
+    assert f"{BASE}/openapi.json" in prefixed.get(f"{BASE}/docs").text
+
+
+def test_the_session_cookie_is_scoped_to_the_prefix(prefixed):
+    webauth.ensure_admin()
+    webauth.set_password(PASSWORD)
+
+    signed_in = prefixed.post(f"{BASE}/api/auth/login", json={"username": "admin", "password": PASSWORD})
+    signed_out = prefixed.post(f"{BASE}/api/auth/logout")
+
+    assert "Path=/audible-sync/" in signed_in.headers["set-cookie"]
+    # Cleared at the same path, or the browser would keep the one it was given
+    assert "Path=/audible-sync/" in signed_out.headers["set-cookie"]
+
+
+def test_at_the_root_the_cookie_path_and_the_base_are_slash(web, tmp_path):
+    (tmp_path / "dist" / "index.html").write_text('<head><base href="/"></head>')
+    app = create_app(
+        scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), web_dir=tmp_path / "dist"
+    )
+    client = TestClient(app)
+    webauth.ensure_admin()
+    webauth.set_password(PASSWORD)
+
+    assert '<base href="/">' in client.get("/library").text
+    assert "Path=/;" in _sign_in(client).headers["set-cookie"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("", ""),
+        ("/", ""),
+        ("  ", ""),
+        ("/audible-sync", "/audible-sync"),
+        ("audible-sync/", "/audible-sync"),
+        ("/apps/audible.sync_2~x/", "/apps/audible.sync_2~x"),
+    ],
+)
+def test_the_base_path_is_normalised(value, expected):
+    assert normalise_base_path(value) == expected
+
+
+@pytest.mark.parametrize("value", ["/a b", '/a"><script>', "/a//b", "/..", "/a/./b", "/café", "/a?b", "/a#b"])
+def test_a_base_path_that_is_not_plain_url_segments_is_refused(value):
+    with pytest.raises(ValueError, match="base path"):
+        normalise_base_path(value)

@@ -15,6 +15,7 @@ has one error format to handle.
 """
 
 import logging
+import re
 import secrets
 import tomllib
 from collections.abc import AsyncIterator, Callable
@@ -26,10 +27,11 @@ import httpx
 from audible import Authenticator
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 from starlette.routing import Match
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src import crypto, database, library, system, webauth
 from src.accounts import (
@@ -170,6 +172,7 @@ def create_app(
     login_throttle: LoginThrottle | None = None,
     secure_cookie: bool = False,
     web_dir: Path | None = None,
+    base_path: str = "",
 ) -> FastAPI:
     """
     Build the application.
@@ -191,7 +194,13 @@ def create_app(
             TLS-terminating reverse proxy it never appears to
         web_dir: The built web app (`web/dist`), served for every path outside `/api`;
             nothing is served when it is None or holds no `index.html`
+        base_path: The path a reverse proxy serves the app under, e.g. `/audible-sync`;
+            empty at the root. Requests are accepted with the prefix or with it
+            stripped, the web app is told it in `<base href>`, and the session cookie
+            is scoped to it
     """
+    base_path = normalise_base_path(base_path)
+    cookie_path = f"{base_path}/"
     logins = logins or PendingLogins()
     throttle = login_throttle or LoginThrottle()
 
@@ -281,7 +290,7 @@ def create_app(
             # Over https only, unless configured: the service is often reached over plain
             # http on a LAN, where a Secure cookie would never be sent back
             secure=secure_cookie or request.url.scheme == "https",
-            path="/",
+            path=cookie_path,
         )
         return _me()
 
@@ -292,7 +301,7 @@ def create_app(
         if session:
             webauth.end_session(session)
         response = Response(status_code=204)
-        response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict")
+        response.delete_cookie(SESSION_COOKIE, path=cookie_path, httponly=True, samesite="strict")
         return response
 
     @router.get("/auth/me", response_model=Me)
@@ -739,8 +748,65 @@ def create_app(
     app.include_router(open_router)
     app.include_router(router)
     if web_dir is not None and (web_dir / "index.html").is_file():
-        _serve_web_app(app, web_dir)
+        _serve_web_app(app, web_dir, base_path)
+    if base_path:
+        # Last, so it is the outermost layer and every other one sees the full path
+        app.add_middleware(BasePath, base_path=base_path)
     return app
+
+
+# One or more segments of URL-safe characters that need no escaping in HTML or a
+# cookie; `.` and `..` alone are not segments anyone means
+_BASE_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
+
+
+def normalise_base_path(value: str) -> str:
+    """
+    The base path as `/a/b`: a leading slash, no trailing one, and `""` for the root.
+    `ValueError` for anything else, since the value is written into the web app's HTML.
+    """
+    trimmed = value.strip().strip("/")
+    if not trimmed:
+        return ""
+    for segment in trimmed.split("/"):
+        if not _BASE_SEGMENT.fullmatch(segment) or segment in (".", ".."):
+            raise ValueError(f"The base path must be URL path segments of letters, digits and .-_~, got {value!r}")
+    return f"/{trimmed}"
+
+
+class BasePath:
+    """
+    Serve the app under `base_path` whichever way the reverse proxy forwards it.
+
+    A proxy either strips the prefix (nginx's `proxy_pass http://app:8080/;`) or passes
+    it on (Traefik without StripPrefix). Either way the request leaves here as the ASGI
+    spec has it: `root_path` the prefix and `path` the full path including it, from
+    which Starlette routes on the part after the prefix and builds every URL it hands
+    out, `/docs`' link to the schema included. The prefix alone, with no slash after
+    it, is redirected to the slash so the web app's relative URLs resolve under it.
+    """
+
+    def __init__(self, app: ASGIApp, base_path: str) -> None:
+        self.app = app
+        self.base_path = base_path
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] not in ("http", "websocket"):
+            await self.app(scope, receive, send)
+            return
+        path = scope["path"]
+        if path == self.base_path and scope["type"] == "http":
+            query = scope.get("query_string", b"").decode("latin-1")
+            location = f"{self.base_path}/" + (f"?{query}" if query else "")
+            await RedirectResponse(location, status_code=308)(scope, receive, send)
+            return
+        scope = {**scope, "root_path": self.base_path}
+        if not path.startswith(f"{self.base_path}/"):
+            scope["path"] = f"{self.base_path}{path}"
+            # raw_path keeps the client's percent-encoding, so it is prefixed, not rebuilt
+            if scope.get("raw_path") is not None:
+                scope["raw_path"] = self.base_path.encode("ascii") + scope["raw_path"]
+        await self.app(scope, receive, send)
 
 
 # Vite names everything under assets/ after its content, so a file there never changes
@@ -750,7 +816,11 @@ _REVALIDATE = {"Cache-Control": "no-cache"}
 _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 
-def _serve_web_app(app: FastAPI, web_dir: Path) -> None:
+# What the build's index.html carries for the service to point at the base path
+_BASE_MARKER = '<base href="/">'
+
+
+def _serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
     """
     Serve the single-page app: a file that exists under `web_dir`, else `index.html`
     so the browser's router handles deep links like `/library?status=failed`.
@@ -763,10 +833,20 @@ def _serve_web_app(app: FastAPI, web_dir: Path) -> None:
     """
     root = web_dir.resolve()
     index = root / "index.html"
+    # Read once: a new build means a new image, or at least a restart. The web app takes
+    # its router's basename and the API's address from <base href>
+    page = index.read_text(encoding="utf-8")
+    if _BASE_MARKER in page:
+        page = page.replace(_BASE_MARKER, f'<base href="{base_path}/">', 1)
+    elif base_path:
+        logger.warning("%s has no %s to point at %s; the web app will not load there", index, _BASE_MARKER, base_path)
     others = list(app.router.routes)  # everything registered before this route
 
+    def index_page() -> HTMLResponse:
+        return HTMLResponse(page, headers=_REVALIDATE)
+
     @app.api_route("/{path:path}", methods=_ALL_METHODS, include_in_schema=False)
-    def web_app(request: Request, path: str) -> FileResponse:
+    def web_app(request: Request, path: str) -> Response:
         # A route that exists under another method is a 405, as it is without this
         # catch-all: matching every method here would otherwise turn it into a 404
         allowed = _methods_allowed(others, request.scope)
@@ -779,15 +859,12 @@ def _serve_web_app(app: FastAPI, web_dir: Path) -> None:
             # resolve() folds any `..`, so this is what keeps a request inside web_dir
             if candidate.is_relative_to(root) and candidate.is_file():
                 if candidate == index:
-                    headers = _REVALIDATE
-                elif candidate.is_relative_to(root / "assets"):
-                    headers = _IMMUTABLE
-                else:
-                    headers = None
+                    return index_page()
+                headers = _IMMUTABLE if candidate.is_relative_to(root / "assets") else None
                 return FileResponse(candidate, headers=headers)
             if path.startswith("assets/"):
                 raise HTTPException(status_code=404, detail="Not Found")
-        return FileResponse(index, headers=_REVALIDATE)
+        return index_page()
 
 
 def _methods_allowed(routes: list, scope: dict) -> list[str]:

@@ -224,9 +224,34 @@ The service reads these environment variables:
 | `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server. A listed origin may use the web app's sign-in cookie; `*` may not (any page on the host could then act as you), so it allows the bearer token only |
 | `AUDIBLE_SYNC_WEB_DIR` | `web/dist` | The built web app, served at every path outside `/api`. Without an `index.html` there, only the API is served |
 | `AUDIBLE_SYNC_SECURE_COOKIE` | `false` | `true` always marks the web app's session cookie `Secure`. Set it behind a reverse proxy that serves https: the service only sees plain http there, and otherwise marks the cookie `Secure` only for requests that arrive over https |
+| `AUDIBLE_SYNC_BASE_PATH` | none | The path a reverse proxy serves the app under, e.g. `/audible-sync`; see below |
 | `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |
 | `AUDIBLE_SYNC_SECRET_KEY` | key file | The key the stored credentials and API token are encrypted with: 44 characters of URL-safe base64, as `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` prints. Unset, the key file is used |
 | `AUDIBLE_SYNC_SECRET_KEY_FILE` | `secrets/secret.key` | Where the key file is; generated owner-only on the first start if missing |
+
+### Behind a reverse proxy, under a path
+
+To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`.
+
+nginx, stripping the prefix (the trailing `/` on both lines matters):
+
+```nginx
+location /audible-sync/ {
+    proxy_pass http://audible-sync:8080/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Traefik, passing it on (labels on the container):
+
+```yaml
+labels:
+  - traefik.http.routers.audible-sync.rule=Host(`my.domain`) && PathPrefix(`/audible-sync`)
+  - traefik.http.services.audible-sync.loadbalancer.server.port=8080
+```
+
+A Traefik `StripPrefix` middleware works too. Without `AUDIBLE_SYNC_BASE_PATH`, the app only works at the root of a domain.
 
 ## API
 

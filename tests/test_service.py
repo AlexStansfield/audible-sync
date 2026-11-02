@@ -155,3 +155,24 @@ def test_a_flag_reads_the_spellings_config_ini_does(value, expected):
 def test_a_flag_that_is_not_true_or_false_is_an_error_naming_it():
     with pytest.raises(ValueError, match="AUDIBLE_SYNC_DEBUG must be true or false"):
         ServiceConfig.from_env({"AUDIBLE_SYNC_DEBUG": "maybe"})
+
+
+def test_the_base_path_comes_from_the_environment_normalised():
+    assert ServiceConfig.from_env({}).base_path == ""
+    assert ServiceConfig.from_env({"AUDIBLE_SYNC_BASE_PATH": "audible-sync/"}).base_path == "/audible-sync"
+
+
+def test_a_base_path_that_is_not_a_path_is_an_error_naming_the_variable():
+    with pytest.raises(ValueError, match="AUDIBLE_SYNC_BASE_PATH"):
+        ServiceConfig.from_env({"AUDIBLE_SYNC_BASE_PATH": "/a b"})
+
+
+def test_build_serves_under_the_base_path(db, monkeypatch, tmp_path):
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+    (tmp_path / "index.html").write_text('<base href="/">')
+
+    client = TestClient(service.build(ServiceConfig(api_token="tok", web_dir=tmp_path, base_path="/sync")))
+
+    assert client.get("/sync/library").text == '<base href="/sync/">'
+    assert client.get("/sync/api/health").status_code == 200
