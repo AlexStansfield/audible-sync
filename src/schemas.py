@@ -378,9 +378,11 @@ class QueueItem(BaseModel):
 
 class QueueOut(BaseModel):
     """
-    The next run's downloads in order (the first `limit` of them), `total` it will take
-    on, `waiting` in those accounts in all, and the per-account `max_download` (None:
-    everything waiting).
+    The books still to come, in the order a run takes them (the first `limit`), from
+    the queue as it stands now. `total` is how many are planned before any refusals
+    (a refused licence uses no slot, so a run can take on more), `waiting` how many
+    wait in those accounts in all, and `max_download` the per-account cut (None:
+    everything waiting). See `library.next_run_queue` for why it is a plan.
     """
 
     items: list[QueueItem]

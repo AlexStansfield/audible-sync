@@ -289,19 +289,26 @@ class Queue:
 
 def next_run_queue(settings: Settings) -> Queue:
     """
-    What the next run will download, in the order it will: each enabled account that
-    can log in, in the order the pipeline takes them, its queue oldest purchase first
-    and cut at `max_download` - which is per account per run.
+    The books still to come, from the queue as it stands now: each account a run takes
+    (`Account.runnable`), in the order the pipeline takes them, its queue oldest
+    purchase first and cut at `max_download` - which is per account per run.
 
     The same query the run uses (`get_books_to_download`), so a book a crashed run left
-    `downloading` shows once its claim is stale. A licence Audible refuses uses no slot,
-    so when refused titles head the queue the run reaches further down than this shows;
-    nothing can tell in advance which those are.
+    `downloading` shows once its claim is stale. It is a plan, not a promise, for three
+    reasons nothing can know in advance:
+
+    - a licence Audible refuses uses no slot, so the run reaches further down;
+    - the run syncs before it downloads, and a withdrawn title Audible offers again
+      rejoins the queue at its old purchase date, taking a slot from the end of this
+      list (new purchases are the newest, so they only ever join the end);
+    - while a run is in flight, its head is what that run has left: the book it is on
+      is not listed (it is `current_run.book` in `/api/status`), and the accounts it has
+      finished are listed again as the next run will find them.
     """
     planned: list[tuple[int, Book]] = []
     waiting = 0
     for account in get_accounts():
-        if not account.enabled or account.needs_login:
+        if not account.runnable:
             continue
         books = get_books_to_download(account_id=account.id)
         waiting += len(books)

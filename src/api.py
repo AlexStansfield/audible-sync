@@ -631,9 +631,11 @@ def create_app(
     @router.get("/queue", response_model=QueueOut)
     def get_queue(limit: Annotated[int, Query(ge=1, le=200)] = 50) -> QueueOut:
         """
-        What the next run will download, in order: each enabled account that can log in,
-        oldest purchase first, cut at `max_download` per account. `limit` is how many to
-        list; `total` and `waiting` count them all.
+        The books still to come, in the order a run takes them: each enabled account
+        that can log in, oldest purchase first, cut at `max_download` per account. A
+        plan rather than a promise (refusals, titles the sync restores, a run in flight;
+        see `library.next_run_queue`). `limit` is how many to list; `total` (planned)
+        and `waiting` count them all.
         """
         settings = Settings.from_db()
         queue = library.next_run_queue(settings)

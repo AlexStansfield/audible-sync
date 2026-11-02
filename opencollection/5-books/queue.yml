@@ -18,4 +18,9 @@ docs: |
   `max_download` per account. `items` are the first `limit` (`position`, `account_id`,
   `book`); `total` is how many the run will take on, `waiting` how many wait in those
   accounts in all (the "+N more waiting"), `max_download` null for everything waiting.
-  A licence Audible refuses uses no slot, so a run can reach further down than this.
+  `total` is the plan before any refusals.
+
+  A plan from the queue as it stands now, not a promise: a licence Audible refuses uses no
+  slot, so a run reaches further down; a withdrawn title the run's sync restores rejoins
+  at its old purchase date and takes a slot; and during a run the list starts with what
+  that run has left (the book in hand is `current_run.book` in Status).

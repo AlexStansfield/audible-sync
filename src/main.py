@@ -119,11 +119,11 @@ def run_pipeline(
         if account is None:
             logger.info("Skipping %s: removed since the run began", listed.name)
             continue
-        if not account.enabled:
-            logger.info("Skipping %s: disabled", account.name)
-            continue
-        if account.needs_login:
-            logger.warning("Skipping %s: it has no credentials, log in to it first", account.name)
+        if not account.runnable:
+            if account.needs_login:
+                logger.warning("Skipping %s: it has no credentials, log in to it first", account.name)
+            else:
+                logger.info("Skipping %s: disabled", account.name)
             continue
 
         try:
