@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
-from src import crypto, service
+from src import crypto, service, webauth
 from src.logbuffer import RingBufferHandler
 from src.service import ServiceConfig, resolve_api_token
 from src.settings import Settings
@@ -137,3 +137,53 @@ def test_build_installs_the_log_buffer_on_the_root_logger(db, monkeypatch):
         for handler in root.handlers:
             if handler not in before:
                 root.removeHandler(handler)
+
+
+def test_the_first_start_creates_the_web_user_and_logs_its_password_once(db, caplog):
+    caplog.set_level(logging.INFO, logger="src.service")
+
+    service.ensure_web_user()
+    (password,) = [r.args[1] for r in caplog.records if "Web app sign-in" in r.getMessage()]
+    caplog.clear()
+    service.ensure_web_user()
+
+    assert webauth.verify("admin", password)
+    assert password not in caplog.text
+    assert "reset-password" not in caplog.text
+
+
+def test_build_creates_the_web_user(db, monkeypatch):
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+
+    service.build(ServiceConfig(api_token="tok"))
+
+    assert webauth.current_user() == webauth.User("admin", generated_password=True)
+
+
+def test_secure_cookie_comes_from_the_environment():
+    assert ServiceConfig.from_env({}).secure_cookie is False
+    assert ServiceConfig.from_env({"AUDIBLE_SYNC_SECURE_COOKIE": "true"}).secure_cookie is True
+
+
+def test_a_generated_token_and_password_never_reach_the_logs_endpoint(db, monkeypatch, caplog):
+    """The Logs screen can be copied into a bug report; the console is the only place they go."""
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+    caplog.set_level(logging.INFO)
+
+    app = service.build(ServiceConfig())
+    client = TestClient(app)
+    token = resolve_api_token(None)
+    logged = " ".join(
+        r["message"]
+        for r in client.get("/api/logs?limit=1000", headers={"Authorization": f"Bearer {token}"}).json()["items"]
+    )
+
+    assert "Generated a new API token" in caplog.text
+    assert "Web app sign-in" in caplog.text
+    assert token not in logged
+    assert "Web app sign-in" not in logged
+    for handler in list(logging.getLogger().handlers):
+        if isinstance(handler, RingBufferHandler):
+            logging.getLogger().removeHandler(handler)

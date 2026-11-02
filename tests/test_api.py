@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 import src.database as database
 from src import api as api_module
 from src import audible_login as login_module
+from src import webauth
 from src.api import create_app, read_version
 from src.audible_login import PendingLogins
 from src.logbuffer import RingBufferHandler
@@ -113,6 +114,203 @@ def test_everything_else_needs_the_token(api, headers):
     assert response.status_code == 401
     assert response.headers["WWW-Authenticate"] == "Bearer"
     assert response.json() == {"detail": "Not authenticated"}
+
+
+# --- the web app's sign-in -------------------------------------------------------
+
+PASSWORD = "correct horse battery"
+
+
+@pytest.fixture
+def user(api):
+    webauth.ensure_admin()
+    webauth.set_password(PASSWORD)
+
+
+def _sign_in(client, *, remember=False, password=PASSWORD, username="admin"):
+    return client.post("/api/auth/login", json={"username": username, "password": password, "remember": remember})
+
+
+def test_signing_in_sets_a_session_cookie_that_works_on_every_route(api, user):
+    response = _sign_in(api)
+
+    assert response.status_code == 200
+    assert response.json() == {"username": "admin", "generated_password": False}
+    cookie = response.headers["set-cookie"]
+    assert "audible_sync_session=" in cookie
+    assert "HttpOnly" in cookie
+    assert "SameSite=strict" in cookie
+    # Plain http: a Secure cookie would never come back
+    assert "Secure" not in cookie
+    # No "Keep me signed in": the cookie ends with the browser
+    assert "Max-Age" not in cookie
+    assert api.get("/api/status").status_code == 200
+
+
+def test_keep_me_signed_in_makes_the_cookie_last_thirty_days(api, user):
+    cookie = _sign_in(api, remember=True).headers["set-cookie"]
+
+    assert f"Max-Age={30 * 24 * 60 * 60}" in cookie
+
+
+def test_the_cookie_is_secure_over_https(api, user):
+    client = TestClient(api.app, base_url="https://testserver")
+
+    assert "Secure" in _sign_in(client).headers["set-cookie"]
+
+
+def test_secure_cookie_marks_the_cookie_secure_over_http_too(db, user):
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, secure_cookie=True)
+
+    assert "Secure" in _sign_in(TestClient(app)).headers["set-cookie"]
+
+
+def test_signing_in_again_ends_the_previous_session(api, user):
+    _sign_in(api)
+    previous = api.cookies["audible_sync_session"]
+
+    _sign_in(api)
+
+    assert not webauth.check_session(previous)
+    assert api.get("/api/status").status_code == 200
+
+
+def test_an_overlong_password_is_refused_before_it_is_hashed(api, user, monkeypatch):
+    monkeypatch.setattr(webauth, "check_password", lambda *a: pytest.fail("must not hash"))
+
+    response = _sign_in(api, password="x" * (webauth.MAX_PASSWORD_LENGTH + 1))
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(("username", "password"), [("admin", "wrong password!"), ("nobody", PASSWORD)])
+def test_a_wrong_username_or_password_gets_one_message(api, user, username, password):
+    response = _sign_in(api, username=username, password=password)
+
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Wrong username or password"}
+    assert "set-cookie" not in response.headers
+    assert api.get("/api/status").status_code == 401
+
+
+def test_a_made_up_cookie_is_refused(api, user):
+    api.cookies.set("audible_sync_session", "made up")
+
+    assert api.get("/api/status").status_code == 401
+
+
+def test_the_bearer_token_still_works_beside_sessions(api, user):
+    assert api.get("/api/status", headers=AUTH).status_code == 200
+
+
+def test_a_token_outside_ascii_is_a_401_not_a_500(api):
+    response = api.get("/api/status", headers={"Authorization": b"Bearer t\xf6ken"})
+
+    assert response.status_code == 401
+
+
+def test_signing_out_ends_the_session(api, user):
+    _sign_in(api)
+    token = api.cookies["audible_sync_session"]
+
+    response = api.post("/api/auth/logout")
+
+    assert response.status_code == 204
+    assert 'audible_sync_session=""' in response.headers["set-cookie"]
+    # The session itself is gone, not only the cookie
+    assert not webauth.check_session(token)
+
+
+def test_signing_out_without_a_session_still_answers(api):
+    assert api.post("/api/auth/logout").status_code == 204
+
+
+def test_after_five_failures_even_the_right_password_waits(api, user):
+    for _ in range(5):
+        assert _sign_in(api, password="wrong password!").status_code == 401
+
+    response = _sign_in(api)
+
+    assert response.status_code == 429
+    assert int(response.headers["Retry-After"]) > 0
+
+
+def test_me_says_whether_the_generated_password_is_in_use(api):
+    webauth.ensure_admin()
+
+    assert api.get("/api/auth/me", headers=AUTH).json() == {"username": "admin", "generated_password": True}
+
+
+def test_me_needs_auth(api, user):
+    assert api.get("/api/auth/me").status_code == 401
+
+
+def test_changing_the_username_needs_the_current_password(api, user):
+    _sign_in(api)
+
+    wrong = api.put("/api/auth/username", json={"username": "alex", "current_password": "wrong password!"})
+    right = api.put("/api/auth/username", json={"username": "alex", "current_password": PASSWORD})
+
+    assert wrong.status_code == 403
+    assert wrong.json() == {"detail": "The current password is wrong"}
+    assert right.status_code == 200
+    assert right.json()["username"] == "alex"
+    assert webauth.verify("alex", PASSWORD)
+
+
+def test_an_empty_username_is_a_422(api, user):
+    response = api.put("/api/auth/username", headers=AUTH, json={"username": " ", "current_password": PASSWORD})
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "The username cannot be empty"}
+
+
+def test_changing_the_password_signs_out_every_other_session_but_this_one(api, user):
+    other = TestClient(api.app)
+    _sign_in(other)
+    _sign_in(api)
+
+    response = api.put("/api/auth/password", json={"current_password": PASSWORD, "new_password": "a new long password"})
+
+    assert response.status_code == 200
+    assert response.json() == {"username": "admin", "generated_password": False}
+    assert api.get("/api/status").status_code == 200
+    assert other.get("/api/status").status_code == 401
+    assert webauth.verify("admin", "a new long password")
+
+
+def test_changing_the_password_with_the_token_signs_out_every_session(api, user):
+    browser = TestClient(api.app)
+    _sign_in(browser)
+
+    TestClient(api.app).put(
+        "/api/auth/password",
+        headers=AUTH,
+        json={"current_password": PASSWORD, "new_password": "a new long password"},
+    )
+
+    assert browser.get("/api/status").status_code == 401
+
+
+def test_a_short_new_password_is_a_422_and_changes_nothing(api, user):
+    response = api.put("/api/auth/password", headers=AUTH, json={"current_password": PASSWORD, "new_password": "short"})
+
+    assert response.status_code == 422
+    assert "at least 12" in response.json()["detail"]
+    assert webauth.verify("admin", PASSWORD)
+
+
+def test_wrong_current_passwords_count_towards_the_throttle(api, user):
+    for _ in range(5):
+        api.put("/api/auth/password", headers=AUTH, json={"current_password": "wrong!", "new_password": "x" * 12})
+
+    assert _sign_in(api).status_code == 429
+
+
+def test_the_web_user_never_shows_in_the_settings(api, user):
+    body = api.get("/api/settings", headers=AUTH).json()
+
+    assert not any(key.startswith("web_") for key in body)
 
 
 def test_read_version_comes_from_pyproject():
@@ -359,6 +557,8 @@ def test_cors_allows_the_configured_origin(db):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://ui:5173"
+    # ... with the session cookie, for a web app served from that origin
+    assert response.headers["access-control-allow-credentials"] == "true"
 
 
 def test_cors_is_off_unless_configured(api):

@@ -9,12 +9,13 @@ bending to the other. Anything that maps straight from a dataclass uses
 """
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.model import BookStatus, SyncOutcome
 from src.runstate import RunStage
+from src.webauth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
 
 
 class Health(BaseModel):
@@ -26,6 +27,39 @@ class Message(BaseModel):
     """A one-line acknowledgement for an action that returns nothing else."""
 
     status: str
+
+
+# Capped here as well as in `src.webauth`, so an endpoint that needs no sign-in never
+# hashes a password of any length a client cares to send. The username cap
+# is loose: `webauth` enforces the real one when it is set.
+Password = Annotated[str, Field(max_length=MAX_PASSWORD_LENGTH)]
+Username = Annotated[str, Field(max_length=4 * MAX_USERNAME_LENGTH)]
+
+
+class SignIn(BaseModel):
+    """`POST /api/auth/login`. `remember` makes the session cookie outlive the browser."""
+
+    username: Username
+    password: Password
+    remember: bool = False
+
+
+class Me(BaseModel):
+    """The web app's user. `generated_password` asks the UI to suggest choosing one."""
+
+    username: str
+    generated_password: bool
+
+
+class UsernameChange(BaseModel):
+    username: Username
+    current_password: Password
+
+
+class PasswordChange(BaseModel):
+    current_password: Password
+    # webauth's validator gives the message for one that is too long or too short
+    new_password: str
 
 
 class SchedulerStatus(BaseModel):

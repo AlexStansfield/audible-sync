@@ -16,6 +16,9 @@ services:
       # Leave unset to have one generated into ./secrets on the first start. Back that
       # folder up separately from ./data: without the key the logins have to be redone.
       - AUDIBLE_SYNC_SECRET_KEY=${AUDIBLE_SYNC_SECRET_KEY:-}
+      # true behind a reverse proxy serving https, so the web app's session cookie is
+      # marked Secure even though the service itself only sees http
+      - AUDIBLE_SYNC_SECURE_COOKIE=${AUDIBLE_SYNC_SECURE_COOKIE:-}
     volumes:
       - ./data:/app/data
       - ./secrets:/app/secrets

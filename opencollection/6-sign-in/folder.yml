@@ -1,0 +1,10 @@
+info:
+  name: Sign-in
+  type: folder
+  seq: 6
+docs:
+  content: |
+    The web app's own sign-in: one user, `admin` with a password logged on the first
+    start. Signing in sets an HTTP-only session cookie that every other request then
+    accepts instead of the bearer token. Scripts keep using the token.
+  type: text/markdown

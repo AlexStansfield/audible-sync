@@ -460,6 +460,52 @@ def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):
     assert "Account 3 added" in capsys.readouterr().out
 
 
+def test_reset_password_prints_a_new_password_after_the_usual_preparation(monkeypatch, capsys):
+    order = []
+    _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(main_module.webauth, "password_readable", lambda: True)
+    resets = []
+    monkeypatch.setattr(
+        main_module.webauth,
+        "reset_password",
+        lambda *, reset_username: order.append("reset") or resets.append(reset_username) or "new-password-123",
+    )
+    monkeypatch.setattr(main_module.webauth, "current_user", lambda: main_module.webauth.User("alex", True))
+
+    main(["reset-password"])
+
+    assert order[:4] == ["init_db", "seed", "logging", "encrypt"]
+    assert order[-1] == "reset"
+    assert resets == [False]
+    out = capsys.readouterr().out
+    assert "Sign in as alex with the password: new-password-123" in out
+    assert "signed out" in out
+
+
+def test_reset_password_can_put_the_username_back(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module.webauth, "password_readable", lambda: True)
+    resets = []
+    monkeypatch.setattr(
+        main_module.webauth, "reset_password", lambda *, reset_username: resets.append(reset_username) or "pw"
+    )
+    monkeypatch.setattr(main_module.webauth, "current_user", lambda: None)
+
+    main(["reset-password", "--username"])
+
+    assert resets == [True]
+
+
+def test_reset_password_refuses_under_another_key_than_the_service(monkeypatch):
+    """Stored under this key, the password would be unreadable to the service: a lockout."""
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module.webauth, "password_readable", lambda: False)
+    monkeypatch.setattr(main_module.webauth, "reset_password", lambda **kw: pytest.fail("must not reset"))
+
+    with pytest.raises(SystemExit, match="another key"):
+        main(["reset-password"])
+
+
 def test_login_command_defaults(monkeypatch):
     _patch_prepare(monkeypatch, [])
     monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")

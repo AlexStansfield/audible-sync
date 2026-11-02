@@ -120,7 +120,21 @@ docker compose logs audible-sync | grep "API token"
 
 Lost it? Set `AUDIBLE_SYNC_API_TOKEN` to a token of your choosing and restart; it takes precedence over the stored one.
 
-The Audible credentials and the API token are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
+The web app (coming in the next milestone) has its own sign-in: one user, created on the first start as `admin` with a generated password that is printed in the log that once, the same way:
+
+```
+docker compose logs audible-sync | grep "Web app sign-in"
+```
+
+Sign in with it and choose your own. Forgotten the password? Reset it on the server; the new one is printed and every browser is signed out:
+
+```
+docker compose exec audible-sync uv run --no-sync python -m src.main reset-password
+```
+
+Add `--username` to set the username back to `admin` as well. Run it in the container as shown: a command run on the host with another secret key is refused, because the password it stored would be unreadable to the service.
+
+The Audible credentials, the API token and the web app password's hash are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
 
 The first run starts as soon as the service does, then every `interval-minutes` (six hours by default). `docker stop` cancels a run in progress cleanly: the book being downloaded goes back to the queue.
 
@@ -208,17 +222,23 @@ The service reads these environment variables:
 | `AUDIBLE_SYNC_PORT` | `8080` | Port |
 | `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged (once) on the first start if unset |
 | `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server |
+| `AUDIBLE_SYNC_SECURE_COOKIE` | `false` | `true` always marks the web app's session cookie `Secure`. Set it behind a reverse proxy that serves https: the service only sees plain http there, and otherwise marks the cookie `Secure` only for requests that arrive over https |
 | `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |
 | `AUDIBLE_SYNC_SECRET_KEY` | key file | The key the stored credentials and API token are encrypted with: 44 characters of URL-safe base64, as `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` prints. Unset, the key file is used |
 | `AUDIBLE_SYNC_SECRET_KEY_FILE` | `secrets/secret.key` | Where the key file is; generated owner-only on the first start if missing |
 
 ## API
 
-Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Every request except the health check carries `Authorization: Bearer <token>`; errors are always `{"detail": "..."}`.
+Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Every request except the health check and signing in or out carries `Authorization: Bearer <token>`, or the session cookie that signing in sets; errors are always `{"detail": "..."}`.
 
 | Method and path | What it does |
 |-----------------|--------------|
 | `GET /api/health` | `{"status": "ok", "version": ...}`, no token needed |
+| `POST /api/auth/login` | Sign in to the web app with `username`, `password` and `remember`; sets an HTTP-only session cookie (30 days with `remember`, else until the browser closes). No token needed; a wrong username or password is a `401` that does not say which, and five failures in 15 minutes a `429` |
+| `POST /api/auth/logout` | End the session and clear the cookie |
+| `GET /api/auth/me` | `username` and `generated_password` (still using the generated one) |
+| `PUT /api/auth/username` | Change the username; needs `current_password` (`403` when wrong) |
+| `PUT /api/auth/password` | Change the password (12 characters or more); needs `current_password`. Every other session is signed out |
 | `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer) and the last run |
 | `POST /api/sync` | Start a run now; `409` if one is already running |
 | `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |

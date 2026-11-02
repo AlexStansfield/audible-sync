@@ -1,0 +1,20 @@
+info:
+  name: Change username
+  type: http
+  seq: 4
+http:
+  method: PUT
+  url: "{{baseUrl}}/api/auth/username"
+  body:
+    type: json
+    data: |-
+      {
+        "username": "alex",
+        "current_password": "the current password"
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  403 when the current password is wrong (it counts towards the sign-in limit), 422
+  for an empty username. Sessions stay signed in.

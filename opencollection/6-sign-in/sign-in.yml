@@ -1,0 +1,23 @@
+info:
+  name: Sign in
+  type: http
+  seq: 1
+http:
+  method: POST
+  url: "{{baseUrl}}/api/auth/login"
+  body:
+    type: json
+    data: |-
+      {
+        "username": "admin",
+        "password": "the password from the log",
+        "remember": false
+      }
+settings:
+  encodeUrl: true
+docs: |
+  No token needed. 200 with `{username, generated_password}` and a `Set-Cookie` for
+  the session: `remember` makes the cookie last 30 days, otherwise it ends with the
+  browser (and the server forgets it after 12 hours unused). A wrong username or
+  password is a 401 that does not say which; five failures from one address in 15
+  minutes is a 429 with `Retry-After`.
