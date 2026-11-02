@@ -17,7 +17,15 @@ import { ProgressBar } from "../../components/ProgressBar";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton";
 import { BOOK_STATUS, formatBytes, formatClock, formatDay, formatTime, plural } from "../../lib/format";
 import styles from "./Dashboard.module.css";
-import { useBook, useLatestFailure, useRecentlyDownloaded, useRecentRuns, useStats, useUpNext } from "./queries";
+import {
+  DURING_RUN,
+  useBook,
+  useLatestFailure,
+  useRecentlyDownloaded,
+  useRecentRuns,
+  useStats,
+  useUpNext,
+} from "./queries";
 import { bookOfRun, isInterrupted, nextRunText, runDetail, stageLabel, subtitle, upNextHeader } from "./text";
 
 type Account = components["schemas"]["AccountOut"];
@@ -55,9 +63,6 @@ export function DashboardPage() {
     </>
   );
 }
-
-/** What each book a run in flight takes up changes on this screen. */
-export const DURING_RUN = [["stats"], ["books", "recent"], ["queue"]] as const;
 
 function Header({ status, firstRun }: { status: Status | undefined; firstRun: boolean }) {
   const { start, cancel } = useSyncActions();

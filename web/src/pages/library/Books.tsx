@@ -12,6 +12,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { Switch } from "../../components/Switch";
 import { BOOK_STATUS, type BookStatus, formatDay } from "../../lib/format";
 import styles from "./Library.module.css";
+import { seriesText } from "./text";
 
 type Book = components["schemas"]["BookOut"];
 
@@ -27,6 +28,8 @@ export type BooksProps = {
   pageSelected: boolean;
   onSelectPage: (on: boolean) => void;
   onMonitor: (book: Book, monitored: boolean) => void;
+  /** The previous page is on show while the next loads: a change could not be shown */
+  monitorDisabled: boolean;
 };
 
 function statusOf(book: Book, live: BooksProps["live"]): { label: string; colour: string } {
@@ -35,20 +38,22 @@ function statusOf(book: Book, live: BooksProps["live"]): { label: string; colour
   return known ?? { label: book.status ?? "Unknown", colour: "var(--muted)" };
 }
 
-/** `Red Rising Saga 1`, from the series the book files under. */
-export function seriesText(book: Book): string | null {
-  const series = book.primary_series;
-  if (!series?.title) return null;
-  return series.sequence ? `${series.title} ${series.sequence}` : series.title;
-}
-
-function MonitorButton({ book, onMonitor }: { book: Book; onMonitor: BooksProps["onMonitor"] }) {
+function MonitorButton({
+  book,
+  onMonitor,
+  disabled,
+}: {
+  book: Book;
+  onMonitor: BooksProps["onMonitor"];
+  disabled: boolean;
+}) {
   return (
     <button
       type="button"
       className={`${styles.bookmark} ${book.monitored ? styles.bookmarkOn : ""}`}
       aria-label={book.monitored ? `Stop monitoring ${book.title}` : `Monitor ${book.title}`}
       aria-pressed={book.monitored}
+      disabled={disabled}
       onClick={() => onMonitor(book, !book.monitored)}
     >
       <Icon name="bookmark" size={16} filled={book.monitored} />
@@ -56,7 +61,15 @@ function MonitorButton({ book, onMonitor }: { book: Book; onMonitor: BooksProps[
   );
 }
 
-export function BookGrid({ books, live, selecting, isSelected, onToggleSelect, onMonitor }: BooksProps) {
+export function BookGrid({
+  books,
+  live,
+  selecting,
+  isSelected,
+  onToggleSelect,
+  onMonitor,
+  monitorDisabled,
+}: BooksProps) {
   return (
     <section aria-label="Books" className={styles.grid}>
       {books.map((book) => {
@@ -100,7 +113,7 @@ export function BookGrid({ books, live, selecting, isSelected, onToggleSelect, o
                 </Link>
                 <span className={styles.tileAuthor}>{book.authors.join(", ") || "Unknown author"}</span>
               </div>
-              <MonitorButton book={book} onMonitor={onMonitor} />
+              <MonitorButton book={book} onMonitor={onMonitor} disabled={monitorDisabled} />
             </div>
           </div>
         );
@@ -119,6 +132,7 @@ export function BookTable({
   pageSelected,
   onSelectPage,
   onMonitor,
+  monitorDisabled,
 }: BooksProps) {
   return (
     <section aria-label="Books" className={styles.tableCard}>
@@ -186,6 +200,7 @@ export function BookTable({
                   <Switch
                     checked={book.monitored}
                     label={`Monitor ${book.title}`}
+                    disabled={monitorDisabled}
                     onChange={(monitored) => onMonitor(book, monitored)}
                   />
                 </td>

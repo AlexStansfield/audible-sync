@@ -86,15 +86,13 @@ export function useRefreshDuringRun(status: Status | undefined, queryKeys: reado
   const run = status?.current_run;
   const done = run ? `${run.books_done}:${run.book?.id ?? ""}` : undefined;
   const seen = useRef(done);
-  // The keys are a constant at each call site; read the latest without re-running
-  const latest = useRef(queryKeys);
-  latest.current = queryKeys;
+  // `queryKeys` is a module constant at each call site, so it never re-runs this by itself
   useEffect(() => {
     if (done !== undefined && seen.current !== undefined && done !== seen.current) {
-      for (const queryKey of latest.current) {
+      for (const queryKey of queryKeys) {
         void client.invalidateQueries({ queryKey: [...queryKey] });
       }
     }
     seen.current = done;
-  }, [done, client]);
+  }, [done, client, queryKeys]);
 }

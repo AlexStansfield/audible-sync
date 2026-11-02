@@ -5,6 +5,7 @@ import type { components } from "../../api/schema";
 import { BOOK_STATUS, plural } from "../../lib/format";
 import type { LibraryQuery } from "./libraryQuery";
 
+type Book = components["schemas"]["BookOut"];
 type BulkAction = components["schemas"]["BulkAction"];
 type BulkResult = components["schemas"]["BulkResultOut"];
 type SkipReason = components["schemas"]["SkipReason"];
@@ -80,4 +81,11 @@ export function bulkResultText(action: BulkAction, result: BulkResult): { headli
 /** The selection bar's count. */
 export function selectionLabel(count: number, all: boolean): string {
   return all ? `All ${count.toLocaleString()} matching books selected` : `${count.toLocaleString()} selected`;
+}
+
+/** `Red Rising Saga 1`, from the series the book files under. */
+export function seriesText(book: Book): string | null {
+  const series = book.primary_series;
+  if (!series?.title) return null;
+  return series.sequence ? `${series.title} ${series.sequence}` : series.title;
 }

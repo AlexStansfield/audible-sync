@@ -1,18 +1,20 @@
 /**
  * The Library's bulk selection (DESIGN.md, Library: bulk actions). Either some books
- * picked by id, which survives paging and filtering, or every book the filters match,
- * which is sent as the filters rather than the ids and so ends when they change.
+ * picked by id, which survives paging, or every book the filters match, which is sent
+ * as the filters rather than the ids. Either ends when the filters change: books picked
+ * under other filters are no longer on show, and an action must not reach books the
+ * user cannot see.
  */
-export type Selection = { all: false; ids: ReadonlySet<number> } | { all: true; total: number };
+export type Selection = { all: false; ids: ReadonlySet<number> } | { all: true };
 
 export type SelectionAction =
   /** One book's checkbox; `pageIds` are the books on show, what "all matching" narrows to */
   | { type: "toggle"; id: number; pageIds: readonly number[] }
   /** The page's checkbox: every id on the page in, or every one out */
   | { type: "page"; ids: readonly number[]; on: boolean }
-  | { type: "all"; total: number }
+  | { type: "all" }
   | { type: "clear" }
-  /** The filters changed: "all matching" meant the old ones */
+  /** The filters changed */
   | { type: "filters" };
 
 export const EMPTY: Selection = { all: false, ids: new Set() };
@@ -38,16 +40,21 @@ export function selectionReducer(state: Selection, action: SelectionAction): Sel
       return { all: false, ids };
     }
     case "all":
-      return { all: true, total: action.total };
+      return { all: true };
     case "clear":
       return EMPTY;
     case "filters":
-      return state.all ? EMPTY : state;
+      return EMPTY;
   }
 }
 
-export function selectedCount(selection: Selection): number {
-  return selection.all ? selection.total : selection.ids.size;
+/**
+ * How many books an action would reach. "All matching" is sent as the filters, so it is
+ * whatever matches now: `matching` is the listing's latest total, which refetches as a
+ * run moves books in and out of the filter.
+ */
+export function selectedCount(selection: Selection, matching: number): number {
+  return selection.all ? matching : selection.ids.size;
 }
 
 export function isSelected(selection: Selection, id: number): boolean {

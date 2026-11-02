@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { fail, fakeApi, ok, type Reply, signedIn, status } from "../../test/fakeApi";
 import { account, type Book, book, counts } from "../../test/fixtures";
 import { renderApp } from "../../test/render";
-import { VIEW_KEY } from "./LibraryPage";
+import { VIEW_KEY } from "./libraryQuery";
 
 const UK = account();
 const US = account({ id: 2, name: "Alex (US)", country_code: "us" });
@@ -37,7 +37,7 @@ const PAGE: Book[] = [
 ];
 
 /** The listing: `items` for the page asked for, the sidebar's one-row count otherwise. */
-function listing(items: Book[] = PAGE, total = 50): Reply {
+function listing(items: Book[] = PAGE, total = 50): (request: Request) => Response {
   return (request: Request) => {
     const query = new URL(request.url).searchParams;
     if (query.get("page_size") === "1") return Response.json({ items: [], total: 50, page: 1, page_size: 1 });
@@ -212,6 +212,27 @@ describe("monitoring a book", () => {
     release();
   });
 
+  it("waits while the previous page is still on show", async () => {
+    let release: () => void = () => undefined;
+    const first = listing();
+    library({
+      "GET /api/books": (request: Request) => {
+        if (new URL(request.url).searchParams.get("page") !== "2") return first(request);
+        return new Promise<Response>((resolve) => {
+          release = () => resolve(Response.json({ items: [book({ id: 40 })], total: 50, page: 2, page_size: 24 }));
+        });
+      },
+    });
+    renderApp("/library");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Next" }));
+    // Page 1's books, kept on show: a change to one could not be shown on page 2's list
+    expect(await screen.findByRole("button", { name: "Stop monitoring Golden Son" })).toBeDisabled();
+    release();
+    expect(await screen.findByRole("button", { name: "Stop monitoring Book 40" })).toBeEnabled();
+  });
+
   it("puts it back and says so when the service refuses", async () => {
     library({ "PATCH /api/books/2": fail(500, "database is locked") });
     renderApp("/library");
@@ -259,6 +280,18 @@ describe("bulk actions", () => {
     await waitFor(() => expect(listRequests(api).at(-1)?.get("page")).toBe("2"));
     await user.click(screen.getByRole("button", { name: "Select all on this page (3)" }));
     expect(screen.getByRole("region", { name: "Selection" })).toHaveTextContent("3 selected");
+  });
+
+  it("drops the selection when the filters change, so no action reaches books out of view", async () => {
+    library();
+    renderApp("/library");
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Select" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Red Rising" }));
+    expect(screen.getByRole("region", { name: "Selection" })).toHaveTextContent("1 selected");
+    await user.click(screen.getByRole("button", { name: /Failed/ }));
+    expect(screen.getByRole("region", { name: "Selection" })).toHaveTextContent("0 selected");
   });
 
   it("sends the filters, not the ids, for everything matching", async () => {

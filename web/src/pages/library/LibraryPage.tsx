@@ -21,16 +21,21 @@ import styles from "./Library.module.css";
 import {
   bulkFilter,
   DEFAULT_QUERY,
+  defaultOrder,
   type LibraryQuery,
+  MAX_SEARCH,
   PAGE_SIZE,
   pageList,
   parse,
   rangeText,
+  SEARCH_DELAY,
   SORTS,
   type Sort,
   STATUSES,
   serialise,
+  VIEW_KEY,
 } from "./libraryQuery";
+import { liveBook } from "./live";
 import { useBulkAction, useLibrary, useMonitorBook } from "./queries";
 import { EMPTY, isSelected, pageSelected, selectedCount, selectionReducer } from "./selection";
 import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "./text";
@@ -38,9 +43,6 @@ import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "
 type BulkAction = components["schemas"]["BulkAction"];
 type BulkResult = components["schemas"]["BulkResultOut"];
 type BookCounts = components["schemas"]["BookCounts"];
-
-export const VIEW_KEY = "audible-sync.library-view";
-export const SEARCH_DELAY = 300;
 
 /** What a run in flight changes here, refetched as it takes up each book. */
 const DURING_RUN = [["stats"], ["books", "list"]] as const;
@@ -79,10 +81,12 @@ export function LibraryPage() {
     setParams(serialise({ ...query, page: 1, ...changes }), { replace: options.replace });
   };
 
-  // "All matching" meant the filters it was chosen under
+  // Books picked under other filters are no longer on show: an action must not reach them
   const filterKey = JSON.stringify(bulkFilter(query));
+  const lastFilter = useRef(filterKey);
   useEffect(() => {
-    void filterKey;
+    if (lastFilter.current === filterKey) return;
+    lastFilter.current = filterKey;
     dispatch({ type: "filters" });
   }, [filterKey]);
 
@@ -106,14 +110,12 @@ export function LibraryPage() {
   const unavailable = counts?.by_status.unavailable ?? 0;
 
   const run = status.data?.current_run;
-  const live =
-    run?.book?.id != null
-      ? { id: run.book.id, fraction: run.transfer?.total ? run.transfer.bytes / run.transfer.total : null }
-      : null;
+  const live = liveBook(run);
 
   const books = list.data?.items ?? [];
   const pageIds = books.map((book) => book.id);
-  const count = selectedCount(selection);
+  const total = list.data?.total ?? 0;
+  const count = selectedCount(selection, total);
 
   const stopSelecting = () => {
     setSelecting(false);
@@ -161,9 +163,9 @@ export function LibraryPage() {
     pageSelected: pageSelected(selection, pageIds),
     onSelectPage: (on) => dispatch({ type: "page", ids: pageIds, on }),
     onMonitor: (book, monitored) => monitor.mutate({ id: book.id, monitored }),
+    monitorDisabled: list.isPlaceholderData,
   };
 
-  const total = list.data?.total ?? 0;
   const noResults = list.data !== undefined && total === 0 && !noBooks;
 
   return (
@@ -219,7 +221,7 @@ export function LibraryPage() {
                       Select all on this page ({books.length})
                     </button>
                     {total > books.length && (
-                      <button type="button" className="link-btn" onClick={() => dispatch({ type: "all", total })}>
+                      <button type="button" className="link-btn" onClick={() => dispatch({ type: "all" })}>
                         Select all {total.toLocaleString()} matching these filters
                       </button>
                     )}
@@ -397,7 +399,7 @@ function Filters({
             value={query.sort}
             onChange={(event) => {
               const sort = event.target.value as Sort;
-              update({ sort, order: SORTS.find((option) => option.value === sort)?.order ?? "desc" });
+              update({ sort, order: defaultOrder(sort) });
             }}
           >
             {SORTS.map((option) => (
@@ -501,7 +503,7 @@ function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) =
         type="search"
         className={`input ${styles.searchInput}`}
         placeholder="Search title, author or series"
-        maxLength={200}
+        maxLength={MAX_SEARCH}
         value={text}
         onChange={(event) => setText(event.target.value)}
       />

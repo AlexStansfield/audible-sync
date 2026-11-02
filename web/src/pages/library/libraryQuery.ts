@@ -40,6 +40,12 @@ export const SORTS: readonly { value: Sort; label: string; order: Order }[] = [
 ];
 
 export const PAGE_SIZE = 24;
+/** `GET /api/books` refuses a longer `q` (422) */
+export const MAX_SEARCH = 200;
+/** How long typing pauses before the search runs */
+export const SEARCH_DELAY = 300;
+/** Where the grid/table choice is kept */
+export const VIEW_KEY = "audible-sync.library-view";
 
 export const DEFAULT_QUERY: LibraryQuery = {
   q: "",
@@ -67,7 +73,7 @@ export function parse(params: URLSearchParams): LibraryQuery {
   const order = params.get("order");
   const monitored = params.get("monitored");
   return {
-    q: (params.get("q") ?? "").trim(),
+    q: (params.get("q") ?? "").slice(0, MAX_SEARCH).trim(),
     accountId: positiveInt(params.get("account")),
     status: STATUSES.includes(status as BookStatus) ? (status as BookStatus) : null,
     monitored: monitored === "true" ? true : monitored === "false" ? false : null,

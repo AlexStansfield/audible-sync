@@ -9,6 +9,9 @@ export const UP_NEXT_ROWS = 4;
 export const RECENT_COVERS = 6;
 export const RECENT_RUNS = 5;
 
+/** What each book a run in flight takes up changes on the Dashboard. */
+export const DURING_RUN = [["stats"], ["books", "recent"], ["queue"]] as const;
+
 export function useStats() {
   return useQuery({ queryKey: ["stats"], queryFn: () => unwrap(api.GET("/api/stats")) });
 }

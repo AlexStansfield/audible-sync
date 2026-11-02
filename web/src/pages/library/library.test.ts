@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { bulkFilter, DEFAULT_QUERY, listParams, pageList, parse, rangeText, serialise } from "./libraryQuery";
+import { liveBook } from "./live";
 import { EMPTY, isSelected, pageSelected, selectedCount, selectionReducer } from "./selection";
 import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "./text";
 
@@ -39,6 +40,10 @@ describe("the Library's URL", () => {
     expect(read("sort=title").order).toBe("asc");
     expect(read("sort=release_date").order).toBe("desc");
     expect(serialise(read("sort=author")).toString()).toBe("sort=author");
+  });
+
+  it("cuts a search to what the API takes", () => {
+    expect(read(`q=${"a".repeat(250)}`).q).toHaveLength(200);
   });
 
   it("drops what it cannot read rather than sending it on", () => {
@@ -88,26 +93,30 @@ describe("the selection", () => {
     let state = selectionReducer(EMPTY, { type: "toggle", id: 1, pageIds: [1, 2] });
     state = selectionReducer(state, { type: "toggle", id: 2, pageIds: [1, 2] });
     state = selectionReducer(state, { type: "page", ids: [3, 4], on: true });
-    expect(selectedCount(state)).toBe(4);
+    expect(selectedCount(state, 50)).toBe(4);
     state = selectionReducer(state, { type: "toggle", id: 1, pageIds: [1, 2] });
     expect(isSelected(state, 1)).toBe(false);
     expect(pageSelected(state, [3, 4])).toBe(true);
     state = selectionReducer(state, { type: "page", ids: [3, 4], on: false });
-    expect(selectedCount(state)).toBe(1);
+    expect(selectedCount(state, 50)).toBe(1);
   });
 
-  it("selects everything matching, which ends with the filters", () => {
-    const all = selectionReducer(EMPTY, { type: "all", total: 354 });
-    expect(selectedCount(all)).toBe(354);
+  it("counts everything matching as what matches now", () => {
+    const all = selectionReducer(EMPTY, { type: "all" });
+    expect(selectedCount(all, 354)).toBe(354);
+    // A run moved books into the filter since: the action, sent as the filter, reaches them
+    expect(selectedCount(all, 359)).toBe(359);
     expect(isSelected(all, 99)).toBe(true);
-    expect(selectionReducer(all, { type: "filters" })).toBe(EMPTY);
+  });
 
+  it("ends with the filters, books picked by id too", () => {
+    expect(selectionReducer(selectionReducer(EMPTY, { type: "all" }), { type: "filters" })).toBe(EMPTY);
     const some = selectionReducer(EMPTY, { type: "toggle", id: 5, pageIds: [5] });
-    expect(selectionReducer(some, { type: "filters" })).toBe(some);
+    expect(selectionReducer(some, { type: "filters" })).toBe(EMPTY);
   });
 
   it("narrows 'all matching' to the rest of the page when one book is unticked", () => {
-    const all = selectionReducer(EMPTY, { type: "all", total: 354 });
+    const all = selectionReducer(EMPTY, { type: "all" });
     const rest = selectionReducer(all, { type: "toggle", id: 2, pageIds: [1, 2, 3] });
     expect(rest).toEqual({ all: false, ids: new Set([1, 3]) });
     expect(selectionReducer(all, { type: "page", ids: [1, 2, 3], on: false })).toBe(EMPTY);
@@ -182,5 +191,34 @@ describe("the Library's wording", () => {
       headline: "No books changed.",
       detail: "1 book skipped because it is no longer in the library.",
     });
+  });
+});
+
+describe("the book a run is downloading", () => {
+  const snapshot = (transfer: { desc: string | null; bytes: number; total: number | null } | null) => ({
+    run_id: 9,
+    started_at: "2026-11-02T14:00:00+00:00",
+    stage: "downloading" as const,
+    account: null,
+    book: { id: 7, asin: "B0", title: "Dune" },
+    books_done: 0,
+    books_total: 10,
+    transfer,
+  });
+
+  it("follows the audio's download", () => {
+    expect(liveBook(snapshot({ desc: "Dune", bytes: 25, total: 100 }))).toEqual({ id: 7, fraction: 0.25 });
+  });
+
+  it("slides rather than starting again for the PDF, the cover and the decryption", () => {
+    expect(liveBook(snapshot({ desc: "PDF", bytes: 1, total: 100 }))?.fraction).toBeNull();
+    expect(liveBook(snapshot({ desc: "Cover", bytes: 1, total: 100 }))?.fraction).toBeNull();
+    expect(liveBook(snapshot(null))?.fraction).toBeNull();
+    expect(liveBook(snapshot({ desc: "Dune", bytes: 5, total: null }))?.fraction).toBeNull();
+  });
+
+  it("is nothing between books and runs", () => {
+    expect(liveBook(null)).toBeNull();
+    expect(liveBook({ ...snapshot(null), book: null })).toBeNull();
   });
 });
