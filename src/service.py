@@ -15,6 +15,9 @@ Environment:
                                logged in full that once; later starts log only its end
     AUDIBLE_SYNC_CORS_ORIGINS  Comma-separated origins allowed to call from a browser
     AUDIBLE_SYNC_DEBUG         `true` forces DEBUG logging whatever the settings say
+    AUDIBLE_SYNC_SECURE_COOKIE `true` always marks the web app's session cookie Secure;
+                               set it behind a reverse proxy that serves https, where
+                               the service itself only ever sees http
     AUDIBLE_SYNC_SECRET_KEY    The key the stored credentials and API token are
                                encrypted with (see `src/crypto.py`). If unset, the
                                key file is used, generated on the first start
@@ -65,6 +68,7 @@ class ServiceConfig:
     api_token: str | None = None
     cors_origins: tuple[str, ...] = ()
     debug: bool = False
+    secure_cookie: bool = False
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "ServiceConfig":
@@ -75,8 +79,13 @@ class ServiceConfig:
             port=int(env.get("AUDIBLE_SYNC_PORT", DEFAULT_PORT)),
             api_token=env.get("AUDIBLE_SYNC_API_TOKEN") or None,
             cors_origins=origins,
-            debug=env.get("AUDIBLE_SYNC_DEBUG", "").strip().lower() in ("1", "true", "yes", "on"),
+            debug=_flag(env.get("AUDIBLE_SYNC_DEBUG")),
+            secure_cookie=_flag(env.get("AUDIBLE_SYNC_SECURE_COOKIE")),
         )
+
+
+def _flag(value: str | None) -> bool:
+    return (value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def resolve_api_token(configured: str | None) -> str:
@@ -141,9 +150,6 @@ def build(config: ServiceConfig):
     seed_settings_from_ini()
     settings = Settings.from_db()
     configure_logging(config.debug or settings.debug)
-    # Everything logged from here on is also readable through GET /api/logs
-    log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
-    logging.getLogger().addHandler(log_buffer)
     # The secret key before anything that stores or reads credentials: the API token
     # lives encrypted in the settings table
     crypto.configure(load_secret_key())
@@ -151,6 +157,11 @@ def build(config: ServiceConfig):
 
     api_token = resolve_api_token(config.api_token)
     ensure_web_user()
+    # Everything logged from here on is also readable through GET /api/logs - and only
+    # from here on, so a generated token or password logged above goes to the console
+    # alone and cannot be read back, or copied into a bug report, from the Logs screen
+    log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
+    logging.getLogger().addHandler(log_buffer)
 
     state = RunState()
     scheduler = Scheduler(load_settings=Settings.from_db, run=_run, state=state, stop_timeout=STOP_TIMEOUT)
@@ -160,6 +171,7 @@ def build(config: ServiceConfig):
         api_token=api_token,
         cors_origins=list(config.cors_origins),
         log_buffer=log_buffer,
+        secure_cookie=config.secure_cookie,
     )
 
 

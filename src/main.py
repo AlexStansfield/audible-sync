@@ -314,6 +314,15 @@ def reset_password_command(*, reset_username: bool = False) -> None:
     database on every sign-in and request.
     """
     _prepare()
+    if not webauth.password_readable():
+        # Stored now, the password would be unreadable to the service: the reset would
+        # end every session and leave nobody able to sign in
+        raise SystemExit(
+            "The stored password was written with another key than this command has, so a password set "
+            "from here would not work in the service. Run the command where the service runs, e.g. "
+            "docker compose exec audible-sync uv run --no-sync python -m src.main reset-password, or set "
+            "AUDIBLE_SYNC_SECRET_KEY or AUDIBLE_SYNC_SECRET_KEY_FILE to the service's key"
+        )
     password = webauth.reset_password(reset_username=reset_username)
     user = webauth.current_user()
     username = user.username if user else webauth.DEFAULT_USERNAME

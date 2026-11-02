@@ -152,6 +152,7 @@ def create_app(
     logins: PendingLogins | None = None,
     log_buffer: RingBufferHandler | None = None,
     login_throttle: LoginThrottle | None = None,
+    secure_cookie: bool = False,
 ) -> FastAPI:
     """
     Build the application.
@@ -167,6 +168,9 @@ def create_app(
         log_buffer: The handler holding recent log lines for `GET /api/logs`; without one
             the endpoint answers with nothing
         login_throttle: Counts failed sign-ins per client; defaults to a fresh one
+        secure_cookie: Always mark the session cookie `Secure`. Without it the cookie is
+            `Secure` only when the request arrived over https, which behind a
+            TLS-terminating reverse proxy it never appears to
     """
     logins = logins or PendingLogins()
     throttle = login_throttle or LoginThrottle()
@@ -185,6 +189,8 @@ def create_app(
         app.add_middleware(
             CORSMiddleware,
             allow_origins=cors_origins,
+            # The session cookie, for a web app served from one of these origins
+            allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
@@ -209,7 +215,8 @@ def create_app(
     # --- the web app's own sign-in -----------------------------------------------
 
     def _throttled(request: Request) -> None:
-        retry_after = throttle.retry_after(_client_key(request))
+        # Counts the attempt before the password is checked; `succeeded` takes it back
+        retry_after = throttle.attempt(_client_key(request))
         if retry_after is not None:
             raise HTTPException(
                 status_code=429,
@@ -221,17 +228,20 @@ def create_app(
         # A wrong current password counts as a failed sign-in: it is the same guess
         _throttled(request)
         if not webauth.check_current_password(password):
-            throttle.failed(_client_key(request))
             raise HTTPException(status_code=403, detail="The current password is wrong")
+        throttle.succeeded(_client_key(request))
 
     @open_router.post("/auth/login", response_model=Me)
     def sign_in(body: SignIn, request: Request, response: Response) -> Me:
         _throttled(request)
         if not webauth.verify(body.username, body.password):
-            throttle.failed(_client_key(request))
             # One message for either mistake: which one was wrong is not said
             raise HTTPException(status_code=401, detail="Wrong username or password")
         throttle.succeeded(_client_key(request))
+        # Signing in again replaces the browser's session rather than leaving the old one live
+        previous = request.cookies.get(SESSION_COOKIE)
+        if previous:
+            webauth.end_session(previous)
         token = webauth.create_session(persistent=body.remember)
         response.set_cookie(
             SESSION_COOKIE,
@@ -239,9 +249,9 @@ def create_app(
             max_age=int(webauth.PERSISTENT_SESSION.total_seconds()) if body.remember else None,
             httponly=True,
             samesite="strict",
-            # Only over https: the service is often reached over plain http on a LAN,
-            # where a Secure cookie would never be sent back
-            secure=request.url.scheme == "https",
+            # Over https only, unless configured: the service is often reached over plain
+            # http on a LAN, where a Secure cookie would never be sent back
+            secure=secure_cookie or request.url.scheme == "https",
             path="/",
         )
         return _me()

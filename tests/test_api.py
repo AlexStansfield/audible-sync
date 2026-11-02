@@ -159,6 +159,30 @@ def test_the_cookie_is_secure_over_https(api, user):
     assert "Secure" in _sign_in(client).headers["set-cookie"]
 
 
+def test_secure_cookie_marks_the_cookie_secure_over_http_too(db, user):
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=TOKEN, secure_cookie=True)
+
+    assert "Secure" in _sign_in(TestClient(app)).headers["set-cookie"]
+
+
+def test_signing_in_again_ends_the_previous_session(api, user):
+    _sign_in(api)
+    previous = api.cookies["audible_sync_session"]
+
+    _sign_in(api)
+
+    assert not webauth.check_session(previous)
+    assert api.get("/api/status").status_code == 200
+
+
+def test_an_overlong_password_is_refused_before_it_is_hashed(api, user, monkeypatch):
+    monkeypatch.setattr(webauth, "check_password", lambda *a: pytest.fail("must not hash"))
+
+    response = _sign_in(api, password="x" * (webauth.MAX_PASSWORD_LENGTH + 1))
+
+    assert response.status_code == 422
+
+
 @pytest.mark.parametrize(("username", "password"), [("admin", "wrong password!"), ("nobody", PASSWORD)])
 def test_a_wrong_username_or_password_gets_one_message(api, user, username, password):
     response = _sign_in(api, username=username, password=password)
@@ -533,6 +557,8 @@ def test_cors_allows_the_configured_origin(db):
 
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == "http://ui:5173"
+    # ... with the session cookie, for a web app served from that origin
+    assert response.headers["access-control-allow-credentials"] == "true"
 
 
 def test_cors_is_off_unless_configured(api):

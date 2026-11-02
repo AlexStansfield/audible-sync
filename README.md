@@ -132,7 +132,7 @@ Sign in with it and choose your own. Forgotten the password? Reset it on the ser
 docker compose exec audible-sync uv run --no-sync python -m src.main reset-password
 ```
 
-Add `--username` to set the username back to `admin` as well.
+Add `--username` to set the username back to `admin` as well. Run it in the container as shown: a command run on the host with another secret key is refused, because the password it stored would be unreadable to the service.
 
 The Audible credentials, the API token and the web app password's hash are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
 
@@ -222,6 +222,7 @@ The service reads these environment variables:
 | `AUDIBLE_SYNC_PORT` | `8080` | Port |
 | `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged (once) on the first start if unset |
 | `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server |
+| `AUDIBLE_SYNC_SECURE_COOKIE` | `false` | `true` always marks the web app's session cookie `Secure`. Set it behind a reverse proxy that serves https: the service only sees plain http there, and otherwise marks the cookie `Secure` only for requests that arrive over https |
 | `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |
 | `AUDIBLE_SYNC_SECRET_KEY` | key file | The key the stored credentials and API token are encrypted with: 44 characters of URL-safe base64, as `python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'` prints. Unset, the key file is used |
 | `AUDIBLE_SYNC_SECRET_KEY_FILE` | `secrets/secret.key` | Where the key file is; generated owner-only on the first start if missing |

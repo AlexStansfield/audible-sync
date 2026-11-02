@@ -117,6 +117,18 @@ def _dummy() -> str:
     return _dummy_hash
 
 
+def _password_matches(password: str, encoded: str | None) -> bool:
+    """
+    Whether `password` matches `encoded`, always paying for one hash.
+
+    With no stored hash the dummy is checked instead, so having no user (or an
+    unreadable hash) takes as long as a wrong password. The hash runs *before* the
+    result is combined, so no short-circuit can skip it.
+    """
+    matched = check_password(password, encoded or _dummy())
+    return matched and encoded is not None
+
+
 def validate_password(password: str) -> None:
     """
     Raises:
@@ -151,6 +163,24 @@ def _stored_hash(values: dict[str, str]) -> str | None:
         return None
 
 
+def password_readable() -> bool:
+    """
+    Whether the stored password hash, if any, decrypts under this process's key.
+
+    False means another process - the service - wrote it under another key: a password
+    stored from here now would be unreadable to it, which is what `reset-password`
+    checks before doing anything.
+    """
+    stored = get_settings().get(WEB_PASSWORD_SETTING)
+    if not stored:
+        return True
+    try:
+        crypto.decrypt(stored)
+    except crypto.WrongKey:
+        return False
+    return True
+
+
 def current_user() -> User | None:
     """The user, or None before `ensure_admin` has run."""
     values = get_settings()
@@ -166,7 +196,7 @@ def ensure_admin() -> str | None:
 
     Also generates a new password when the stored hash cannot be decrypted - the key
     changed - logging an ERROR, as the API token does: losing the key costs a sign-in,
-    not access to the app. The username is kept then. The caller logs the password
+    not access to the app. The username is kept then, and every session is ended. The caller logs the password
     once; it is not stored anywhere it could be read back.
     """
     values = get_settings()
@@ -186,6 +216,9 @@ def ensure_admin() -> str | None:
             WEB_PASSWORD_GENERATED_SETTING: "true",
         }
     )
+    # Session rows do not depend on the key, so they would outlive it: a key replaced
+    # because it leaked must not leave the browsers of before signed in
+    end_all_sessions()
     return password
 
 
@@ -204,15 +237,14 @@ def verify(username: str, password: str) -> bool:
     values = get_settings()
     stored_username = values.get(WEB_USERNAME_SETTING) or ""
     encoded = _stored_hash(values)
-    password_ok = check_password(password, encoded or _dummy())
+    password_ok = _password_matches(password, encoded)
     username_ok = secrets.compare_digest(username.encode(), stored_username.encode())
-    return encoded is not None and bool(stored_username) and username_ok and password_ok
+    return password_ok and username_ok and bool(stored_username)
 
 
 def check_current_password(password: str) -> bool:
     """Whether `password` is the user's, for a change that asks for it again."""
-    encoded = _stored_hash(get_settings())
-    return check_password(password, encoded or _dummy()) and encoded is not None
+    return _password_matches(password, _stored_hash(get_settings()))
 
 
 def set_password(password: str, *, generated: bool = False) -> None:
@@ -332,9 +364,14 @@ def end_all_sessions() -> int:
 
 class LoginThrottle:
     """
-    Failed sign-ins per client, in memory: after `max_failures` within `window`, the
-    client is refused until the oldest of them falls out of the window. A success
-    clears the client's count.
+    Sign-in attempts per client, in memory: after `max_failures` within `window`, the
+    client is refused until the oldest of them falls out of the window.
+
+    An attempt counts as a failure *before* the password is checked (`attempt`), and a
+    success takes it back (`succeeded` clears the client). Checking first and counting
+    after would let a burst of parallel requests all pass the check during the 50 ms
+    each hash takes; counting first means at most `max_failures` are ever hashed at
+    once for one client.
 
     Keyed by IP address. Behind a reverse proxy every client shares one address, so a
     run of failures locks out everyone for a while - acceptable for a single-user app,
@@ -354,30 +391,31 @@ class LoginThrottle:
         self._failures: dict[str, list[float]] = {}
         self._lock = threading.Lock()
 
-    def _recent(self, key: str, now: float) -> list[float]:
-        recent = [t for t in self._failures.get(key, []) if now - t < self.window]
-        if recent:
-            self._failures[key] = recent
-        else:
-            self._failures.pop(key, None)
-        return recent
+    def _prune(self, now: float) -> None:
+        # Every client, not only the one asking: an address that never comes back
+        # would otherwise be kept for the life of the process
+        for key in list(self._failures):
+            recent = [t for t in self._failures[key] if now - t < self.window]
+            if recent:
+                self._failures[key] = recent
+            else:
+                del self._failures[key]
 
-    def retry_after(self, key: str) -> int | None:
-        """Seconds until `key` may try again, or None if it may now."""
+    def attempt(self, key: str) -> int | None:
+        """
+        Count an attempt by `key` and return None, or return the seconds until it may
+        try again without counting anything.
+        """
         with self._lock:
             now = self._clock()
-            recent = self._recent(key, now)
-            if len(recent) < self.max_failures:
-                return None
-            # Free once enough failures have aged out to leave room for one more
-            oldest = recent[-self.max_failures]
-            return max(1, int(oldest + self.window - now + 0.999))
-
-    def failed(self, key: str) -> None:
-        with self._lock:
-            now = self._clock()
-            self._recent(key, now)
+            self._prune(now)
+            recent = self._failures.get(key, [])
+            if len(recent) >= self.max_failures:
+                # Free once enough attempts have aged out to leave room for one more
+                oldest = recent[-self.max_failures]
+                return max(1, int(oldest + self.window - now + 0.999))
             self._failures.setdefault(key, []).append(now)
+            return None
 
     def succeeded(self, key: str) -> None:
         with self._lock:

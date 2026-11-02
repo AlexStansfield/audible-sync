@@ -106,6 +106,26 @@ def test_a_hash_under_another_key_is_replaced_keeping_the_username(db, caplog):
     assert webauth.verify("alex", password)
 
 
+def test_a_password_regenerated_after_a_key_change_ends_every_session(db):
+    webauth.ensure_admin()
+    token = webauth.create_session(persistent=True)
+    crypto.configure(crypto.generate_key())
+
+    webauth.ensure_admin()
+
+    assert not webauth.check_session(token)
+
+
+def test_the_password_is_readable_under_the_key_that_wrote_it_only(db):
+    assert webauth.password_readable()  # nothing stored yet
+    webauth.ensure_admin()
+    assert webauth.password_readable()
+
+    crypto.configure(crypto.generate_key())
+
+    assert not webauth.password_readable()
+
+
 def test_no_user_before_the_first_start(db):
     assert webauth.current_user() is None
     assert not webauth.verify("admin", PASSWORD)
@@ -282,38 +302,60 @@ class Clock:
         return self.now
 
 
-def test_the_throttle_refuses_after_five_failures_in_the_window():
-    clock = Clock()
-    throttle = webauth.LoginThrottle(clock=clock)
+def test_the_throttle_counts_an_attempt_before_its_outcome_is_known():
+    """Counting after the check let a parallel burst all pass it during the hashing."""
+    throttle = webauth.LoginThrottle(clock=Clock())
 
-    for _ in range(4):
-        throttle.failed("1.2.3.4")
-    assert throttle.retry_after("1.2.3.4") is None
-    throttle.failed("1.2.3.4")
+    allowed = [throttle.attempt("1.2.3.4") for _ in range(5)]
 
-    assert throttle.retry_after("1.2.3.4") == 15 * 60
+    assert allowed == [None] * 5
+    assert throttle.attempt("1.2.3.4") == 15 * 60
     # Another client is not affected
-    assert throttle.retry_after("5.6.7.8") is None
+    assert throttle.attempt("5.6.7.8") is None
 
 
-def test_the_throttle_lets_the_client_back_once_the_oldest_failure_ages_out():
+def test_a_refused_attempt_is_not_counted():
     clock = Clock()
     throttle = webauth.LoginThrottle(clock=clock)
     for _ in range(5):
-        throttle.failed("ip")
+        throttle.attempt("ip")
+
+    for _ in range(10):
+        throttle.attempt("ip")
+    clock.now += 15 * 60
+
+    assert throttle.attempt("ip") is None
+
+
+def test_the_throttle_lets_the_client_back_once_the_oldest_attempt_ages_out():
+    clock = Clock()
+    throttle = webauth.LoginThrottle(clock=clock)
+    for _ in range(5):
+        throttle.attempt("ip")
         clock.now += 60
 
-    assert throttle.retry_after("ip") == 15 * 60 - 5 * 60
+    assert throttle.attempt("ip") == 15 * 60 - 5 * 60
     clock.now += 10 * 60
-    assert throttle.retry_after("ip") is None
+    assert throttle.attempt("ip") is None
 
 
-def test_a_success_clears_the_count():
+def test_a_success_takes_the_attempts_back():
     throttle = webauth.LoginThrottle(clock=Clock())
     for _ in range(4):
-        throttle.failed("ip")
+        throttle.attempt("ip")
 
     throttle.succeeded("ip")
-    throttle.failed("ip")
 
-    assert throttle.retry_after("ip") is None
+    assert [throttle.attempt("ip") for _ in range(5)] == [None] * 5
+
+
+def test_addresses_that_never_come_back_are_forgotten():
+    clock = Clock()
+    throttle = webauth.LoginThrottle(clock=clock)
+    for n in range(100):
+        throttle.attempt(f"10.0.0.{n}")
+
+    clock.now += 15 * 60
+    throttle.attempt("1.2.3.4")
+
+    assert list(throttle._failures) == ["1.2.3.4"]

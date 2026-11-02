@@ -159,3 +159,31 @@ def test_build_creates_the_web_user(db, monkeypatch):
     service.build(ServiceConfig(api_token="tok"))
 
     assert webauth.current_user() == webauth.User("admin", generated_password=True)
+
+
+def test_secure_cookie_comes_from_the_environment():
+    assert ServiceConfig.from_env({}).secure_cookie is False
+    assert ServiceConfig.from_env({"AUDIBLE_SYNC_SECURE_COOKIE": "true"}).secure_cookie is True
+
+
+def test_a_generated_token_and_password_never_reach_the_logs_endpoint(db, monkeypatch, caplog):
+    """The Logs screen can be copied into a bug report; the console is the only place they go."""
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+    caplog.set_level(logging.INFO)
+
+    app = service.build(ServiceConfig())
+    client = TestClient(app)
+    token = resolve_api_token(None)
+    logged = " ".join(
+        r["message"]
+        for r in client.get("/api/logs?limit=1000", headers={"Authorization": f"Bearer {token}"}).json()["items"]
+    )
+
+    assert "Generated a new API token" in caplog.text
+    assert "Web app sign-in" in caplog.text
+    assert token not in logged
+    assert "Web app sign-in" not in logged
+    for handler in list(logging.getLogger().handlers):
+        if isinstance(handler, RingBufferHandler):
+            logging.getLogger().removeHandler(handler)

@@ -463,6 +463,7 @@ def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):
 def test_reset_password_prints_a_new_password_after_the_usual_preparation(monkeypatch, capsys):
     order = []
     _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(main_module.webauth, "password_readable", lambda: True)
     resets = []
     monkeypatch.setattr(
         main_module.webauth,
@@ -483,6 +484,7 @@ def test_reset_password_prints_a_new_password_after_the_usual_preparation(monkey
 
 def test_reset_password_can_put_the_username_back(monkeypatch):
     _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module.webauth, "password_readable", lambda: True)
     resets = []
     monkeypatch.setattr(
         main_module.webauth, "reset_password", lambda *, reset_username: resets.append(reset_username) or "pw"
@@ -492,6 +494,16 @@ def test_reset_password_can_put_the_username_back(monkeypatch):
     main(["reset-password", "--username"])
 
     assert resets == [True]
+
+
+def test_reset_password_refuses_under_another_key_than_the_service(monkeypatch):
+    """Stored under this key, the password would be unreadable to the service: a lockout."""
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module.webauth, "password_readable", lambda: False)
+    monkeypatch.setattr(main_module.webauth, "reset_password", lambda **kw: pytest.fail("must not reset"))
+
+    with pytest.raises(SystemExit, match="another key"):
+        main(["reset-password"])
 
 
 def test_login_command_defaults(monkeypatch):
