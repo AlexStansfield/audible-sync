@@ -28,6 +28,31 @@ class Message(BaseModel):
     status: str
 
 
+class SignIn(BaseModel):
+    """`POST /api/auth/login`. `remember` makes the session cookie outlive the browser."""
+
+    username: str
+    password: str
+    remember: bool = False
+
+
+class Me(BaseModel):
+    """The web app's user. `generated_password` asks the UI to suggest choosing one."""
+
+    username: str
+    generated_password: bool
+
+
+class UsernameChange(BaseModel):
+    username: str
+    current_password: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class SchedulerStatus(BaseModel):
     enabled: bool
     interval_minutes: int

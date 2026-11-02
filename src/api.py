@@ -7,7 +7,9 @@ a plain `def`: FastAPI runs those in a threadpool, which is what the SQLite call
 `src.database` (one connection per call) need, and keeps the event loop free for the
 polling the UI will do.
 
-Everything under `/api` except `/api/health` needs `Authorization: Bearer <token>`.
+Everything under `/api` except `/api/health`, `/api/auth/login` and `/api/auth/logout`
+needs either `Authorization: Bearer <token>` - scripts and the CLI - or the session
+cookie the web app gets from signing in (`src.webauth`).
 Errors are `{"detail": ...}` throughout, which is FastAPI's own shape, so the client
 has one error format to handle.
 """
@@ -22,13 +24,13 @@ from typing import Annotated, Literal
 
 import httpx
 from audible import Authenticator
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from src import library
+from src import library, webauth
 from src.accounts import (
     add_account_from_authenticator,
     authenticator_for,
@@ -73,18 +75,23 @@ from src.schemas import (
     LoginStart,
     LogList,
     MarketplaceOut,
+    Me,
     Message,
+    PasswordChange,
     Requeued,
     RetryUnavailable,
     SettingsOut,
     SettingsUpdate,
+    SignIn,
     Stats,
     Status,
     SyncRunList,
     SyncRunOut,
+    UsernameChange,
     WebhookTest,
 )
 from src.settings import Settings
+from src.webauth import SESSION_COOKIE, LoginThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -98,16 +105,41 @@ def read_version() -> str:
         return "unknown"
 
 
-def _bearer_auth(api_token: str):
-    """A dependency that rejects any request without the configured token."""
+def _require_auth(api_token: str):
+    """
+    A dependency that lets a request through with the bearer token or a live session.
+
+    The token is for scripts and the CLI; the cookie is for the web app, and is also
+    what lets an `<img>` load a cover, which cannot send a header.
+    """
     scheme = HTTPBearer(auto_error=False)
+    expected = api_token.encode()
 
-    def require_token(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(scheme)]) -> None:
-        # compare_digest so a wrong token takes the same time whatever it gets right
-        if credentials is None or not secrets.compare_digest(credentials.credentials, api_token):
-            raise HTTPException(status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
+    def require_auth(
+        request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(scheme)]
+    ) -> None:
+        # compare_digest so a wrong token takes the same time whatever it gets right;
+        # bytes, because the str form refuses anything outside ASCII with a TypeError
+        if credentials is not None and secrets.compare_digest(credentials.credentials.encode(), expected):
+            return
+        session = request.cookies.get(SESSION_COOKIE)
+        if session and webauth.check_session(session):
+            return
+        raise HTTPException(status_code=401, detail="Not authenticated", headers={"WWW-Authenticate": "Bearer"})
 
-    return require_token
+    return require_auth
+
+
+def _me() -> Me:
+    user = webauth.current_user()
+    if user is None:
+        # ensure_admin runs at every start, so only an app built without it gets here
+        raise HTTPException(status_code=404, detail="No web app user has been set up")
+    return Me(username=user.username, generated_password=user.generated_password)
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
 
 
 def create_app(
@@ -119,6 +151,7 @@ def create_app(
     version: str | None = None,
     logins: PendingLogins | None = None,
     log_buffer: RingBufferHandler | None = None,
+    login_throttle: LoginThrottle | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -133,8 +166,10 @@ def create_app(
         logins: The store of logins started and not yet completed; defaults to a fresh one
         log_buffer: The handler holding recent log lines for `GET /api/logs`; without one
             the endpoint answers with nothing
+        login_throttle: Counts failed sign-ins per client; defaults to a fresh one
     """
     logins = logins or PendingLogins()
+    throttle = login_throttle or LoginThrottle()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -165,11 +200,81 @@ def create_app(
         return JSONResponse(status_code=422, content={"detail": str(error)})
 
     open_router = APIRouter(prefix="/api")
-    router = APIRouter(prefix="/api", dependencies=[Depends(_bearer_auth(api_token))])
+    router = APIRouter(prefix="/api", dependencies=[Depends(_require_auth(api_token))])
 
     @open_router.get("/health", response_model=Health)
     def health() -> Health:
         return Health(status="ok", version=app.version)
+
+    # --- the web app's own sign-in -----------------------------------------------
+
+    def _throttled(request: Request) -> None:
+        retry_after = throttle.retry_after(_client_key(request))
+        if retry_after is not None:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many failed attempts; try again later",
+                headers={"Retry-After": str(retry_after)},
+            )
+
+    def _check_current_password(request: Request, password: str) -> None:
+        # A wrong current password counts as a failed sign-in: it is the same guess
+        _throttled(request)
+        if not webauth.check_current_password(password):
+            throttle.failed(_client_key(request))
+            raise HTTPException(status_code=403, detail="The current password is wrong")
+
+    @open_router.post("/auth/login", response_model=Me)
+    def sign_in(body: SignIn, request: Request, response: Response) -> Me:
+        _throttled(request)
+        if not webauth.verify(body.username, body.password):
+            throttle.failed(_client_key(request))
+            # One message for either mistake: which one was wrong is not said
+            raise HTTPException(status_code=401, detail="Wrong username or password")
+        throttle.succeeded(_client_key(request))
+        token = webauth.create_session(persistent=body.remember)
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=int(webauth.PERSISTENT_SESSION.total_seconds()) if body.remember else None,
+            httponly=True,
+            samesite="strict",
+            # Only over https: the service is often reached over plain http on a LAN,
+            # where a Secure cookie would never be sent back
+            secure=request.url.scheme == "https",
+            path="/",
+        )
+        return _me()
+
+    @open_router.post("/auth/logout", status_code=204)
+    def sign_out(request: Request) -> Response:
+        # Open, so a browser whose session has already ended can still clear the cookie
+        session = request.cookies.get(SESSION_COOKIE)
+        if session:
+            webauth.end_session(session)
+        response = Response(status_code=204)
+        response.delete_cookie(SESSION_COOKIE, path="/", httponly=True, samesite="strict")
+        return response
+
+    @router.get("/auth/me", response_model=Me)
+    def me() -> Me:
+        return _me()
+
+    @router.put("/auth/username", response_model=Me)
+    def change_username(body: UsernameChange, request: Request) -> Me:
+        _check_current_password(request, body.current_password)
+        # ValueError for an empty or over-long name, the 422 below
+        webauth.set_username(body.username)
+        return _me()
+
+    @router.put("/auth/password", response_model=Me)
+    def change_password(body: PasswordChange, request: Request) -> Me:
+        _check_current_password(request, body.current_password)
+        webauth.set_password(body.new_password)
+        # Every other browser is signed out; this one stays. Under the bearer token
+        # there is no "this one", so every session goes.
+        webauth.end_other_sessions(request.cookies.get(SESSION_COOKIE))
+        return _me()
 
     @router.get("/status", response_model=Status)
     def status() -> Status:
