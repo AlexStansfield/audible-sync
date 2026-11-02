@@ -1,0 +1,376 @@
+/* Book detail (Book.dc.html) */
+
+.breadcrumb {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.breadcrumb a {
+  text-decoration: none;
+}
+
+.hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.cover {
+  flex: 0 1 280px;
+  width: 280px;
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+.dimmed {
+  opacity: 0.5;
+}
+
+.body {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cc {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--line);
+  color: var(--text-2);
+}
+
+.muted {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.secondary {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.outlineChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-2);
+}
+
+.credits {
+  margin: 0;
+  font-size: 15px;
+}
+
+.credits a {
+  text-decoration: none;
+}
+
+.details {
+  margin: 4px 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.detail dt {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.detail dd {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.listening {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.listenTrack {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.listenTrack span {
+  display: block;
+  height: 100%;
+  background: var(--info);
+}
+
+.note {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--radius-control);
+  background: var(--raised);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.note svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.stale,
+.live {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--panel);
+}
+
+.stale {
+  display: flex;
+  gap: 12px;
+  border: 1px solid var(--warn-line);
+}
+
+.warnIcon {
+  flex: none;
+  color: var(--accent);
+}
+
+.staleText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.live {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--accent);
+}
+
+.liveHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.cancel {
+  margin-left: auto;
+}
+
+.transfer {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.noticeLink {
+  font-weight: 600;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.monitored {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px 0 10px;
+  border-radius: var(--radius-control);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-weight: 600;
+}
+
+/* Over the shared .btn's transparent border */
+.actions .outlineButton,
+.liveHead .outlineButton {
+  background: transparent;
+  border-color: var(--line-strong);
+  color: var(--text);
+}
+
+/* --- the two cards ------------------------------------------------------------ */
+
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.card {
+  min-width: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.downloadCard {
+  flex: 1 1 380px;
+  gap: 14px;
+}
+
+.filesCard {
+  flex: 1.4 1 480px;
+  gap: 6px;
+}
+
+.filesTitle {
+  margin-bottom: 8px;
+}
+
+.problem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--bad) 8%, transparent);
+  border: 1px solid var(--bad-line);
+}
+
+.problemTitle {
+  font-weight: 600;
+  color: var(--bad-text);
+}
+
+.problemNote {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.problemText {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--bad-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.downloadDetails {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.fileKind {
+  width: 92px;
+  flex: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.path,
+.noPath {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.noPath {
+  color: var(--muted);
+}
+
+.dialogText {
+  margin: 0;
+  color: var(--text-2);
+}
+
+@media (max-width: 720px) {
+  .cover {
+    flex-basis: 100%;
+    width: min(280px, 100%);
+  }
+
+  .title {
+    font-size: 26px;
+  }
+}

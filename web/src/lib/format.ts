@@ -107,9 +107,14 @@ export function formatInterval(minutes: number): string {
   return `every ${minutes} minutes`;
 }
 
-/** A date alone: `3 Oct 2025`. */
+/**
+ * A date alone: `3 Oct 2025`. A plain `2014-01-28` (a release date) is that calendar
+ * day wherever the browser is; `new Date` would read it as UTC midnight, the day before
+ * anywhere west of Greenwich.
+ */
 export function formatDate(iso: string, locale?: string): string {
-  const date = new Date(iso);
+  const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const date = plain ? new Date(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])) : new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
 }

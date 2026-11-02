@@ -68,6 +68,16 @@ describe("formatDate", () => {
   it("is the date alone", () => {
     expect(formatDate("2024-01-01T00:00:00Z", "en-GB")).toBe("1 Jan 2024");
   });
+
+  it("keeps a plain date on its calendar day west of Greenwich", () => {
+    const tz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      expect(formatDate("2014-01-28", "en-GB")).toBe("28 Jan 2014");
+    } finally {
+      process.env.TZ = tz;
+    }
+  });
 });
 
 describe("formatRelative", () => {
