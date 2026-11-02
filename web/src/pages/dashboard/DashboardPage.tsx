@@ -10,17 +10,26 @@ import { api, unwrap } from "../../api/client";
 import { type Status, useMe, useStatus } from "../../api/queries";
 import type { components } from "../../api/schema";
 import { useSyncActions } from "../../api/useSyncActions";
-import { OutcomeChip } from "../../components/Chip";
+import { Chip, OutcomeChip } from "../../components/Chip";
 import { Cover } from "../../components/Cover";
 import { ErrorCard } from "../../components/ErrorCard";
 import { Icon } from "../../components/Icon";
 import { ProgressBar } from "../../components/ProgressBar";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton";
 import { useToast } from "../../components/Toasts";
-import { formatBytes, formatClock, formatDay, formatRelative, formatTime, plural } from "../../lib/format";
+import { BOOK_STATUS, formatBytes, formatClock, formatDay, formatTime, plural } from "../../lib/format";
 import styles from "./Dashboard.module.css";
 import { useBook, useLatestFailure, useRecentlyDownloaded, useRecentRuns, useStats, useUpNext } from "./queries";
-import { bookOfRun, requeuedText, runDetail, stageLabel, subtitle, upNextHeader } from "./text";
+import {
+  bookOfRun,
+  isInterrupted,
+  nextRunText,
+  requeuedText,
+  runDetail,
+  stageLabel,
+  subtitle,
+  upNextHeader,
+} from "./text";
 
 type Account = components["schemas"]["AccountOut"];
 type Stats = components["schemas"]["Stats"];
@@ -50,7 +59,7 @@ export function DashboardPage() {
           <div className={styles.narrow}>
             <UpNextCard status={status.data} />
             <AttentionCard accounts={accounts} />
-            <RunsCard accounts={accounts} />
+            <RunsCard accounts={accounts} liveRunId={status.data.current_run?.run_id} />
           </div>
         </div>
       )}
@@ -63,9 +72,12 @@ export function DashboardPage() {
  * refetches the totals, the recent downloads and the queue (the end of the run
  * refetches everything anyway).
  */
-function useRefreshDuringRun(status: Status | undefined) {
+export function useRefreshDuringRun(status: Status | undefined) {
   const client = useQueryClient();
-  const done = status?.current_run?.books_done;
+  // The book in hand changes on every book the run takes up, refused licences included,
+  // which use no slot and so leave books_done where it was
+  const run = status?.current_run;
+  const done = run ? `${run.books_done}:${run.book?.id ?? ""}` : undefined;
   const seen = useRef(done);
   useEffect(() => {
     if (done !== undefined && seen.current !== undefined && done !== seen.current) {
@@ -93,7 +105,7 @@ function Header({ status, firstRun }: { status: Status | undefined; firstRun: bo
         <div className={styles.headerActions}>
           {scheduler.next_run_at && (
             <span className={styles.nextRun}>
-              Next run <strong>{formatClock(scheduler.next_run_at)}</strong> ({formatRelative(scheduler.next_run_at)})
+              Next run <strong>{formatClock(scheduler.next_run_at)}</strong> ({nextRunText(scheduler.next_run_at)})
             </span>
           )}
           {running ? (
@@ -135,7 +147,7 @@ function PasswordNudge() {
 const WELCOME_STEPS = [
   {
     title: "Add an Audible account",
-    text: "Sign in with a code at amazon.co.uk/code (or your marketplace's). Your password never passes through this app.",
+    text: "Enter a code on Amazon's page for your marketplace, such as amazon.com/code. Your password never passes through this app.",
   },
   { title: "Choose what to download", text: "Queue the whole library, or add it unmonitored and pick books yourself." },
   { title: "Let it run", text: "The first sync starts straight away, then on the schedule." },
@@ -240,15 +252,24 @@ function RunCard({ run }: { run: RunSnapshot }) {
   );
 }
 
+// The statuses as every screen words and colours them (BOOK_STATUS)
+const STATUS_TILES = ["downloaded", "waiting_download", "unavailable", "failed"] as const;
 const TILES = [
   { key: "total", label: "In library", colour: "var(--text)", href: "/library" },
-  { key: "downloaded", label: "Downloaded", colour: "var(--ok)", href: "/library?status=downloaded" },
-  { key: "waiting_download", label: "Waiting", colour: "var(--info)", href: "/library?status=waiting_download" },
-  { key: "unavailable", label: "Unavailable", colour: "var(--violet)", href: "/library?status=unavailable" },
-  { key: "failed", label: "Failed", colour: "var(--bad)", href: "/library?status=failed" },
+  ...STATUS_TILES.map((status) => ({
+    key: status,
+    label: BOOK_STATUS[status].label,
+    colour: BOOK_STATUS[status].colour,
+    href: `/library?status=${status}`,
+  })),
 ] as const;
 
-function tileText(stats: Stats | undefined, key: (typeof TILES)[number]["key"]): { value: number; sub: string } {
+type TileKey = "total" | (typeof STATUS_TILES)[number];
+
+/** The account bar's segments, in order; `downloading` only shows while there is one. */
+const BAR = ["downloaded", "downloading", "waiting_download", "unavailable", "failed"] as const;
+
+function tileText(stats: Stats | undefined, key: TileKey, queued: number | undefined): { value: number; sub: string } {
   const books = stats?.books;
   const count = (status: string) => books?.by_status[status] ?? 0;
   switch (key) {
@@ -260,7 +281,11 @@ function tileText(stats: Stats | undefined, key: (typeof TILES)[number]["key"]):
     case "downloaded":
       return { value: count("downloaded"), sub: `${formatBytes(stats?.bytes_on_disk ?? 0)} on disk` };
     case "waiting_download":
-      return { value: count("waiting_download"), sub: "Queued for the next run" };
+      // Waiting counts unmonitored books too; only monitored ones on enabled accounts queue
+      return {
+        value: count("waiting_download"),
+        sub: queued === undefined ? "Waiting to download" : `${queued.toLocaleString()} queued for the next run`,
+      };
     case "unavailable":
       return { value: count("unavailable"), sub: "Parked by Audible" };
     case "failed":
@@ -270,6 +295,7 @@ function tileText(stats: Stats | undefined, key: (typeof TILES)[number]["key"]):
 
 function Totals({ dimmed }: { dimmed: boolean }) {
   const stats = useStats();
+  const queue = useUpNext();
   if (stats.isError) {
     return (
       <ErrorCard title="Could not load the library totals" error={stats.error} onRetry={() => void stats.refetch()} />
@@ -282,7 +308,7 @@ function Totals({ dimmed }: { dimmed: boolean }) {
       className={`${styles.tiles} ${dimmed ? styles.dimmed : ""}`}
     >
       {TILES.map((tile) => {
-        const { value, sub } = tileText(stats.data, tile.key);
+        const { value, sub } = tileText(stats.data, tile.key, queue.data?.waiting);
         return (
           <Link key={tile.key} to={tile.href} className={styles.tile}>
             <span className={styles.tileLabel}>
@@ -326,12 +352,11 @@ function AccountsCard() {
       <CardHeader id="acc-h" title="Accounts" link="/accounts" linkText="Manage" />
       {stats.data.accounts.map(({ account, books, bytes_on_disk, last_run }) => {
         const count = (status: string) => books.by_status[status] ?? 0;
-        const parts = [
-          { status: "downloaded", label: "downloaded", colour: "var(--ok)" },
-          { status: "waiting_download", label: "waiting", colour: "var(--info)" },
-          { status: "unavailable", label: "unavailable", colour: "var(--violet)" },
-          { status: "failed", label: "failed", colour: "var(--bad)" },
-        ];
+        const parts = BAR.filter((status) => status !== "downloading" || count(status) > 0).map((status) => ({
+          status,
+          label: BOOK_STATUS[status].label.toLowerCase(),
+          colour: BOOK_STATUS[status].colour,
+        }));
         return (
           <div key={account.id} className={styles.accountRow}>
             <div className={styles.accountHead}>
@@ -509,7 +534,7 @@ function AttentionCard({ accounts }: { accounts: Account[] }) {
             <span className={styles.strong}>{plural(failed, "book")} failed</span>
             <span className={styles.muted}>
               Out of attempts.
-              {latest.data?.last_error && ` Latest: ${latest.data.title}: ${latest.data.last_error}`}
+              {latest.data?.last_error && ` For example, ${latest.data.title}: ${latest.data.last_error}`}
             </span>
             <Link to="/library?status=failed" className={styles.actionLink}>
               Review failed books
@@ -521,7 +546,7 @@ function AttentionCard({ accounts }: { accounts: Account[] }) {
   );
 }
 
-function RunsCard({ accounts }: { accounts: Account[] }) {
+function RunsCard({ accounts, liveRunId }: { accounts: Account[]; liveRunId: number | undefined }) {
   const runs = useRecentRuns();
   if (runs.isPending) return <SkeletonCard rows={5} label="Loading the recent runs" />;
   if (runs.isError) {
@@ -539,7 +564,11 @@ function RunsCard({ accounts }: { accounts: Account[] }) {
             <li key={run.id}>
               <Link to="/activity" className={styles.row}>
                 <span className={styles.outcome}>
-                  <OutcomeChip outcome={run.outcome} />
+                  {isInterrupted(run, liveRunId) ? (
+                    <Chip colour="var(--bad)">Interrupted</Chip>
+                  ) : (
+                    <OutcomeChip outcome={run.outcome} />
+                  )}
                 </span>
                 <span className={styles.rowText}>
                   <span className={styles.runWhen}>
@@ -547,7 +576,7 @@ function RunsCard({ accounts }: { accounts: Account[] }) {
                       .filter(Boolean)
                       .join(" · ")}
                   </span>
-                  <span className={styles.small}>{runDetail(run)}</span>
+                  <span className={styles.small}>{runDetail(run, liveRunId)}</span>
                 </span>
               </Link>
             </li>

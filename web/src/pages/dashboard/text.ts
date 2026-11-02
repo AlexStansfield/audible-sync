@@ -2,7 +2,7 @@
  * The Dashboard's wording, kept out of the components so it can be tested on its own.
  */
 import type { components } from "../../api/schema";
-import { formatClock, formatInterval, plural } from "../../lib/format";
+import { formatClock, formatInterval, formatRelative, plural } from "../../lib/format";
 
 type SyncRun = components["schemas"]["SyncRunOut"];
 type Scheduler = components["schemas"]["SchedulerStatus"];
@@ -15,11 +15,19 @@ export function subtitle(accounts: number, scheduler: Scheduler): string {
   return `${plural(accounts, "account")} · ${schedule}`;
 }
 
+/**
+ * A `running` row that is not the run in flight: the service stopped part way (killed,
+ * out of memory) and the row was never closed.
+ */
+export function isInterrupted(run: SyncRun, liveRunId: number | null | undefined): boolean {
+  return run.outcome === "running" && run.id !== liveRunId;
+}
+
 /** One line about what a run did: `2 added · 2 downloaded`, `No new purchases`. */
-export function runDetail(run: SyncRun): string {
+export function runDetail(run: SyncRun, liveRunId?: number | null): string {
   switch (run.outcome) {
     case "running":
-      return "In progress";
+      return isInterrupted(run, liveRunId) ? "Interrupted: the service stopped during this run" : "In progress";
     case "cancelled":
       return `Stopped after ${plural(run.books_downloaded + run.books_failed, "book")}`;
     case "failed":
@@ -31,9 +39,16 @@ export function runDetail(run: SyncRun): string {
         run.books_downloaded && `${run.books_downloaded} downloaded`,
         run.books_failed && `${run.books_failed} failed`,
       ].filter(Boolean);
+      // A partial run can carry an error raised after the sync, whatever the counts say
+      if (run.error) return [...parts, run.error].join(" · ");
       return parts.length ? parts.join(" · ") : "No new purchases";
     }
   }
+}
+
+/** How far off the next run is: `in 5h 40m`, or `due now` once its time has come. */
+export function nextRunText(iso: string, now: Date = new Date()): string {
+  return new Date(iso).getTime() <= now.getTime() ? "due now" : formatRelative(iso, now);
 }
 
 /** The run card's stage chip. */

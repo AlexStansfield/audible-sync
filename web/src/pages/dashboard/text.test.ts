@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { status } from "../../test/fakeApi";
 import { run } from "../../test/fixtures";
-import { bookOfRun, requeuedText, runDetail, subtitle, upNextHeader } from "./text";
+import { bookOfRun, isInterrupted, nextRunText, requeuedText, runDetail, subtitle, upNextHeader } from "./text";
 
 const scheduler = status().scheduler;
 const NOW = new Date("2026-11-02T14:20:00Z");
@@ -22,9 +22,22 @@ describe("runDetail", () => {
     [run({ books_added: 0, books_downloaded: 0 }), "No new purchases"],
     [run({ outcome: "cancelled", books_downloaded: 3 }), "Stopped after 3 books"],
     [run({ outcome: "aborted", error: "5 licence refusals in a row" }), "5 licence refusals in a row"],
-    [run({ outcome: "running", finished_at: null }), "In progress"],
+    [
+      run({ outcome: "partial", books_added: 0, books_downloaded: 0, error: "No space left on device" }),
+      "No space left on device",
+    ],
+    [run({ outcome: "partial", books_downloaded: 3, books_added: 0, error: "disk full" }), "3 downloaded · disk full"],
   ])("%#", (value, text) => {
     expect(runDetail(value)).toBe(text);
+  });
+
+  it("tells the run in flight from one the service never closed", () => {
+    const row = run({ id: 148, outcome: "running", finished_at: null });
+    expect(runDetail(row, 148)).toBe("In progress");
+    expect(isInterrupted(row, 148)).toBe(false);
+    expect(runDetail(row, null)).toBe("Interrupted: the service stopped during this run");
+    expect(isInterrupted(row, 149)).toBe(true);
+    expect(isInterrupted(run(), null)).toBe(false);
   });
 });
 
@@ -53,6 +66,14 @@ describe("upNextHeader", () => {
     expect(upNextHeader(scheduler, null, NOW)).toMatch(/· everything waiting$/);
     expect(upNextHeader({ ...scheduler, running: true }, 1, NOW)).toBe("This run · up to 1 book per account");
     expect(upNextHeader({ ...scheduler, next_run_at: null }, 2, NOW)).toBe("Next run · up to 2 books per account");
+  });
+});
+
+describe("nextRunText", () => {
+  it("counts down, then says the run is due rather than in the past", () => {
+    expect(nextRunText("2026-11-02T20:00:00Z", NOW)).toBe("in 5h 40m");
+    expect(nextRunText("2026-11-02T14:20:00Z", NOW)).toBe("due now");
+    expect(nextRunText("2026-11-02T14:18:00Z", NOW)).toBe("due now");
   });
 });
 

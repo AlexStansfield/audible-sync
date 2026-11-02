@@ -1,9 +1,13 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import type { ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { makeQueryClient } from "../../api/queryClient";
 import { fakeApi, ME, ok, signedIn, status } from "../../test/fakeApi";
 import { account, book, counts, run } from "../../test/fixtures";
 import { renderApp } from "../../test/render";
+import { useRefreshDuringRun } from "./DashboardPage";
 
 const UK = account();
 const US = account({ id: 2, name: "Alex (US)", country_code: "us" });
@@ -84,6 +88,18 @@ describe("the Dashboard", () => {
     expect(downloaded).toHaveAttribute("href", "/library?status=downloaded");
     expect(within(summary).getByRole("link", { name: /In library/ })).toHaveTextContent("336 monitored");
     expect(within(summary).getByRole("link", { name: /Failed/ })).toHaveAttribute("href", "/library?status=failed");
+    // 21 waiting in all, but the queue says 21 of those will run; the tile says which
+    expect(within(summary).getByRole("link", { name: /Waiting/ })).toHaveTextContent("21 queued for the next run");
+  });
+
+  it("counts only the queued books as queued, not the unmonitored ones", async () => {
+    fakeApi(dashboard({ "GET /api/queue": ok({ ...QUEUE, items: [], total: 0, waiting: 0 }) }));
+    renderApp("/");
+
+    const summary = await screen.findByRole("region", { name: "Library summary" });
+    const waiting = within(summary).getByRole("link", { name: /Waiting/ });
+    await waitFor(() => expect(waiting).toHaveTextContent("0 queued for the next run"));
+    expect(waiting).toHaveTextContent("21");
   });
 
   it("gives the schedule and the next run, and starts a sync", async () => {
@@ -107,6 +123,30 @@ describe("the Dashboard", () => {
     expect(within(card).getByText("306 books · 131 GB")).toBeInTheDocument();
     expect(within(card).getByText("16 unavailable")).toBeInTheDocument();
     expect(within(card).getByText("Not run yet")).toBeInTheDocument();
+    // Nothing downloading, so no such segment
+    expect(within(card).queryByText(/downloading/)).not.toBeInTheDocument();
+  });
+
+  it("counts a book being downloaded in its account's breakdown", async () => {
+    const busy = { ...STATS.accounts[0], books: counts({ downloaded: 271, downloading: 1, waiting_download: 16 }) };
+    fakeApi(dashboard({ "GET /api/stats": ok({ ...STATS, accounts: [busy] }) }));
+    renderApp("/");
+
+    const card = await screen.findByRole("region", { name: "Accounts" });
+    expect(await within(card).findByText("1 downloading")).toBeInTheDocument();
+  });
+
+  it("marks a run the service never closed as interrupted", async () => {
+    fakeApi(
+      dashboard({
+        "GET /api/sync/runs": ok({ items: [run({ id: 140, outcome: "running", finished_at: null })], total: 1 }),
+      }),
+    );
+    renderApp("/");
+
+    const runs = await screen.findByRole("region", { name: "Recent runs" });
+    expect(await within(runs).findByText("Interrupted")).toBeInTheDocument();
+    expect(within(runs).getByText("Interrupted: the service stopped during this run")).toBeInTheDocument();
   });
 
   it("lists what runs next, with how many more are waiting", async () => {
@@ -221,5 +261,43 @@ describe("the Dashboard", () => {
     expect(screen.queryByRole("region", { name: "Up next" })).not.toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Recent runs" })).not.toBeInTheDocument();
     expect(await screen.findByText("No books yet")).toBeInTheDocument();
+  });
+});
+
+describe("useRefreshDuringRun", () => {
+  it("refetches when the run takes up another book, even one refused without using a slot", () => {
+    const client = makeQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const live = (bookId: number, done: number) =>
+      status({
+        current_run: {
+          run_id: 148,
+          started_at: "2026-11-02T14:00:00+00:00",
+          stage: "downloading",
+          account: null,
+          book: { id: bookId, asin: "B0", title: "x" },
+          books_done: done,
+          books_total: 10,
+          transfer: null,
+        },
+      });
+    const hook = renderHook(({ value }) => useRefreshDuringRun(value), {
+      wrapper,
+      initialProps: { value: live(1, 0) },
+    });
+
+    hook.rerender({ value: live(1, 0) });
+    expect(invalidate).not.toHaveBeenCalled();
+
+    // Book 1 refused: no slot used, so books_done stays 0, but the run moved on
+    hook.rerender({ value: live(2, 0) });
+    expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([
+      ["stats"],
+      ["books", "recent"],
+      ["queue"],
+    ]);
   });
 });
