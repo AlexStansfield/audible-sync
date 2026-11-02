@@ -22,9 +22,10 @@ export const keys = {
 export const AFTER_RUN = [["stats"], ["books"], ["runs"], ["queue"], ["accounts"]] as const;
 
 export const RUNNING_INTERVAL = 2_000;
-export const IDLE_INTERVAL = 30_000;
+/** Short enough that a run the schedule starts shows within seconds, not half a minute */
+export const IDLE_INTERVAL = 10_000;
 
-/** Every 2 s while a run is in flight, every 30 s otherwise. */
+/** Every 2 s while a run is in flight, every 10 s otherwise. */
 export function statusInterval(status: Status | undefined): number {
   return status?.scheduler.running ? RUNNING_INTERVAL : IDLE_INTERVAL;
 }
@@ -90,20 +91,30 @@ export function useRefreshAfterRun(running: boolean | undefined): void {
 /**
  * While a run downloads, what it changes shows as it goes: each book it takes up -
  * refused licences included, which use no slot and so leave `books_done` where it was -
- * refetches `queryKeys` (the end of the run refetches everything anyway).
+ * refetches `queryKeys`, and so does that book's download starting. The run names the
+ * book a moment *before* it claims the row, so a read at the first moment still finds it
+ * waiting; once a transfer is under way the claim has happened and the row says
+ * downloading (found live, 2026-11-02: the Downloading filter stayed empty all download).
+ * The end of the run refetches everything anyway.
  */
 export function useRefreshDuringRun(status: Status | undefined, queryKeys: readonly (readonly unknown[])[]): void {
   const client = useQueryClient();
   const run = status?.current_run;
-  const done = run ? `${run.books_done}:${run.book?.id ?? ""}` : undefined;
-  const seen = useRef(done);
+  const book = run ? `${run.books_done}:${run.book?.id ?? ""}` : undefined;
+  // The book whose download has started, once it has
+  const transferring = run?.transfer ? book : undefined;
+  const seen = useRef(book);
+  const started = useRef(transferring);
   // `queryKeys` is a module constant at each call site, so it never re-runs this by itself
   useEffect(() => {
-    if (done !== undefined && seen.current !== undefined && done !== seen.current) {
+    const nextBook = book !== undefined && seen.current !== undefined && book !== seen.current;
+    const firstTransfer = transferring !== undefined && transferring !== started.current;
+    if (nextBook || firstTransfer) {
       for (const queryKey of queryKeys) {
         void client.invalidateQueries({ queryKey: [...queryKey] });
       }
     }
-    seen.current = done;
-  }, [done, client, queryKeys]);
+    seen.current = book;
+    if (transferring !== undefined) started.current = transferring;
+  }, [book, transferring, client, queryKeys]);
 }

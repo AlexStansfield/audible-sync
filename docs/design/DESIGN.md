@@ -116,7 +116,7 @@ There is one user and no sign-up.
 
 Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with the total book count), Activity, Accounts (with a red dot when an account needs a sign-in), Settings; at the foot, the service state (healthy, or "Syncing · book 3 of 10" while a run is in flight), the username linking to Your sign-in, and Sign out.
 
-**Polling `GET /api/status`:** every 2 s while `scheduler.running` is true, every 30 s otherwise, and once straight after any action that starts or stops a run. The dashboard's run card, the sidebar's service state and the library's Downloading badges all read this one query. When a run finishes, refetch the stats, the library and the runs.
+**Polling `GET /api/status`:** every 2 s while `scheduler.running` is true, every 10 s otherwise (30 s at first; a run the schedule started went unseen for up to half a minute), and once straight after any action that starts or stops a run. The dashboard's run card, the sidebar's service state and the library's Downloading badges all read this one query. When a run finishes, refetch the stats, the library and the runs.
 
 ## Screens
 
