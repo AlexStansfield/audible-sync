@@ -122,7 +122,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Web: sign-in and Your sign-in
 - [x] Web: Dashboard with the live run card
 - [x] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
-- [ ] Web: Accounts with the code and browser sign-in flows
+- [x] Web: Accounts with the code and browser sign-in flows (the live code sign-in from the UI still to be checked against Amazon)
 - [ ] Web: Activity (runs, log) and Settings
 - [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password
 - [x] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)

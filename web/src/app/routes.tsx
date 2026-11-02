@@ -8,6 +8,7 @@ import { basePath } from "../api/client";
 import { LoginPage } from "../auth/LoginPage";
 import { RequireAuth } from "../auth/RequireAuth";
 import { Layout, type RouteHandle } from "../layout/Layout";
+import { AccountsPage } from "../pages/accounts/AccountsPage";
 import { BookPage } from "../pages/book/BookPage";
 import { ComingSoon } from "../pages/ComingSoon";
 import { DashboardPage } from "../pages/dashboard/DashboardPage";
@@ -30,7 +31,7 @@ export const routes: RouteObject[] = [
       { path: "library", element: <LibraryPage />, handle: page("Library") },
       { path: "library/:id", element: <BookPage />, handle: page("Library") },
       { path: "activity", element: <ComingSoon title="Activity" />, handle: page("Activity") },
-      { path: "accounts", element: <ComingSoon title="Accounts" />, handle: page("Accounts") },
+      { path: "accounts", element: <AccountsPage />, handle: page("Accounts") },
       { path: "settings", element: <ComingSoon title="Settings" />, handle: page("Settings") },
       { path: "profile", element: <ProfilePage />, handle: page("Your sign-in") },
       { path: "*", element: <NotFoundPage />, handle: page("Not found") },

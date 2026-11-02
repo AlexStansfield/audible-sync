@@ -27,6 +27,16 @@
   color: var(--text-2);
 }
 
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.close {
+  margin: -8px -10px -8px auto;
+}
+
 .title {
   margin: 0;
   font-size: 18px;
