@@ -1562,3 +1562,74 @@ def test_nothing_is_served_without_a_build(db, tmp_path):
 
     assert client.get("/").status_code == 404
     assert client.get("/api/health").status_code == 200
+
+
+# --- API token and system ----------------------------------------------------------
+
+from types import SimpleNamespace  # noqa: E402
+
+from src import system  # noqa: E402
+from src.apitoken import ApiToken  # noqa: E402
+
+
+def test_the_token_is_shown_masked(api):
+    assert api.get("/api/settings/api-token", headers=AUTH).json() == {"last4": TOKEN[-4:], "source": "stored"}
+
+
+def test_a_regenerated_token_works_at_once_and_the_old_one_does_not(api):
+    response = api.post("/api/settings/api-token/regenerate", headers=AUTH)
+
+    assert response.status_code == 200
+    new = response.json()["token"]
+    fresh = TestClient(api.app)  # no cookies: the token alone
+    assert fresh.get("/api/status", headers=AUTH).status_code == 401
+    assert fresh.get("/api/status", headers={"Authorization": f"Bearer {new}"}).status_code == 200
+    assert fresh.get("/api/settings/api-token", headers={"Authorization": f"Bearer {new}"}).json()["last4"] == new[-4:]
+
+
+def test_a_token_from_the_environment_is_not_regenerated(db):
+    app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "env"))
+    client = TestClient(app)
+
+    response = client.post("/api/settings/api-token/regenerate", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "AUDIBLE_SYNC_API_TOKEN" in response.json()["detail"]
+    assert client.get("/api/status", headers=AUTH).status_code == 200
+    assert client.get("/api/settings/api-token", headers=AUTH).json()["source"] == "env"
+
+
+def test_the_token_endpoints_need_auth(api):
+    assert api.get("/api/settings/api-token").status_code == 401
+    assert api.post("/api/settings/api-token/regenerate").status_code == 401
+
+
+def test_system_reports_ffmpeg_the_disk_the_key_and_the_database(api, monkeypatch, tmp_path):
+    monkeypatch.setattr(system, "ffmpeg", lambda: system.Ffmpeg("ffmpeg version 7.1", True))
+    monkeypatch.setattr(
+        system.shutil, "disk_usage", lambda path: SimpleNamespace(total=10**12, used=0, free=30 * 10**9)
+    )
+    api.put("/api/settings", headers=AUTH, json={"audiobook_folder": str(tmp_path / "books")})
+
+    response = api.get("/api/system", headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["version"], body["ffmpeg_version"], body["libopus"]) == ("test", "ffmpeg version 7.1", True)
+    assert body["audiobook_folder"] == {
+        "path": str(tmp_path / "books"),
+        "free_bytes": 30 * 10**9,
+        "total_bytes": 10**12,
+        "low_space": True,
+    }
+    # The test environment sets AUDIBLE_SYNC_SECRET_KEY (tests/conftest.py)
+    assert (body["key_source"], body["key_file"]) == ("env", None)
+    assert body["database_bytes"] > 0
+
+
+def test_system_with_no_ffmpeg(api, monkeypatch):
+    monkeypatch.setattr(system, "ffmpeg", lambda: system.Ffmpeg(None, False))
+
+    body = api.get("/api/system", headers=AUTH).json()
+
+    assert (body["ffmpeg_version"], body["libopus"]) == (None, False)

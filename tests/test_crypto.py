@@ -117,3 +117,21 @@ def test_a_corrupt_key_file_is_an_error(tmp_path):
 
     with pytest.raises(SecretKeyError, match=str(path)):
         load_secret_key({KEY_FILE_ENV: str(path)})
+
+
+def test_the_key_source_is_the_environment_when_it_is_set(tmp_path):
+    source = crypto.key_source({KEY_ENV: "anything", KEY_FILE_ENV: str(tmp_path / "k")})
+
+    assert source == crypto.KeySource("env")
+
+
+def test_the_key_source_is_the_file_load_secret_key_would_read(tmp_path):
+    path = tmp_path / "secret.key"
+
+    assert crypto.key_source({KEY_ENV: " ", KEY_FILE_ENV: str(path)}) == crypto.KeySource("file", path)
+    # Reading nothing, so nothing is generated
+    assert not path.exists()
+
+
+def test_the_key_source_defaults_to_the_default_file():
+    assert crypto.key_source({}) == crypto.KeySource("file", crypto.DEFAULT_KEY_FILE)

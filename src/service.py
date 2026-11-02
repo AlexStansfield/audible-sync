@@ -28,7 +28,6 @@ Environment:
 
 import logging
 import os
-import secrets
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,8 +36,9 @@ import uvicorn
 
 from src import crypto, webauth
 from src.api import create_app
+from src.apitoken import resolve_api_token
 from src.crypto import load_secret_key
-from src.database import API_TOKEN_SETTING, encrypt_stored_secrets, get_settings, init_db, save_settings
+from src.database import encrypt_stored_secrets, init_db
 from src.logbuffer import RingBufferHandler
 from src.main import configure_logging, run_pipeline
 from src.paths import REPO_ROOT, resolve_path
@@ -94,38 +94,6 @@ class ServiceConfig:
 
 def _flag(value: str | None) -> bool:
     return (value or "").strip().lower() in ("1", "true", "yes", "on")
-
-
-def resolve_api_token(configured: str | None) -> str:
-    """
-    The token the API will require: the configured one, else the stored one, else a new
-    one stored for next time.
-
-    Generated once rather than on every start, so the token copied from the log keeps
-    working across restarts. It is logged in full only on the start that generates it:
-    a log handed over with a bug report must not hand over the API. Later starts log
-    where it came from and its last four characters, enough to tell which one is in use.
-    """
-    if configured:
-        logger.info("API token: from AUDIBLE_SYNC_API_TOKEN")
-        return configured
-    stored = get_settings().get(API_TOKEN_SETTING)
-    if stored:
-        try:
-            token = crypto.decrypt(stored)
-        except crypto.WrongKey as error:
-            logger.error("The stored API token cannot be read, generating a new one: %s", error)
-        else:
-            logger.info("API token: the stored one, ending ...%s", token[-4:])
-            return token
-    token = secrets.token_urlsafe(32)
-    save_settings({API_TOKEN_SETTING: crypto.encrypt(token)})
-    logger.warning(
-        "Generated a new API token: %s - copy it now, it is not logged again "
-        "(set AUDIBLE_SYNC_API_TOKEN to choose your own)",
-        token,
-    )
-    return token
 
 
 def ensure_web_user() -> None:
