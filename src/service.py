@@ -29,7 +29,7 @@ from dataclasses import dataclass
 
 import uvicorn
 
-from src import crypto
+from src import crypto, webauth
 from src.api import create_app
 from src.crypto import load_secret_key
 from src.database import API_TOKEN_SETTING, encrypt_stored_secrets, get_settings, init_db, save_settings
@@ -111,6 +111,25 @@ def resolve_api_token(configured: str | None) -> str:
     return token
 
 
+def ensure_web_user() -> None:
+    """
+    Create the web app's user on the first start and log its password, that once.
+
+    Like the API token, the password is only ever logged by the start that generates
+    it; a forgotten one is replaced with the CLI's `reset-password`.
+    """
+    password = webauth.ensure_admin()
+    if password is None:
+        return
+    user = webauth.current_user()
+    logger.warning(
+        "Web app sign-in: user %s, password %s - sign in and choose your own; it is not logged again "
+        "(forgotten, it is reset with: python -m src.main reset-password)",
+        user.username if user else webauth.DEFAULT_USERNAME,
+        password,
+    )
+
+
 def _run(settings: Settings, state: RunState, cancel: threading.Event) -> None:
     """The pipeline as the scheduler calls it, with progress reported into the run state."""
     run_pipeline(settings, progress=StateProgress(state), state=state, cancel=cancel)
@@ -131,6 +150,7 @@ def build(config: ServiceConfig):
     encrypt_stored_secrets()
 
     api_token = resolve_api_token(config.api_token)
+    ensure_web_user()
 
     state = RunState()
     scheduler = Scheduler(load_settings=Settings.from_db, run=_run, state=state, stop_timeout=STOP_TIMEOUT)

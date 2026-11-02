@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
-from src import crypto, service
+from src import crypto, service, webauth
 from src.logbuffer import RingBufferHandler
 from src.service import ServiceConfig, resolve_api_token
 from src.settings import Settings
@@ -137,3 +137,25 @@ def test_build_installs_the_log_buffer_on_the_root_logger(db, monkeypatch):
         for handler in root.handlers:
             if handler not in before:
                 root.removeHandler(handler)
+
+
+def test_the_first_start_creates_the_web_user_and_logs_its_password_once(db, caplog):
+    caplog.set_level(logging.INFO, logger="src.service")
+
+    service.ensure_web_user()
+    (password,) = [r.args[1] for r in caplog.records if "Web app sign-in" in r.getMessage()]
+    caplog.clear()
+    service.ensure_web_user()
+
+    assert webauth.verify("admin", password)
+    assert password not in caplog.text
+    assert "reset-password" not in caplog.text
+
+
+def test_build_creates_the_web_user(db, monkeypatch):
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+
+    service.build(ServiceConfig(api_token="tok"))
+
+    assert webauth.current_user() == webauth.User("admin", generated_password=True)

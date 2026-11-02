@@ -2,7 +2,7 @@ import argparse
 import logging
 import threading
 
-from src import crypto
+from src import crypto, webauth
 from src.accounts import (
     add_account_from_authenticator,
     authenticator_for,
@@ -305,6 +305,23 @@ def login_command(
     print(f"Logged in. Account {account_id} added; the next run will sync it.")
 
 
+def reset_password_command(*, reset_username: bool = False) -> None:
+    """
+    The way back from a forgotten web app password: a new one, printed here, and every
+    browser signed out. With `reset_username` the username goes back to `admin` too.
+
+    The service needs no restart: it reads the password and the sessions from the
+    database on every sign-in and request.
+    """
+    _prepare()
+    password = webauth.reset_password(reset_username=reset_username)
+    user = webauth.current_user()
+    username = user.username if user else webauth.DEFAULT_USERNAME
+    logger.info("Reset the web app password; every session was ended")
+    print(f"Password reset. Sign in as {username} with the password: {password}")
+    print("Every browser has been signed out. Choose your own password under Your sign-in.")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m src.main", description="Sync an Audible library to DRM-free files")
     commands = parser.add_subparsers(dest="command")
@@ -333,13 +350,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="sign in through a browser and paste the address back, instead of entering a code at Amazon",
     )
+    reset = commands.add_parser(
+        "reset-password", help="give the web app's user a new password, printed here, and sign out every browser"
+    )
+    reset.add_argument("--username", action="store_true", help="also set the username back to admin")
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
-    """CLI entry point: `run` (the default) or `login`."""
+    """CLI entry point: `run` (the default), `login` or `reset-password`."""
     args = build_parser().parse_args(argv)
-    if args.command == "login":
+    if args.command == "reset-password":
+        reset_password_command(reset_username=args.username)
+    elif args.command == "login":
         login_command(
             args.marketplace,
             name=args.name,
