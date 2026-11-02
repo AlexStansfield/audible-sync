@@ -40,6 +40,7 @@ from src.accounts import (
 from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
+    book_ids_matching,
     count_sync_runs,
     delete_account,
     downloaded_file_paths,
@@ -69,6 +70,9 @@ from src.schemas import (
     BookList,
     BookOut,
     BookUpdate,
+    BulkRequest,
+    BulkResultOut,
+    BulkSkip,
     Health,
     LoginComplete,
     LoginOut,
@@ -552,6 +556,30 @@ def create_app(
         if account_id is not None:
             _account_or_404(account_id)
         return Requeued(requeued=requeue_unavailable(account_id))
+
+    @router.post("/books/bulk", response_model=BulkResultOut)
+    def bulk_books(body: BulkRequest) -> BulkResultOut:
+        """
+        One action on many books: the ids selected, or everything the filters match.
+
+        The filters mean what they mean on `GET /api/books`, so "all 354 matching" acts
+        on the 354 the listing counted. Books a run is downloading, a retry of a
+        downloaded book and deleting the files of a book with none are skipped, each
+        with a reason; an unknown id is skipped as `not_found`. 404 for a filter on an
+        unknown account.
+        """
+        if body.filter is not None:
+            if body.filter.account_id is not None:
+                _account_or_404(body.filter.account_id)
+            ids = book_ids_matching(**body.filter.model_dump())
+        else:
+            ids = body.ids
+        result = library.bulk(body.action, ids, Settings.from_db())
+        return BulkResultOut(
+            updated=result.updated,
+            queued=result.queued,
+            skipped=[BulkSkip(id=book_id, reason=reason) for book_id, reason in result.skipped],
+        )
 
     @router.get("/books/{book_id}", response_model=BookOut)
     def get_one_book(book_id: int) -> BookOut:

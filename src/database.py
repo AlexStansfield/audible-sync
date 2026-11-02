@@ -871,6 +871,37 @@ BOOK_SORT_COLUMNS = {
 }
 
 
+def _book_filter(
+    *,
+    account_id: int | None = None,
+    status: BookStatus | str | None = None,
+    monitored: bool | None = None,
+    q: str | None = None,
+) -> tuple[str, list]:
+    """
+    The `WHERE` clause and its parameters for the library filters.
+
+    Shared by `list_books` and `book_ids_matching`, so a bulk action on "everything
+    matching these filters" acts on exactly the books the listing showed.
+    """
+    where = []
+    params: list = []
+    if account_id is not None:
+        where.append("account_id = ?")
+        params.append(account_id)
+    if status is not None:
+        where.append("status = ?")
+        params.append(status)
+    if monitored is not None:
+        where.append("monitored = ?")
+        params.append(monitored)
+    if q:
+        like = f"%{q}%"
+        where.append("(title LIKE ? OR authors LIKE ? OR series LIKE ?)")
+        params.extend([like, like, like])
+    return (f" WHERE {' AND '.join(where)}" if where else ""), params
+
+
 def list_books(
     *,
     account_id: int | None = None,
@@ -894,28 +925,26 @@ def list_books(
     if sort not in BOOK_SORT_COLUMNS:
         raise ValueError(f"sort must be one of {', '.join(BOOK_SORT_COLUMNS)}, got {sort!r}")
 
-    where = []
-    params: list = []
-    if account_id is not None:
-        where.append("account_id = ?")
-        params.append(account_id)
-    if status is not None:
-        where.append("status = ?")
-        params.append(status)
-    if monitored is not None:
-        where.append("monitored = ?")
-        params.append(monitored)
-    if q:
-        like = f"%{q}%"
-        where.append("(title LIKE ? OR authors LIKE ? OR series LIKE ?)")
-        params.extend([like, like, like])
-    clause = f" WHERE {' AND '.join(where)}" if where else ""
+    clause, params = _book_filter(account_id=account_id, status=status, monitored=monitored, q=q)
     order = f" ORDER BY {BOOK_SORT_COLUMNS[sort]} {'DESC' if descending else 'ASC'}, id"
 
     with closing(_get_connection()) as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM library{clause}", params).fetchone()[0]
         rows = conn.execute(f"SELECT * FROM library{clause}{order} LIMIT ? OFFSET ?", (*params, limit, offset))
         return [Book.from_row(row) for row in rows], total
+
+
+def book_ids_matching(
+    *,
+    account_id: int | None = None,
+    status: BookStatus | str | None = None,
+    monitored: bool | None = None,
+    q: str | None = None,
+) -> list[int]:
+    """The row ids of every book the same filters as `list_books` match, in id order."""
+    clause, params = _book_filter(account_id=account_id, status=status, monitored=monitored, q=q)
+    with closing(_get_connection()) as conn:
+        return [row[0] for row in conn.execute(f"SELECT id FROM library{clause} ORDER BY id", params)]
 
 
 def library_stats(*, account_id: int | None = None) -> dict:
