@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import threading
 
 import httpx
@@ -446,6 +447,7 @@ def test_get_run(api, monkeypatch):
         "books_downloaded": 0,
         "books_failed": 0,
         "error": None,
+        "books_recorded": True,
     }
 
 
@@ -1715,3 +1717,129 @@ def test_the_queue_limit_is_bounded(api, limit):
 
 def test_the_queue_needs_auth(api):
     assert api.get("/api/queue").status_code == 401
+
+
+# --- a run's books ----------------------------------------------------------------------
+
+
+def test_a_runs_books_come_back_in_their_three_outcomes(api):
+    account_id = _account()
+    one, two, three, four = _shelve(account_id, *(make_book(f"B00{n}", f"Book {n}") for n in range(1, 5)))
+    run_id = database.start_sync_run(account_id)
+    database.record_run_book(run_id, one, "downloaded", bytes=2048, seconds=30.0)
+    database.record_run_book(run_id, two, "failed", error="RuntimeError: boom")
+    database.record_run_book(run_id, three, "refused", error="Denied")
+    database.record_run_book(run_id, four, "downloaded", bytes=10, seconds=1.0)
+
+    response = api.get(f"/api/sync/runs/{run_id}/books", headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["run_id"], body["recorded"]) == (run_id, True)
+    assert [b["asin"] for b in body["downloaded"]] == ["B001", "B004"]
+    assert body["downloaded"][0] | {"finished_at": None} == {
+        "book_id": one.id,
+        "asin": "B001",
+        "title": "Book 1",
+        "cover_url": one.cover_url,
+        "error": None,
+        "bytes": 2048,
+        "seconds": 30.0,
+        "finished_at": None,
+    }
+    assert [(b["asin"], b["error"]) for b in body["failed"]] == [("B002", "RuntimeError: boom")]
+    assert [(b["asin"], b["error"]) for b in body["refused"]] == [("B003", "Denied")]
+
+
+def test_a_run_from_before_the_records_says_so(api):
+    run_id = database.start_sync_run(_account())
+    conn = sqlite3.connect(database.DB_FILE)
+    conn.execute("UPDATE sync_runs SET books_recorded = 0 WHERE id = ?", (run_id,))
+    conn.commit()
+    conn.close()
+
+    body = api.get(f"/api/sync/runs/{run_id}/books", headers=AUTH).json()
+
+    assert body == {"run_id": run_id, "recorded": False, "downloaded": [], "failed": [], "refused": []}
+    assert api.get(f"/api/sync/runs/{run_id}", headers=AUTH).json()["books_recorded"] is False
+
+
+def test_a_runs_books_404_for_an_unknown_run(api):
+    assert api.get("/api/sync/runs/999/books", headers=AUTH).status_code == 404
+
+
+# --- review fixes: CORS with *, the catch-all's methods, index.html caching ----------
+
+
+def _cors_app(origins):
+    app = create_app(
+        scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), cors_origins=origins
+    )
+    return TestClient(app)
+
+
+def test_cors_with_a_wildcard_never_lets_the_session_cookie_through(db, caplog):
+    """Starlette echoes any origin for * with credentials: any page on the host could act as the user."""
+    client = _cors_app(["*"])
+
+    response = client.get(
+        "/api/health", headers={"Origin": "http://evil:9999", "Cookie": "audible_sync_session=stolen"}
+    )
+
+    assert response.headers.get("access-control-allow-origin") == "*"
+    assert "access-control-allow-credentials" not in response.headers
+    assert "AUDIBLE_SYNC_CORS_ORIGINS is *" in caplog.text
+
+
+def test_cors_with_a_listed_origin_allows_the_session_cookie(db):
+    response = _cors_app(["http://ui:5173"]).get("/api/health", headers={"Origin": "http://ui:5173"})
+
+    assert response.headers["access-control-allow-origin"] == "http://ui:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_index_html_asked_for_by_name_is_revalidated(web):
+    response = web.get("/index.html")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+
+
+@pytest.fixture(params=["with a build", "without a build"])
+def either(request, db, tmp_path):
+    if request.param == "with a build":
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        (dist / "index.html").write_text("<!doctype html>")
+        app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), web_dir=dist)
+    else:
+        app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"))
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status", "allow"),
+    [
+        ("POST", "/api/books/1/nope", 404, None),
+        ("DELETE", "/api/nope", 404, None),
+        ("POST", "/api/health", 405, "GET"),
+        ("GET", "/api/sync", 405, "POST"),
+        ("PUT", "/api/books/1", 405, "GET, PATCH"),
+    ],
+)
+def test_unknown_paths_and_wrong_methods_answer_the_same_with_or_without_a_build(either, method, path, status, allow):
+    response = either.request(method, path, headers=AUTH)
+
+    assert response.status_code == status
+    assert response.json()["detail"]
+    if allow:
+        # Starlette's own 405 names only the first matching route's methods, so check
+        # the one that matters is there
+        assert allow.split(", ")[0] in response.headers["allow"]
+
+
+def test_a_post_to_a_page_of_the_app_is_a_404(web):
+    response = web.post("/library")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}

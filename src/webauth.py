@@ -171,14 +171,9 @@ def password_readable() -> bool:
     stored from here now would be unreadable to it, which is what `reset-password`
     checks before doing anything.
     """
-    stored = get_settings().get(WEB_PASSWORD_SETTING)
-    if not stored:
-        return True
-    try:
-        crypto.decrypt(stored)
-    except crypto.WrongKey:
-        return False
-    return True
+    values = get_settings()
+    # Nothing stored is readable; something stored must decrypt
+    return not values.get(WEB_PASSWORD_SETTING) or _stored_hash(values) is not None
 
 
 def current_user() -> User | None:
@@ -203,11 +198,9 @@ def ensure_admin() -> str | None:
     username = values.get(WEB_USERNAME_SETTING)
     stored = values.get(WEB_PASSWORD_SETTING)
     if username and stored:
-        try:
-            crypto.decrypt(stored)
+        if _stored_hash(values) is not None:
             return None
-        except crypto.WrongKey as error:
-            logger.error("The stored web app password cannot be read, generating a new one: %s", error)
+        logger.error("The stored web app password cannot be read under this key, generating a new one")
     password = _generated_password()
     save_settings(
         {
@@ -238,7 +231,9 @@ def verify(username: str, password: str) -> bool:
     stored_username = values.get(WEB_USERNAME_SETTING) or ""
     encoded = _stored_hash(values)
     password_ok = _password_matches(password, encoded)
-    username_ok = secrets.compare_digest(username.encode(), stored_username.encode())
+    # Trimmed as `set_username` trims what it stores: a stray space from a password
+    # manager is not a different user
+    username_ok = secrets.compare_digest(username.strip().encode(), stored_username.encode())
     return password_ok and username_ok and bool(stored_username)
 
 

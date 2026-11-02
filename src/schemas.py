@@ -113,6 +113,37 @@ class SyncRunOut(BaseModel):
     books_downloaded: int
     books_failed: int
     error: str | None
+    # Whether `GET /api/sync/runs/{id}/books` has anything to say: false on runs from
+    # before the per-book records
+    books_recorded: bool
+
+
+class RunBookOut(BaseModel):
+    """
+    One book of a run. `book_id` is None once the book has left the library; `asin` and
+    `title` are as they were when the run took it on.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    book_id: int | None
+    asin: str
+    title: str | None
+    cover_url: str | None
+    error: str | None
+    bytes: int | None
+    seconds: float | None
+    finished_at: str
+
+
+class RunBooks(BaseModel):
+    """A run's books in its three outcomes, each in the order the run finished them."""
+
+    run_id: int
+    recorded: bool
+    downloaded: list[RunBookOut]
+    failed: list[RunBookOut]
+    refused: list[RunBookOut]
 
 
 class SyncRunList(BaseModel):

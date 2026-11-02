@@ -7,7 +7,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 from src import crypto
-from src.model import Account, Book, BookStatus, SyncOutcome, SyncRun
+from src.model import Account, Book, BookStatus, RunBook, RunBookOutcome, SyncOutcome, SyncRun
 from src.paths import REPO_ROOT
 
 logger = logging.getLogger(__name__)
@@ -92,9 +92,31 @@ def init_db():
             books_added INTEGER NOT NULL DEFAULT 0,
             books_downloaded INTEGER NOT NULL DEFAULT 0,
             books_failed INTEGER NOT NULL DEFAULT 0,
-            error TEXT
+            error TEXT,
+            -- 1 on runs that record their books in sync_run_books; 0 on runs from
+            -- before there was that table, so "no books" and "not recorded" differ
+            books_recorded BOOLEAN NOT NULL DEFAULT 0
         )
     """)
+    # One row per book a run took on and finished with: downloaded, failed, or refused
+    # a licence. `asin` and `title` are a snapshot so the record still reads after the
+    # book's row is gone. SQLite foreign keys are not switched on here, so
+    # `delete_account` removes these rows itself.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sync_run_books (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER NOT NULL REFERENCES sync_runs(id) ON DELETE CASCADE,
+            book_id INTEGER REFERENCES library(id) ON DELETE SET NULL,
+            asin TEXT NOT NULL,
+            title TEXT,
+            outcome TEXT NOT NULL,
+            error TEXT,
+            bytes INTEGER,
+            seconds REAL,
+            finished_at TEXT NOT NULL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_run_books_run ON sync_run_books(run_id)")
     # Runtime settings as text, one row per key. Seeded from config.ini on the first run
     # and changed through the API after that; `src.settings` owns the parsing.
     cursor.execute("""
@@ -199,8 +221,12 @@ def _migrate_schema(conn):
             cursor.execute(f"ALTER TABLE library ADD COLUMN {column} {column_type}")
 
     cursor.execute("PRAGMA table_info(sync_runs)")
-    if "account_id" not in {row[1] for row in cursor.fetchall()}:
+    run_columns = {row[1] for row in cursor.fetchall()}
+    if "account_id" not in run_columns:
         cursor.execute("ALTER TABLE sync_runs ADD COLUMN account_id INTEGER REFERENCES accounts(id)")
+    if "books_recorded" not in run_columns:
+        # Every existing run predates the per-book records, hence the default 0
+        cursor.execute("ALTER TABLE sync_runs ADD COLUMN books_recorded BOOLEAN NOT NULL DEFAULT 0")
 
     conn.commit()
 
@@ -998,7 +1024,7 @@ def start_sync_run(account_id: int | None = None) -> int:
     """
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            "INSERT INTO sync_runs (account_id, started_at, outcome) VALUES (?, ?, ?)",
+            "INSERT INTO sync_runs (account_id, started_at, outcome, books_recorded) VALUES (?, ?, ?, 1)",
             (account_id, _utcnow(), SyncOutcome.RUNNING),
         )
         conn.commit()
@@ -1108,6 +1134,44 @@ def get_sync_run(run_id: int) -> SyncRun | None:
     with closing(_get_connection()) as conn:
         row = conn.execute("SELECT * FROM sync_runs WHERE id = ?", (run_id,)).fetchone()
     return SyncRun.from_row(row) if row is not None else None
+
+
+def record_run_book(
+    run_id: int,
+    book: Book,
+    outcome: RunBookOutcome | str,
+    *,
+    error: str | None = None,
+    bytes: int | None = None,
+    seconds: float | None = None,
+) -> None:
+    """Record what became of one book in a run, for the run's detail on the Activity screen."""
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            "INSERT INTO sync_run_books (run_id, book_id, asin, title, outcome, error, bytes, seconds, finished_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (run_id, book.id, book.asin, book.title, RunBookOutcome(outcome), error, bytes, seconds, _utcnow()),
+        )
+        conn.commit()
+
+
+def get_run_books(run_id: int) -> list[RunBook]:
+    """
+    The books a run recorded, in the order it finished them. `book_id` is None once the
+    book's row is gone; `cover_url` is the library's, when the row is still there.
+    """
+    with closing(_get_connection()) as conn:
+        rows = conn.execute(
+            """
+            SELECT r.*, l.id AS live_id, l.cover_url
+              FROM sync_run_books r
+              LEFT JOIN library l ON l.id = r.book_id
+             WHERE r.run_id = ?
+             ORDER BY r.id
+            """,
+            (run_id,),
+        )
+        return [RunBook.from_row(row) for row in rows]
 
 
 def count_sync_runs(*, account_id: int | None = None) -> int:
@@ -1330,6 +1394,10 @@ def delete_account(account_id: int) -> None:
     """
     with closing(_get_connection()) as conn:
         conn.execute("DELETE FROM library WHERE account_id = ?", (account_id,))
+        conn.execute(
+            "DELETE FROM sync_run_books WHERE run_id IN (SELECT id FROM sync_runs WHERE account_id = ?)",
+            (account_id,),
+        )
         conn.execute("DELETE FROM sync_runs WHERE account_id = ?", (account_id,))
         conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
         conn.commit()

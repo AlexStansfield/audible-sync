@@ -180,7 +180,7 @@ def run_account(
 
             state.set_stage(RunStage.DOWNLOADING)
             stats = download_books(
-                audible, settings, progress=progress, account_id=account.id, state=state, cancel=cancel
+                audible, settings, progress=progress, account_id=account.id, state=state, cancel=cancel, run_id=run_id
             )
         except Exception as error:
             finish_sync_run(

@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+import sqlite3
 import subprocess
 import threading
 from pathlib import Path
@@ -313,7 +314,9 @@ def _asins(books):
     return {book.id: book.asin for book in books}
 
 
-def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, claimed=None, failures=None):
+def _patch_pipeline(
+    monkeypatch, books, marked, accessories, decrypt_calls, *, claimed=None, failures=None, records=None
+):
     """
     Stub everything that would hit the network, ffmpeg or the database.
 
@@ -337,6 +340,12 @@ def _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, *, c
     monkeypatch.setattr(downloader, "mark_book_failed", fake_fail)
     monkeypatch.setattr(downloader, "release_book", lambda book_id: None)
     monkeypatch.setattr(downloader, "mark_book_unavailable", lambda book_id, error: None)
+
+    def fake_record(run_id, book, outcome, **details):
+        if records is not None:
+            records.append((run_id, book.asin, outcome, details))
+
+    monkeypatch.setattr(downloader, "record_run_book", fake_record)
 
     def fake_mark(book_id, **kw):
         marked.append((asins[book_id], kw["encoding_format"]))
@@ -1640,3 +1649,81 @@ def test_no_breaker_when_the_setting_is_unset(tmp_path, monkeypatch):
 
     assert [m[0] for m in marked] == ["OK2"]
     assert stats.aborted is False
+
+
+# --- per-run book records ---------------------------------------------------------
+
+
+def test_download_books_records_each_book_against_the_run(tmp_path, monkeypatch):
+    books = [make_book("OK1", "Good"), make_book("BAD1", "Broken"), make_book("NOLIC", "Refused")]
+    records, marked = [], []
+    _patch_pipeline(monkeypatch, books, marked, [], [], records=records)
+    real_download = downloader.Downloader.download_book
+
+    def download(self, book, temp_dir):
+        if book.asin == "NOLIC":
+            raise LicenseError("Audible did not grant a license for NOLIC (status Denied)")
+        return real_download(self, book, temp_dir)
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", download)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib"), run_id=7
+    )
+
+    assert [(run_id, asin, outcome) for run_id, asin, outcome, _ in records] == [
+        (7, "OK1", "downloaded"),
+        (7, "BAD1", "failed"),
+        (7, "NOLIC", "refused"),
+    ]
+    ok, bad, refused = (details for *_, details in records)
+    assert ok["bytes"] == len(b"audio") and ok["seconds"] >= 0
+    assert "simulated network failure" in bad["error"]
+    assert "Denied" in refused["error"]
+
+
+def test_a_book_handed_back_is_not_recorded(tmp_path, monkeypatch):
+    """Cancelled, or the credentials failed: nothing became of the book."""
+    books = [make_book("OK1"), make_book("OK2")]
+    records = []
+    _patch_pipeline(monkeypatch, books, [], [], [], records=records)
+
+    def expired(self, book, temp_dir):
+        raise downloader.Unauthorized(httpx.Response(401), {"message": "token expired"})
+
+    monkeypatch.setattr(downloader.Downloader, "download_book", expired)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib"), run_id=7
+    )
+
+    assert records == []
+
+
+def test_without_a_run_nothing_is_recorded(tmp_path, monkeypatch):
+    records = []
+    _patch_pipeline(monkeypatch, [make_book("OK1")], [], [], [], records=records)
+
+    downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib")
+    )
+
+    assert records == []
+
+
+def test_a_record_that_cannot_be_written_does_not_fail_the_book(tmp_path, monkeypatch, caplog):
+    marked = []
+    _patch_pipeline(monkeypatch, [make_book("OK1")], marked, [], [])
+
+    def broken(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(downloader, "record_run_book", broken)
+
+    stats = downloader.download_books(
+        object(), make_settings(download_folder=tmp_path / "dl", audiobook_folder=tmp_path / "lib"), run_id=7
+    )
+
+    assert (stats.succeeded, stats.failed) == (1, 0)
+    assert marked == [("OK1", "m4b")]
+    assert "Could not record" in caplog.text

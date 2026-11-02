@@ -359,3 +359,8 @@ def test_addresses_that_never_come_back_are_forgotten():
     throttle.attempt("1.2.3.4")
 
     assert list(throttle._failures) == ["1.2.3.4"]
+
+
+def test_a_username_typed_with_stray_spaces_still_signs_in(user):
+    """set_username trims what it stores; a password manager's trailing space is the same user."""
+    assert webauth.verify(" admin ", PASSWORD)

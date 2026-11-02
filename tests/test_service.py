@@ -143,3 +143,15 @@ def test_build_serves_the_web_app_it_is_pointed_at(db, monkeypatch, tmp_path):
     client = TestClient(service.build(ServiceConfig(api_token="tok", web_dir=tmp_path)))
 
     assert client.get("/library").text == "<p>app</p>"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"), [("", False), ("false", False), ("0", False), ("off", False), ("YES", True), ("on", True)]
+)
+def test_a_flag_reads_the_spellings_config_ini_does(value, expected):
+    assert ServiceConfig.from_env({"AUDIBLE_SYNC_SECURE_COOKIE": value}).secure_cookie is expected
+
+
+def test_a_flag_that_is_not_true_or_false_is_an_error_naming_it():
+    with pytest.raises(ValueError, match="AUDIBLE_SYNC_DEBUG must be true or false"):
+        ServiceConfig.from_env({"AUDIBLE_SYNC_DEBUG": "maybe"})
