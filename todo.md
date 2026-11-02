@@ -114,6 +114,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [ ] Backend: session sign-in (`/api/auth/login`, `/logout`, `/me`) accepted beside the bearer token; rate-limited failures
 - [ ] Backend: change the username and password (current password required; a password change ends other sessions)
 - [ ] Backend: a server-side way to reset a forgotten password
+- [ ] Backend: add the book's row `id` to `current_run.book` in `GET /api/status` (`RunState.set_book`, `BookRef`). Today it carries only `asin` and `title`. The Dashboard run card needs the id for the cover. Book detail needs it to know the run is on this book, because the same ASIN can exist in two accounts
 - [ ] Backend: serve the built web app from FastAPI with an `index.html` fallback
 - [ ] Docker and CI: a Node build stage for `web/`; lint, type-check and build it in CI
 - [ ] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
