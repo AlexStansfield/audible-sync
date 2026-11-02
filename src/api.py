@@ -816,8 +816,9 @@ _REVALIDATE = {"Cache-Control": "no-cache"}
 _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 
-# What the build's index.html carries for the service to point at the base path
-_BASE_MARKER = '<base href="/">'
+# What the build's index.html carries for the service to point at the base path:
+# `<base href="/">`, or `<base href="/" />` as written in web/index.html
+_BASE_MARKER = re.compile(r'<base href="/"\s*/?>')
 
 
 def _serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
@@ -836,10 +837,9 @@ def _serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
     # Read once: a new build means a new image, or at least a restart. The web app takes
     # its router's basename and the API's address from <base href>
     page = index.read_text(encoding="utf-8")
-    if _BASE_MARKER in page:
-        page = page.replace(_BASE_MARKER, f'<base href="{base_path}/">', 1)
-    elif base_path:
-        logger.warning("%s has no %s to point at %s; the web app will not load there", index, _BASE_MARKER, base_path)
+    page, found = _BASE_MARKER.subn(f'<base href="{base_path}/">', page, count=1)
+    if not found and base_path:
+        logger.warning('%s has no <base href="/"> to point at %s; the web app will not load there', index, base_path)
     others = list(app.router.routes)  # everything registered before this route
 
     def index_page() -> HTMLResponse:

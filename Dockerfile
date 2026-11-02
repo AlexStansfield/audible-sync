@@ -1,3 +1,11 @@
+# The web app: built here, only its dist/ reaches the image
+FROM node:24-slim AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 # Use a lightweight Python base image
 FROM python:3.12-slim-trixie
 
@@ -20,6 +28,9 @@ RUN uv sync --locked --no-dev
 
 # Copy the rest of your source code
 COPY . .
+
+# The web app's build, served by the service at every path outside /api
+COPY --from=web /web/dist /app/web/dist
 
 # The API listens here; see src/service.py for the environment variables
 EXPOSE 8080

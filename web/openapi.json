@@ -1,0 +1,3814 @@
+{
+  "components": {
+    "schemas": {
+      "AccountOut": {
+        "description": "An account as the API shows it: everything but the credentials.",
+        "properties": {
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "customer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "monitor_existing": {
+            "title": "Monitor Existing",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_login": {
+            "title": "Needs Login",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "country_code",
+          "customer_name",
+          "enabled",
+          "monitor_existing",
+          "needs_login",
+          "created_at",
+          "last_synced_at"
+        ],
+        "title": "AccountOut",
+        "type": "object"
+      },
+      "AccountStats": {
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountOut"
+          },
+          "books": {
+            "$ref": "#/components/schemas/BookCounts"
+          },
+          "bytes_on_disk": {
+            "title": "Bytes On Disk",
+            "type": "integer"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "account",
+          "books",
+          "bytes_on_disk",
+          "last_run"
+        ],
+        "title": "AccountStats",
+        "type": "object"
+      },
+      "AccountUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "AccountUpdate",
+        "type": "object"
+      },
+      "ApiTokenInfo": {
+        "description": "The token as the Settings screen shows it: masked to its last four characters.",
+        "properties": {
+          "last4": {
+            "title": "Last4",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "env",
+              "stored"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "last4",
+          "source"
+        ],
+        "title": "ApiTokenInfo",
+        "type": "object"
+      },
+      "BookAction": {
+        "description": "What a per-book action did.",
+        "properties": {
+          "removed": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "BookAction",
+        "type": "object"
+      },
+      "BookCounts": {
+        "properties": {
+          "by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Status",
+            "type": "object"
+          },
+          "monitored": {
+            "title": "Monitored",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "unmonitored": {
+            "title": "Unmonitored",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "by_status",
+          "monitored",
+          "unmonitored",
+          "total"
+        ],
+        "title": "BookCounts",
+        "type": "object"
+      },
+      "BookFilter": {
+        "additionalProperties": false,
+        "description": "The library listing's filters, for a bulk action on everything they match.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "monitored": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monitored"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "BookFilter",
+        "type": "object"
+      },
+      "BookList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BookOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "BookList",
+        "type": "object"
+      },
+      "BookOut": {
+        "description": "A book as the API shows it, with the series it files under worked out.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "annotations_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotations Path"
+          },
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "cover_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Path"
+          },
+          "cover_url": {
+            "title": "Cover Url",
+            "type": "string"
+          },
+          "date_added": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Added"
+          },
+          "downloaded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded At"
+          },
+          "encoding_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Encoding Format"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Path"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "has_pdf": {
+            "title": "Has Pdf",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_consumable": {
+            "title": "Is Consumable",
+            "type": "boolean"
+          },
+          "is_finished": {
+            "title": "Is Finished",
+            "type": "boolean"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "length": {
+            "title": "Length",
+            "type": "integer"
+          },
+          "monitored": {
+            "title": "Monitored",
+            "type": "boolean"
+          },
+          "narrators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Narrators",
+            "type": "array"
+          },
+          "pdf_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Path"
+          },
+          "percent_complete": {
+            "title": "Percent Complete",
+            "type": "number"
+          },
+          "primary_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SeriesEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesEntry"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subtitle": {
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "account_id",
+          "asin",
+          "title",
+          "subtitle",
+          "authors",
+          "narrators",
+          "series",
+          "primary_series",
+          "genres",
+          "length",
+          "is_finished",
+          "percent_complete",
+          "date_added",
+          "release_date",
+          "cover_url",
+          "has_pdf",
+          "is_consumable",
+          "status",
+          "monitored",
+          "attempts",
+          "last_error",
+          "last_attempt_at",
+          "file_path",
+          "pdf_path",
+          "cover_path",
+          "annotations_path",
+          "encoding_format",
+          "downloaded_at"
+        ],
+        "title": "BookOut",
+        "type": "object"
+      },
+      "BookRef": {
+        "properties": {
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "asin",
+          "title"
+        ],
+        "title": "BookRef",
+        "type": "object"
+      },
+      "BookStatus": {
+        "description": "Where a book is in the download pipeline.\n\nA `StrEnum` rather than a plain `Enum` so a member *is* the text stored in the\n`status` column: the database keeps the values it already holds, no migration\nhas to rewrite a row, and a comparison against a plain string still works.\n\n`DOWNLOADING` exists so a scheduler tick starting while a download is running\ncannot pick the same row, and `FAILED` is terminal - without it a book that\ncould never succeed was re-licensed, re-downloaded and re-failed on every run.\n\n`UNAVAILABLE` is deliberately **not** terminal. A Plus title the customer added\nwhile it was included stays in the library after Audible withdraws it but cannot\nbe licensed, and Audible does bring such titles back: 16 of a 306-title library\nwere withdrawn when this was measured (2026-09-09). Those books leave the download\nqueue so they stop costing a licence request every run, and `update_books` returns\nthem to `waiting_download` as soon as a sync sees them consumable again.",
+        "enum": [
+          "waiting_download",
+          "downloading",
+          "downloaded",
+          "unavailable",
+          "failed"
+        ],
+        "title": "BookStatus",
+        "type": "string"
+      },
+      "BookUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "monitored": {
+            "title": "Monitored",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "monitored"
+        ],
+        "title": "BookUpdate",
+        "type": "object"
+      },
+      "BulkAction": {
+        "enum": [
+          "monitor",
+          "unmonitor",
+          "retry",
+          "delete_files"
+        ],
+        "title": "BulkAction",
+        "type": "string"
+      },
+      "BulkRequest": {
+        "additionalProperties": false,
+        "description": "One action on many books: the `ids` selected, or every book `filter` matches.\nExactly one of the two.",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/BulkAction"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookFilter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 9.223372036854776e+18,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "maxItems": 10000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ids"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "BulkRequest",
+        "type": "object"
+      },
+      "BulkResultOut": {
+        "description": "`updated` books changed, `queued` of them now wait for a download, the rest skipped.",
+        "properties": {
+          "queued": {
+            "title": "Queued",
+            "type": "integer"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/BulkSkip"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "updated",
+          "queued",
+          "skipped"
+        ],
+        "title": "BulkResultOut",
+        "type": "object"
+      },
+      "BulkSkip": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/SkipReason"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ],
+        "title": "BulkSkip",
+        "type": "object"
+      },
+      "DiskOut": {
+        "properties": {
+          "free_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Bytes"
+          },
+          "low_space": {
+            "title": "Low Space",
+            "type": "boolean"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Bytes"
+          }
+        },
+        "required": [
+          "path",
+          "free_bytes",
+          "total_bytes",
+          "low_space"
+        ],
+        "title": "DiskOut",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "Health": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version"
+        ],
+        "title": "Health",
+        "type": "object"
+      },
+      "LogEntry": {
+        "properties": {
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "logger": {
+            "title": "Logger",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "time": {
+            "title": "Time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "time",
+          "level",
+          "logger",
+          "message"
+        ],
+        "title": "LogEntry",
+        "type": "object"
+      },
+      "LogList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LogEntry"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "LogList",
+        "type": "object"
+      },
+      "LoginComplete": {
+        "additionalProperties": false,
+        "description": "Step two of a browser login: `response_url` is the \"page not found\" address the\nbrowser lands on after signing in.",
+        "properties": {
+          "response_url": {
+            "minLength": 1,
+            "title": "Response Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "response_url"
+        ],
+        "title": "LoginComplete",
+        "type": "object"
+      },
+      "LoginOut": {
+        "description": "A login in flight or finished. `status` is `pending` until the user has done their\npart, then `confirmed` with the `account`, or `expired` (start again) or `failed`\nwith the `error`. The `code` method carries `code` and `verification_url`; the\n`browser` method carries `url`.",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "login_id": {
+            "title": "Login Id",
+            "type": "string"
+          },
+          "method": {
+            "enum": [
+              "code",
+              "browser"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "confirmed",
+              "expired",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "verification_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Url"
+          }
+        },
+        "required": [
+          "login_id",
+          "method",
+          "status",
+          "expires_at"
+        ],
+        "title": "LoginOut",
+        "type": "object"
+      },
+      "LoginStart": {
+        "additionalProperties": false,
+        "description": "Start signing in to a marketplace. The account the login will produce is described\nhere, since with the default `code` method nothing else is posted: `name` and\n`monitor_existing` (whether the library the account already holds is queued for\ndownload or inserted unmonitored so the user picks) for a new account, or\n`account_id` to give an existing account the new credentials instead, keeping its\nlibrary - the way back when a registration stops working - with\n`deregister_previous` removing its old device from Amazon first, best effort.\n\n`method` is `code` (show a code, the user enters it at Amazon on any device, the\nservice polls until confirmed) or `browser` (the user signs in at `url` in a browser\nand posts the \"page not found\" address it lands on to step two).",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "country_code": {
+            "minLength": 2,
+            "title": "Country Code",
+            "type": "string"
+          },
+          "deregister_previous": {
+            "default": true,
+            "title": "Deregister Previous",
+            "type": "boolean"
+          },
+          "method": {
+            "default": "code",
+            "enum": [
+              "code",
+              "browser"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "monitor_existing": {
+            "default": true,
+            "title": "Monitor Existing",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "country_code"
+        ],
+        "title": "LoginStart",
+        "type": "object"
+      },
+      "MarketplaceOut": {
+        "properties": {
+          "country_code": {
+            "title": "Country Code",
+            "type": "string"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "country_code",
+          "domain",
+          "name"
+        ],
+        "title": "MarketplaceOut",
+        "type": "object"
+      },
+      "Me": {
+        "description": "The web app's user. `generated_password` asks the UI to suggest choosing one.",
+        "properties": {
+          "generated_password": {
+            "title": "Generated Password",
+            "type": "boolean"
+          },
+          "username": {
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "generated_password"
+        ],
+        "title": "Me",
+        "type": "object"
+      },
+      "Message": {
+        "description": "A one-line acknowledgement for an action that returns nothing else.",
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "Message",
+        "type": "object"
+      },
+      "NewApiToken": {
+        "description": "A regenerated token, returned this once.",
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "NewApiToken",
+        "type": "object"
+      },
+      "PasswordChange": {
+        "properties": {
+          "current_password": {
+            "maxLength": 1024,
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChange",
+        "type": "object"
+      },
+      "QueueItem": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "book": {
+            "$ref": "#/components/schemas/BookOut"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "position",
+          "account_id",
+          "book"
+        ],
+        "title": "QueueItem",
+        "type": "object"
+      },
+      "QueueOut": {
+        "description": "The books still to come, in the order a run takes them (the first `limit`), from\nthe queue as it stands now. `total` is how many are planned before any refusals\n(a refused licence uses no slot, so a run can take on more), `waiting` how many\nwait in those accounts in all, and `max_download` the per-account cut (None:\neverything waiting). See `library.next_run_queue` for why it is a plan.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QueueItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "max_download": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Download"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "waiting": {
+            "title": "Waiting",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "waiting",
+          "max_download"
+        ],
+        "title": "QueueOut",
+        "type": "object"
+      },
+      "Requeued": {
+        "description": "How many books a bulk retry put back in the queue.",
+        "properties": {
+          "requeued": {
+            "title": "Requeued",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requeued"
+        ],
+        "title": "Requeued",
+        "type": "object"
+      },
+      "RetryUnavailable": {
+        "additionalProperties": false,
+        "description": "Queue the parked books again: one account's, or everyone's.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          }
+        },
+        "title": "RetryUnavailable",
+        "type": "object"
+      },
+      "RunBookOut": {
+        "description": "One book of a run. `book_id` is None once the book has left the library; `asin` and\n`title` are as they were when the run took it on.",
+        "properties": {
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "book_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Id"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bytes"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "title": "Finished At",
+            "type": "string"
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "book_id",
+          "asin",
+          "title",
+          "cover_url",
+          "error",
+          "bytes",
+          "seconds",
+          "finished_at"
+        ],
+        "title": "RunBookOut",
+        "type": "object"
+      },
+      "RunBooks": {
+        "description": "A run's books in its three outcomes, each in the order the run finished them.",
+        "properties": {
+          "downloaded": {
+            "items": {
+              "$ref": "#/components/schemas/RunBookOut"
+            },
+            "title": "Downloaded",
+            "type": "array"
+          },
+          "failed": {
+            "items": {
+              "$ref": "#/components/schemas/RunBookOut"
+            },
+            "title": "Failed",
+            "type": "array"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "refused": {
+            "items": {
+              "$ref": "#/components/schemas/RunBookOut"
+            },
+            "title": "Refused",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "recorded",
+          "downloaded",
+          "failed",
+          "refused"
+        ],
+        "title": "RunBooks",
+        "type": "object"
+      },
+      "RunSnapshot": {
+        "description": "The run in flight, straight from `RunState.snapshot()`.",
+        "properties": {
+          "account": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account"
+          },
+          "book": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "books_done": {
+            "title": "Books Done",
+            "type": "integer"
+          },
+          "books_total": {
+            "title": "Books Total",
+            "type": "integer"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "integer"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunStage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Transfer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "run_id",
+          "started_at",
+          "stage",
+          "account",
+          "book",
+          "books_done",
+          "books_total",
+          "transfer"
+        ],
+        "title": "RunSnapshot",
+        "type": "object"
+      },
+      "RunStage": {
+        "description": "Where a run is, coarse enough to show as one word.",
+        "enum": [
+          "syncing",
+          "downloading",
+          "cancelling"
+        ],
+        "title": "RunStage",
+        "type": "string"
+      },
+      "SchedulerStatus": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "interval_minutes": {
+            "title": "Interval Minutes",
+            "type": "integer"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "interval_minutes",
+          "next_run_at",
+          "running"
+        ],
+        "title": "SchedulerStatus",
+        "type": "object"
+      },
+      "SeriesEntry": {
+        "properties": {
+          "sequence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sequence"
+          },
+          "series_asin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series Asin"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "title",
+          "sequence"
+        ],
+        "title": "SeriesEntry",
+        "type": "object"
+      },
+      "SettingsOut": {
+        "description": "Every runtime setting (`DB_SETTING_KEYS`), typed; paths as text.",
+        "properties": {
+          "audiobook_folder": {
+            "title": "Audiobook Folder",
+            "type": "string"
+          },
+          "auto_monitor_new": {
+            "title": "Auto Monitor New",
+            "type": "boolean"
+          },
+          "bitrate": {
+            "title": "Bitrate",
+            "type": "integer"
+          },
+          "debug": {
+            "title": "Debug",
+            "type": "boolean"
+          },
+          "download_folder": {
+            "title": "Download Folder",
+            "type": "string"
+          },
+          "encoding_format": {
+            "title": "Encoding Format",
+            "type": "string"
+          },
+          "filename_template": {
+            "title": "Filename Template",
+            "type": "string"
+          },
+          "folder_template": {
+            "title": "Folder Template",
+            "type": "string"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "max_consecutive_failures": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Consecutive Failures"
+          },
+          "max_download": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Download"
+          },
+          "sync_enabled": {
+            "title": "Sync Enabled",
+            "type": "boolean"
+          },
+          "sync_interval_minutes": {
+            "title": "Sync Interval Minutes",
+            "type": "integer"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "debug",
+          "sync_enabled",
+          "sync_interval_minutes",
+          "max_download",
+          "max_attempts",
+          "max_consecutive_failures",
+          "auto_monitor_new",
+          "download_folder",
+          "audiobook_folder",
+          "folder_template",
+          "filename_template",
+          "encoding_format",
+          "bitrate",
+          "webhook_url"
+        ],
+        "title": "SettingsOut",
+        "type": "object"
+      },
+      "SettingsUpdate": {
+        "additionalProperties": false,
+        "description": "A partial update: only the fields sent are changed.\n\nEvery field is optional and defaults to \"not sent\", which is distinct from `null`:\n`{\"max_download\": null}` clears the limit, omitting it leaves it alone. Unknown\nfields are rejected rather than ignored, so a typo cannot pass silently.\n\n`null` is only accepted for the three settings that can be unset (`max_download`,\n`max_consecutive_failures`, `webhook_url`). Anywhere else it would be stored as\nan empty value no later read could parse, locking the API out of its own settings.",
+        "properties": {
+          "audiobook_folder": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audiobook Folder"
+          },
+          "auto_monitor_new": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auto Monitor New"
+          },
+          "bitrate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bitrate"
+          },
+          "debug": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Debug"
+          },
+          "download_folder": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Folder"
+          },
+          "encoding_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Encoding Format"
+          },
+          "filename_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename Template"
+          },
+          "folder_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Template"
+          },
+          "max_attempts": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Attempts"
+          },
+          "max_consecutive_failures": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Consecutive Failures"
+          },
+          "max_download": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Download"
+          },
+          "sync_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Enabled"
+          },
+          "sync_interval_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Interval Minutes"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "title": "SettingsUpdate",
+        "type": "object"
+      },
+      "SignIn": {
+        "description": "`POST /api/auth/login`. `remember` makes the session cookie outlive the browser.",
+        "properties": {
+          "password": {
+            "maxLength": 1024,
+            "title": "Password",
+            "type": "string"
+          },
+          "remember": {
+            "default": false,
+            "title": "Remember",
+            "type": "boolean"
+          },
+          "username": {
+            "maxLength": 256,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ],
+        "title": "SignIn",
+        "type": "object"
+      },
+      "SkipReason": {
+        "description": "Why a bulk action left a book alone; the UI words it.",
+        "enum": [
+          "not_found",
+          "busy",
+          "downloaded",
+          "withdrawn",
+          "no_files",
+          "error"
+        ],
+        "title": "SkipReason",
+        "type": "string"
+      },
+      "Stats": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountStats"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "books": {
+            "$ref": "#/components/schemas/BookCounts"
+          },
+          "bytes_on_disk": {
+            "title": "Bytes On Disk",
+            "type": "integer"
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          }
+        },
+        "required": [
+          "accounts",
+          "books",
+          "bytes_on_disk",
+          "last_run",
+          "next_run_at"
+        ],
+        "title": "Stats",
+        "type": "object"
+      },
+      "Status": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/AccountOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "current_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncRunOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "scheduler": {
+            "$ref": "#/components/schemas/SchedulerStatus"
+          }
+        },
+        "required": [
+          "scheduler",
+          "current_run",
+          "last_run",
+          "accounts"
+        ],
+        "title": "Status",
+        "type": "object"
+      },
+      "SyncOutcome": {
+        "description": "How one pipeline run ended.\n\nA `StrEnum` for the same reason as `BookStatus`: a member *is* the text stored in\nthe `outcome` column, so a comparison against a plain string still works and no\nrow has to be rewritten to change the Python side.\n\n`RUNNING` is written when the run starts and replaced when it ends, so a row still\n`RUNNING` with no `finished_at` is a run that died half way - the thing the\nlibrary table could never tell apart from a run that simply found nothing.\n\n`PARTIAL` means the sync completed but the downloads did not all succeed. It counts\nas a cursor for the next run, because the library really was read; which books\nfailed is the `library` state machine's business, not the run's.\n\n`CANCELLED` is a run somebody stopped. A cancel is only honoured once the library\nsync has completed - the sync is seconds, the downloads are the hours - so a\ncancelled run has always read the library through and counts as a cursor too. The\nbook it was on is handed back to the queue with its attempt count untouched.\n\n`ABORTED` is a run that stopped itself: `max_consecutive_failures` books in a row\nwere refused a licence or failed, which means something is wrong with the account\nor with Audible rather than with the books, and walking the rest of the queue would\nonly repeat it. Like `CANCELLED` it comes after the sync, so it is a cursor too;\nthe reason is in `error`.",
+        "enum": [
+          "running",
+          "success",
+          "partial",
+          "failed",
+          "cancelled",
+          "aborted"
+        ],
+        "title": "SyncOutcome",
+        "type": "string"
+      },
+      "SyncRunList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SyncRunOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "SyncRunList",
+        "type": "object"
+      },
+      "SyncRunOut": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "books_added": {
+            "title": "Books Added",
+            "type": "integer"
+          },
+          "books_downloaded": {
+            "title": "Books Downloaded",
+            "type": "integer"
+          },
+          "books_failed": {
+            "title": "Books Failed",
+            "type": "integer"
+          },
+          "books_recorded": {
+            "title": "Books Recorded",
+            "type": "boolean"
+          },
+          "books_seen": {
+            "title": "Books Seen",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SyncOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "account_id",
+          "started_at",
+          "finished_at",
+          "outcome",
+          "books_seen",
+          "books_added",
+          "books_downloaded",
+          "books_failed",
+          "error",
+          "books_recorded"
+        ],
+        "title": "SyncRunOut",
+        "type": "object"
+      },
+      "SystemInfo": {
+        "properties": {
+          "audiobook_folder": {
+            "$ref": "#/components/schemas/DiskOut"
+          },
+          "database_bytes": {
+            "title": "Database Bytes",
+            "type": "integer"
+          },
+          "ffmpeg_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ffmpeg Version"
+          },
+          "key_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key File"
+          },
+          "key_source": {
+            "enum": [
+              "env",
+              "file"
+            ],
+            "title": "Key Source",
+            "type": "string"
+          },
+          "libopus": {
+            "title": "Libopus",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "ffmpeg_version",
+          "libopus",
+          "audiobook_folder",
+          "key_source",
+          "key_file",
+          "database_bytes"
+        ],
+        "title": "SystemInfo",
+        "type": "object"
+      },
+      "Transfer": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "desc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Desc"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "desc",
+          "bytes",
+          "total"
+        ],
+        "title": "Transfer",
+        "type": "object"
+      },
+      "UsernameChange": {
+        "properties": {
+          "current_password": {
+            "maxLength": 1024,
+            "title": "Current Password",
+            "type": "string"
+          },
+          "username": {
+            "maxLength": 256,
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "current_password"
+        ],
+        "title": "UsernameChange",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WebhookTest": {
+        "additionalProperties": false,
+        "description": "Try a webhook; `url` defaults to the configured one.",
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "title": "WebhookTest",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Audible Sync",
+    "version": "0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/accounts": {
+      "get": {
+        "operationId": "list_accounts_api_accounts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AccountOut"
+                  },
+                  "title": "Response List Accounts Api Accounts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Accounts"
+      }
+    },
+    "/api/accounts/login": {
+      "post": {
+        "description": "Start signing in to a marketplace.\n\nWith the default `code` method the answer carries the `code` to enter at\n`verification_url`, on any device; the service polls Amazon and the login turns\n`confirmed` (with the account) on `GET /api/accounts/login/{login_id}` once the\nuser has entered it. With `browser`, open `url`, sign in, and post the \"page not\nfound\" address to `POST /api/accounts/login/{login_id}`. 422 for an unknown\nmarketplace or one that is not `account_id`'s, 404 for an unknown `account_id`,\n502 when Amazon will not issue a code.",
+        "operationId": "start_account_login_api_accounts_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginStart"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Account Login"
+      }
+    },
+    "/api/accounts/login/{login_id}": {
+      "get": {
+        "description": "How a login is going; 404 once it has been forgotten (a while after it ended).",
+        "operationId": "login_status_api_accounts_login__login_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "login_id",
+            "required": true,
+            "schema": {
+              "title": "Login Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Login Status"
+      },
+      "post": {
+        "description": "Step two of a browser login: the pasted address becomes the account.\n\n404 for a login that is unknown, expired or already finished (start again), 400\nfor an address that carries no authorization code (the login stays open for the\nright one), 502 when Amazon rejects the code.",
+        "operationId": "complete_account_login_api_accounts_login__login_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "login_id",
+            "required": true,
+            "schema": {
+              "title": "Login Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginComplete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Complete Account Login"
+      }
+    },
+    "/api/accounts/{account_id}": {
+      "delete": {
+        "description": "Remove an account, its library rows and its run history; files on disk stay.\n\nWith `deregister`, the device this login registered with Amazon is deregistered\nfirst, so it does not linger on the account's device list. That is best effort:\na login that no longer works cannot deregister itself, and the account is\nremoved either way.\n\n409 while the run in flight is on this account: its sync would leave rows behind\nfor an account that no longer exists, and its download a book on disk with no\nrow. An account the run has not reached yet is fine - the run reads each account\nagain at its turn and skips one that has gone.",
+        "operationId": "remove_account_api_accounts__account_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deregister",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Deregister",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove Account"
+      },
+      "get": {
+        "operationId": "get_one_account_api_accounts__account_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get One Account"
+      },
+      "patch": {
+        "operationId": "patch_account_api_accounts__account_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AccountUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Account"
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "sign_in_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sign In"
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "sign_out_api_auth_logout_post",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sign Out"
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me"
+      }
+    },
+    "/api/auth/password": {
+      "put": {
+        "operationId": "change_password_api_auth_password_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Password"
+      }
+    },
+    "/api/auth/username": {
+      "put": {
+        "operationId": "change_username_api_auth_username_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsernameChange"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Username"
+      }
+    },
+    "/api/books": {
+      "get": {
+        "operationId": "get_books_api_books_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/BookStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "monitored",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Monitored"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "date_added",
+              "enum": [
+                "date_added",
+                "title",
+                "author",
+                "release_date",
+                "downloaded_at"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "desc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Books"
+      }
+    },
+    "/api/books/bulk": {
+      "post": {
+        "description": "One action on many books: the ids selected, or everything the filters match.\n\nThe filters mean what they mean on `GET /api/books`, so \"all 354 matching\" acts\non the 354 the listing counted. Books a run is downloading, a retry of a\ndownloaded book and deleting the files of a book with none are skipped, each\nwith a reason; an unknown id is skipped as `not_found`. 404 for a filter on an\nunknown account.",
+        "operationId": "bulk_books_api_books_bulk_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Bulk Books"
+      }
+    },
+    "/api/books/retry-unavailable": {
+      "post": {
+        "description": "Queue every parked book Audible still reports consumable again.\n\nFor the day Audible refused every licence - a device registration it had\nstopped accepting, say - rather than one title it has retired. A re-login\ndoes this for the account by itself; this is the button for everything else.",
+        "operationId": "retry_unavailable_api_books_retry_unavailable_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RetryUnavailable"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Requeued"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Unavailable"
+      }
+    },
+    "/api/books/{book_id}": {
+      "get": {
+        "operationId": "get_one_book_api_books__book_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get One Book"
+      },
+      "patch": {
+        "operationId": "patch_book_api_books__book_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Book"
+      }
+    },
+    "/api/books/{book_id}/cover": {
+      "get": {
+        "description": "The cover: the file once downloaded, Audible's URL before that.",
+        "operationId": "book_cover_api_books__book_id__cover_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Book Cover"
+      }
+    },
+    "/api/books/{book_id}/delete-files": {
+      "post": {
+        "description": "Remove the files and unmonitor the book, so it stays deleted.",
+        "operationId": "delete_book_files_api_books__book_id__delete_files_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookAction"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Book Files"
+      }
+    },
+    "/api/books/{book_id}/redownload": {
+      "post": {
+        "description": "Remove the files and queue the book afresh, attempts reset.",
+        "operationId": "redownload_book_api_books__book_id__redownload_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookAction"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Redownload Book"
+      }
+    },
+    "/api/books/{book_id}/refresh": {
+      "post": {
+        "description": "Re-read the book from Audible.",
+        "operationId": "refresh_book_api_books__book_id__refresh_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh Book"
+      }
+    },
+    "/api/books/{book_id}/retry": {
+      "post": {
+        "description": "Queue a failed or parked book again without touching any files it has.",
+        "operationId": "retry_book_api_books__book_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "book_id",
+            "required": true,
+            "schema": {
+              "title": "Book Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookAction"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Book"
+      }
+    },
+    "/api/health": {
+      "get": {
+        "operationId": "health_api_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/api/logs": {
+      "get": {
+        "description": "The newest log lines, oldest first, at or above `level`.",
+        "operationId": "get_logs_api_logs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "level",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "DEBUG",
+                    "INFO",
+                    "WARNING",
+                    "ERROR"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Level"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Logs"
+      }
+    },
+    "/api/marketplaces": {
+      "get": {
+        "operationId": "list_marketplaces_api_marketplaces_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MarketplaceOut"
+                  },
+                  "title": "Response List Marketplaces Api Marketplaces Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Marketplaces"
+      }
+    },
+    "/api/queue": {
+      "get": {
+        "description": "The books still to come, in the order a run takes them: each enabled account\nthat can log in, oldest purchase first, cut at `max_download` per account. A\nplan rather than a promise (refusals, titles the sync restores, a run in flight;\nsee `library.next_run_queue`). `limit` is how many to list; `total` (planned)\nand `waiting` count them all.",
+        "operationId": "get_queue_api_queue_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Queue"
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "operationId": "get_settings_api_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Settings"
+      },
+      "put": {
+        "operationId": "update_settings_api_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Settings"
+      }
+    },
+    "/api/settings/api-token": {
+      "get": {
+        "description": "The token masked to its last four characters, and whether it is the env's or stored.",
+        "operationId": "get_api_token_api_settings_api_token_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiTokenInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Api Token"
+      }
+    },
+    "/api/settings/api-token/regenerate": {
+      "post": {
+        "description": "Replace the token; the old one stops working at once. The new one is returned\nthis once and never logged. 409 when `AUDIBLE_SYNC_API_TOKEN` sets it.\n\nOnly from a signed-in web app (403 under the bearer token alone): a leaked token\nmust not be able to lock its owner's scripts out by rotating itself.",
+        "operationId": "regenerate_api_token_api_settings_api_token_regenerate_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewApiToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Regenerate Api Token"
+      }
+    },
+    "/api/settings/webhook/test": {
+      "post": {
+        "description": "Send a sample event to `url`, or the configured webhook; 502 if it fails.",
+        "operationId": "test_webhook_api_settings_webhook_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookTest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Test Webhook"
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "description": "The numbers a dashboard opens with: per account and in total.",
+        "operationId": "get_stats_api_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Stats"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Stats"
+      }
+    },
+    "/api/status": {
+      "get": {
+        "operationId": "status_api_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Status"
+      }
+    },
+    "/api/sync": {
+      "post": {
+        "operationId": "start_sync_api_sync_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Sync"
+      }
+    },
+    "/api/sync/cancel": {
+      "post": {
+        "operationId": "cancel_sync_api_sync_cancel_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Sync"
+      }
+    },
+    "/api/sync/runs": {
+      "get": {
+        "operationId": "list_runs_api_sync_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Runs"
+      }
+    },
+    "/api/sync/runs/{run_id}": {
+      "get": {
+        "operationId": "get_run_api_sync_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncRunOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run"
+      }
+    },
+    "/api/sync/runs/{run_id}/books": {
+      "get": {
+        "description": "The books a run downloaded, failed and was refused, for the Activity screen.\n`recorded` is false on a run from before the per-book records, which says so\nrather than showing three empty lists.",
+        "operationId": "get_run_books_route_api_sync_runs__run_id__books_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunBooks"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Run Books Route"
+      }
+    },
+    "/api/system": {
+      "get": {
+        "description": "FFmpeg, the library's disk, the key and the database, for the System card.",
+        "operationId": "get_system_api_system_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get System"
+      }
+    }
+  }
+}

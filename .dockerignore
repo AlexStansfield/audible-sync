@@ -43,3 +43,6 @@ test/
 # The API collection is for a desktop client, not the image
 opencollection/
 secrets/
+
+# A local web build; the image builds its own in the web stage
+web/dist/

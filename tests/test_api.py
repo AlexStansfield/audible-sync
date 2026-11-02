@@ -1857,7 +1857,8 @@ def prefixed(db, tmp_path):
     """The app under /audible-sync, with a build whose index.html carries Vite's <base href="/">."""
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text('<!doctype html><head><base href="/"></head><title>Audible Sync</title>')
+    # Spelled as Vite writes it out of web/index.html
+    (dist / "index.html").write_text('<!doctype html><head><base href="/" /></head><title>Audible Sync</title>')
     (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
     app = create_app(
         scheduler=FakeScheduler(),
@@ -1883,7 +1884,7 @@ def test_the_page_tells_the_web_app_its_base(prefixed, prefix, page):
 
     assert response.status_code == 200
     assert '<base href="/audible-sync/">' in response.text
-    assert '<base href="/">' not in response.text
+    assert '<base href="/"' not in response.text
     assert response.headers["cache-control"] == "no-cache"
 
 

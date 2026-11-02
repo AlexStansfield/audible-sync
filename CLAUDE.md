@@ -65,6 +65,7 @@ audible-sync/
 │   ├── accounts.py           # Authenticator <-> accounts.auth, adding and re-logging accounts
 │   ├── crypto.py             # Encryption at rest of the stored secrets; the key from the env or secrets/secret.key
 │   ├── apitoken.py           # The bearer token: env or stored, the ApiToken holder, regenerating it in place
+│   ├── openapi_export.py     # Writes the API's OpenAPI schema to web/openapi.json for the client's types
 │   ├── system.py             # GET /api/system's probes: FFmpeg and libopus, the library disk, the database size
 │   ├── webauth.py            # The web app's sign-in: the one user, scrypt password hashes, sessions, the failed-sign-in throttle
 │   ├── audible_login.py      # Device-code login (code pair, polling thread) and the browser fallback; the PendingLogins store
@@ -110,6 +111,7 @@ audible-sync/
 ├── docs/design/              # Milestone 4 web app design: DESIGN.md (the spec) and screens/ (the mockups)
 ├── opencollection/           # The API as a request collection (OpenCollection YAML) for Bruno and the like; not in the image
 ├── secrets/                  # secret.key, generated on the first start (gitignored, its own mount)
+├── web/                      # The web app (Vite + React + TypeScript), see "Web app" below; built into web/dist
 ├── compose.yml
 ├── Dockerfile
 ├── pyproject.toml / uv.lock  # Direct dependencies, dev group, ruff and pytest config
@@ -664,17 +666,28 @@ docker compose run --rm -it audible-sync bash
 
 ## Docker
 
-- `Dockerfile`: `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
+- `Dockerfile`: a `node:24-slim` stage `web` runs `npm ci` and `npm run build` in `web/`, and only its `dist` is copied to `/app/web/dist` in the final stage (no Node in the image); then `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
 - `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` and `AUDIBLE_SYNC_SECRET_KEY` through from the environment (empty means "generate one"), `AUDIBLE_SYNC_SECURE_COOKIE` (for a reverse proxy serving https) and `AUDIBLE_SYNC_BASE_PATH` (for one serving it under a path), mounts `./data`, `./secrets` (the key file, to be backed up separately from `./data`), `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
 - Run with `docker compose up -d`; `restart: unless-stopped` is right for the service. A one-shot run is `docker compose run --rm audible-sync uv run --no-sync python -m src.main`
-- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/`, `secrets/` and `opencollection/`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored): a compose file with `build: ..` and its own `config/` mount.
+- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/`, `secrets/`, `opencollection/`, `web/dist/` and every `node_modules`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored): a compose file with `build: ..` and its own `config/` mount.
 - Image: `ghcr.io/alexstansfield/audible-sync:latest` and `:vX.Y.Z`, published on `v*` tags
+
+## Web app
+
+`web/` is the Milestone 4 web app: Vite + React 19 + TypeScript (strict, `noUncheckedIndexedAccess`), TanStack Query for server state, `openapi-fetch` over generated types, plain CSS (`src/styles/theme.css` holds DESIGN.md's variables) and self-hosted fonts (`@fontsource`, so the app calls nothing outside the service). Biome lints and formats (`biome.json`, 2 spaces, 120 columns); Vitest + Testing Library on jsdom test it. `docs/design/DESIGN.md` is the spec.
+
+- **Types come from the API.** `python -m src.openapi_export web/openapi.json` builds `create_app` with stand-ins (no server, database or key) and writes the schema with sorted keys and a fixed `SCHEMA_VERSION`, so a release bump does not make it stale; `openapi-typescript` turns it into `src/api/schema.d.ts`. `npm run gen:api` does both. Both files are committed and CI checks they are current. Never hand-write a type the schema already has
+- **`src/api/client.ts`:** `api` is `openapi-fetch` on `apiBaseUrl()` - `document.baseURI` without its trailing slash - so requests follow `<base href>` and work under `AUDIBLE_SYNC_BASE_PATH`; never write an absolute `/api` URL anywhere else (a cover is `api/books/{id}/cover`, relative). `unwrap(api.GET(...))` returns the data or throws `ApiError` (`status`, `detail` ready to show - FastAPI's list of field errors is joined by `detailOf` -, `method`, `path` without the base, `headers`); a request that gets no answer at all is a `NetworkError`. `onUnauthorized` listeners hear every 401 except a failed sign-in, `onUnreachable` every network failure; the app shell turns those into the sign-in redirect and the Unreachable page. `fetch` is looked up per request, so a test stubs it with `vi.stubGlobal("fetch", ...)` or passes one to `makeClient`
+- **The base path:** Vite builds with `base: './'`, and `web/index.html` carries `<base href="/" />`, which the service rewrites (see `api.py`). Keep that tag as it is
+- **Theme:** `index.html` sets `data-theme` on `<html>` before the first paint from `localStorage["audible-sync.theme"]` (`light` | `dark`, else the system's), so a light browser never flashes dark
+- **Development:** `npm run dev` proxies `/api` to `:8080` (`AUDIBLE_SYNC_API` overrides), same-origin so the session cookie works as in production. `npm run lint|typecheck|test|build`; `npm run format` fixes formatting
+- TypeScript stays on 5.x while `openapi-typescript` requires it
 
 ## Continuous Integration
 
 Two workflows in `.github/workflows/`:
 
-- `ci.yaml` runs on every push and pull request to `dev` and `main`: installs with `uv sync --locked`, then `ruff check .`, `ruff format --check .` and `pytest`. A PR is not mergeable until it passes.
+- `ci.yaml` runs on every push and pull request to `dev` and `main`, two jobs: `check` installs with `uv sync --locked`, then `ruff check .`, `ruff format --check .` and `pytest`; `web` runs `npm ci`, `npm run lint`, `typecheck`, `test` and `build` in `web/` on Node 24, then `npm run gen:api` and `git diff --exit-code` on `web/openapi.json` and `web/src/api/schema.d.ts`, so a schema change without regenerated types fails. A PR is not mergeable until both pass.
 - `docker-publish.yaml` runs on `v*` tags: builds the image, pushes `latest` and the version tag to ghcr.io, and creates a GitHub release.
 
 ## Code Conventions
