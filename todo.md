@@ -120,7 +120,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Docker and CI: a Node build stage for `web/`; lint, type-check and build it in CI
 - [x] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
 - [x] Web: sign-in and Your sign-in
-- [ ] Web: Dashboard with the live run card
+- [x] Web: Dashboard with the live run card
 - [ ] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
 - [ ] Web: Accounts with the code and browser sign-in flows
 - [ ] Web: Activity (runs, log) and Settings
@@ -128,7 +128,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
 - [ ] Web: Library bulk selection (grid and table), action bar, delete confirmation, result message
 - [x] Backend: API token last four and regenerate; `GET /api/system` (versions, disk space, key source, database size)
-- [ ] Web: Settings API access and System sections; Dashboard Up next card
+- [ ] Web: Settings API access and System sections; Dashboard Up next card (Up next done with the Dashboard)
 - [x] Backend: per-book run records (`sync_run_books`, `GET /api/sync/runs/{id}/books`)
 - [x] Backend: `GET /api/queue` for the Dashboard's Up next card
 - [ ] Web (later): the expandable run row in Activity

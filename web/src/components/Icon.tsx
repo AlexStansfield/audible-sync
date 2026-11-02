@@ -89,6 +89,13 @@ const PATHS = {
     </>
   ),
   spinner: <path d="M12 3a9 9 0 1 0 9 9" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
   book: (
     <>
       <path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z" />
