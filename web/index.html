@@ -10,8 +10,8 @@
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
     <script>
       // The theme before the first paint, so a light-theme browser never flashes dark.
-      // The theme control must store the same: "light" | "dark" under this key, and
-      // anything else (nothing stored) follows the system
+      // Mirrors src/lib/theme.ts: "light" | "dark" stored under this key, anything else
+      // (nothing stored) follows the system
       (() => {
         let choice = null;
         try {

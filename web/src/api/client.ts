@@ -137,13 +137,16 @@ export function makeClient(baseUrl: string, fetchImpl?: typeof fetch) {
 
 export const api = makeClient(apiBaseUrl());
 
-type Result<T> = { data: T; error?: never; response: Response } | { data?: never; error: unknown; response: Response };
+type Result = { data?: unknown; error?: unknown; response: Response };
+
+/** The success data of an openapi-fetch result, without the error branch's `undefined`. */
+export type DataOf<R extends Result> = Exclude<R["data"], undefined>;
 
 /**
  * The data of a call, or an `ApiError` carrying the API's `detail`: what a query or a
  * mutation function returns, so errors reach TanStack Query as rejections.
  */
-export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
+export async function unwrap<R extends Result>(call: Promise<R>): Promise<DataOf<R>> {
   const result = await call;
   const { response } = result;
   if (result.error !== undefined || !response.ok) {
@@ -156,5 +159,5 @@ export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
       response.headers,
     );
   }
-  return result.data as T;
+  return result.data as DataOf<R>;
 }

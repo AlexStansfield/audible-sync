@@ -1,0 +1,15 @@
+.cover {
+  display: block;
+  flex: none;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  background: var(--raised);
+  object-fit: cover;
+}
+
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+}

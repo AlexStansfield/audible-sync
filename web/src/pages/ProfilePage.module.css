@@ -1,0 +1,100 @@
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 760px;
+}
+
+.width {
+  max-width: 760px;
+  width: 100%;
+}
+
+.bannerText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.secondary {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px;
+}
+
+.formHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.formTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.formText {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.single {
+  max-width: 352px;
+}
+
+.meter {
+  display: flex;
+  gap: 4px;
+}
+
+.meter span {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.strengthText {
+  color: var(--text-2);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.saved {
+  font-size: 13px;
+  color: var(--ok);
+}
+
+@media (max-width: 720px) {
+  .pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .single {
+    max-width: none;
+  }
+}

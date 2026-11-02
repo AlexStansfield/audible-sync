@@ -1,0 +1,135 @@
+/* The pages outside the layout: sign-in, unreachable, the auth check */
+
+.centred {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+}
+
+.narrow {
+  width: 100%;
+  max-width: 480px;
+}
+
+.column {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.heading h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.bigLogo {
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.panel p {
+  margin: 0;
+}
+
+.panel p:not([role="alert"]) {
+  color: var(--text-2);
+}
+
+.panel p.small {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.command {
+  display: block;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.labelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.passwordBox {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.passwordBox input {
+  padding-right: 48px;
+}
+
+.reveal {
+  position: absolute;
+  right: 2px;
+  width: 44px;
+  height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reveal:hover {
+  color: var(--text);
+}
+
+.hintLine {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hintLine strong {
+  color: var(--text);
+  font-weight: 600;
+}
