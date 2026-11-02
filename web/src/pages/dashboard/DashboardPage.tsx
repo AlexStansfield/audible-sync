@@ -533,7 +533,7 @@ function RunsCard({ accounts, liveRunId }: { accounts: Account[]; liveRunId: num
               .join(" · ");
             return (
               <li key={run.id}>
-                <Link to="/activity" className={styles.row}>
+                <Link to={`/activity?run=${run.id}`} className={styles.row}>
                   <span className={styles.outcome}>
                     {isInterrupted(run, liveRunId) ? (
                       <Chip colour="var(--bad)">Interrupted</Chip>

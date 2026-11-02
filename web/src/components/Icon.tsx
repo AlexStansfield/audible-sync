@@ -131,6 +131,7 @@ const PATHS = {
     </>
   ),
   bookmark: <path d="M6 3h12v18l-6-4-6 4z" />,
+  chevron: <path d="m9 6 6 6-6 6" />,
   more: (
     <>
       <circle cx="5" cy="12" r="1.8" />

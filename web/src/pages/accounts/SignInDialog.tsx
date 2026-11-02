@@ -12,6 +12,7 @@ import { Dialog } from "../../components/Dialog";
 import { errorDetail } from "../../components/ErrorCard";
 import { Icon } from "../../components/Icon";
 import { useToast } from "../../components/Toasts";
+import { useNow } from "../../lib/useNow";
 import styles from "./Accounts.module.css";
 import {
   type Account,
@@ -258,16 +259,6 @@ function CheckCard({
       </span>
     </label>
   );
-}
-
-/** The time now, ticking every second while mounted: the countdown's clock. */
-function useNow(): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return now;
 }
 
 function CodeStep({
