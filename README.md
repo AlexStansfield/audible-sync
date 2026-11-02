@@ -221,7 +221,7 @@ The service reads these environment variables:
 | `AUDIBLE_SYNC_HOST` | `0.0.0.0` | Interface to listen on |
 | `AUDIBLE_SYNC_PORT` | `8080` | Port |
 | `AUDIBLE_SYNC_API_TOKEN` | generated | Bearer token the API requires; generated, stored and logged (once) on the first start if unset |
-| `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server |
+| `AUDIBLE_SYNC_CORS_ORIGINS` | none | Comma-separated origins allowed to call the API from a browser, e.g. a UI dev server. A listed origin may use the web app's sign-in cookie; `*` may not (any page on the host could then act as you), so it allows the bearer token only |
 | `AUDIBLE_SYNC_WEB_DIR` | `web/dist` | The built web app, served at every path outside `/api`. Without an `index.html` there, only the API is served |
 | `AUDIBLE_SYNC_SECURE_COOKIE` | `false` | `true` always marks the web app's session cookie `Secure`. Set it behind a reverse proxy that serves https: the service only sees plain http there, and otherwise marks the cookie `Secure` only for requests that arrive over https |
 | `AUDIBLE_SYNC_DEBUG` | `false` | Force DEBUG logging whatever the settings say |

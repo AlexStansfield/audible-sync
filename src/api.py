@@ -29,6 +29,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
+from starlette.routing import Match
 
 from src import crypto, database, library, system, webauth
 from src.accounts import (
@@ -205,11 +206,20 @@ def create_app(
     app = FastAPI(title="Audible Sync", version=version or read_version(), lifespan=lifespan)
 
     if cors_origins:
+        # The session cookie, for a web app served from one of these origins - but never
+        # with `*`, for which Starlette echoes back whatever origin asked: any page on the
+        # same host (another port is the same site, so SameSite=Strict still sends the
+        # cookie) could then act as the signed-in user and read the answers
+        credentials = "*" not in cors_origins
+        if not credentials:
+            logger.warning(
+                "AUDIBLE_SYNC_CORS_ORIGINS is *: cross-origin requests can use the bearer token but not the "
+                "web app's sign-in; list the web app's origin instead to allow that"
+            )
         app.add_middleware(
             CORSMiddleware,
             allow_origins=cors_origins,
-            # The session cookie, for a web app served from one of these origins
-            allow_credentials=True,
+            allow_credentials=credentials,
             allow_methods=["*"],
             allow_headers=["*"],
         )
@@ -735,8 +745,9 @@ def create_app(
 
 # Vite names everything under assets/ after its content, so a file there never changes
 _IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
-# index.html names the current assets, so it is checked on every load
+# index.html names the current assets, so it is checked on every load, however it is asked for
 _REVALIDATE = {"Cache-Control": "no-cache"}
+_ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 
 def _serve_web_app(app: FastAPI, web_dir: Path) -> None:
@@ -747,24 +758,51 @@ def _serve_web_app(app: FastAPI, web_dir: Path) -> None:
     Registered after the API routes, so it only sees what they did not match. A path
     under `/api` is still a JSON 404, so a mistyped API URL never answers with HTML,
     and a missing file under `assets/` is a 404 rather than a page that would be
-    parsed as script.
+    parsed as script. Every method reaches it, so an unknown path is a JSON 404 and a
+    known one asked with the wrong method a 405, with or without a build.
     """
     root = web_dir.resolve()
     index = root / "index.html"
+    others = list(app.router.routes)  # everything registered before this route
 
-    @app.api_route("/{path:path}", methods=["GET", "HEAD"], include_in_schema=False)
-    def web_app(path: str) -> FileResponse:
-        if path == "api" or path.startswith("api/"):
+    @app.api_route("/{path:path}", methods=_ALL_METHODS, include_in_schema=False)
+    def web_app(request: Request, path: str) -> FileResponse:
+        # A route that exists under another method is a 405, as it is without this
+        # catch-all: matching every method here would otherwise turn it into a 404
+        allowed = _methods_allowed(others, request.scope)
+        if allowed:
+            raise HTTPException(status_code=405, detail="Method Not Allowed", headers={"Allow": ", ".join(allowed)})
+        if request.method not in ("GET", "HEAD") or path == "api" or path.startswith("api/"):
             raise HTTPException(status_code=404, detail="Not Found")
         if path:
             candidate = (root / path).resolve()
             # resolve() folds any `..`, so this is what keeps a request inside web_dir
             if candidate.is_relative_to(root) and candidate.is_file():
-                headers = _IMMUTABLE if candidate.is_relative_to(root / "assets") else None
+                if candidate == index:
+                    headers = _REVALIDATE
+                elif candidate.is_relative_to(root / "assets"):
+                    headers = _IMMUTABLE
+                else:
+                    headers = None
                 return FileResponse(candidate, headers=headers)
             if path.startswith("assets/"):
                 raise HTTPException(status_code=404, detail="Not Found")
         return FileResponse(index, headers=_REVALIDATE)
+
+
+def _methods_allowed(routes: list, scope: dict) -> list[str]:
+    """
+    The methods some route answers this path with, when the request's own method is not
+    one of them; empty when no route has the path at all. Starlette's own matching, so
+    it sees through the routers `include_router` wraps the API's routes in.
+    """
+    if not any(route.matches(scope)[0] is Match.PARTIAL for route in routes):
+        return []
+    return [
+        method
+        for method in _ALL_METHODS
+        if any(route.matches({**scope, "method": method})[0] is Match.FULL for route in routes)
+    ]
 
 
 def _book_or_404(book_id: int):

@@ -9,6 +9,7 @@ card is information, and a missing FFmpeg is exactly what it is there to show.
 import logging
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,21 +60,31 @@ def probe_ffmpeg(run: Runner = subprocess.run) -> Ffmpeg:
     return Ffmpeg(version=first_line, libopus=libopus)
 
 
+# How long a failed probe is believed: long enough that loading the Settings screen
+# does not run FFmpeg (and log a WARNING) every time, short enough that installing it
+# shows without a restart
+FAILED_PROBE_TTL = 300.0
+
 _probed: Ffmpeg | None = None
+_failed: tuple[float, Ffmpeg] | None = None
 
 
-def ffmpeg() -> Ffmpeg:
+def ffmpeg(clock: Callable[[], float] = time.monotonic) -> Ffmpeg:
     """
-    `probe_ffmpeg`, kept once it has found FFmpeg: a working FFmpeg does not change
-    under a running service. A failed probe is not kept, so FFmpeg installed later, or
-    a probe that timed out on a busy host, is found by the next call.
+    `probe_ffmpeg`, kept for good once it has found FFmpeg - a working FFmpeg does not
+    change under a running service - and for `FAILED_PROBE_TTL` when it has not.
     """
-    global _probed
+    global _probed, _failed
     if _probed is not None:
         return _probed
+    now = clock()
+    if _failed is not None and now - _failed[0] < FAILED_PROBE_TTL:
+        return _failed[1]
     found = probe_ffmpeg()
     if found.version is not None:
-        _probed = found
+        _probed, _failed = found, None
+    else:
+        _failed = (now, found)
     return found
 
 

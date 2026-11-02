@@ -26,9 +26,11 @@ Environment:
     AUDIBLE_SYNC_SECRET_KEY_FILE  Where that key file is; default `secrets/secret.key`
 """
 
+import configparser
 import logging
 import os
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,14 +88,25 @@ class ServiceConfig:
             port=int(env.get("AUDIBLE_SYNC_PORT", DEFAULT_PORT)),
             api_token=env.get("AUDIBLE_SYNC_API_TOKEN") or None,
             cors_origins=origins,
-            debug=_flag(env.get("AUDIBLE_SYNC_DEBUG")),
-            secure_cookie=_flag(env.get("AUDIBLE_SYNC_SECURE_COOKIE")),
+            debug=_flag(env, "AUDIBLE_SYNC_DEBUG"),
+            secure_cookie=_flag(env, "AUDIBLE_SYNC_SECURE_COOKIE"),
             web_dir=resolve_path(env["AUDIBLE_SYNC_WEB_DIR"]) if env.get("AUDIBLE_SYNC_WEB_DIR") else DEFAULT_WEB_DIR,
         )
 
 
-def _flag(value: str | None) -> bool:
-    return (value or "").strip().lower() in ("1", "true", "yes", "on")
+def _flag(env: Mapping[str, str], name: str) -> bool:
+    """
+    A true/false variable, with the spellings `config.ini` accepts (configparser's) so
+    one word means the same in both. Unset or empty is false; anything else is an error
+    naming the variable, rather than silently false.
+    """
+    value = (env.get(name) or "").strip().lower()
+    if not value:
+        return False
+    try:
+        return configparser.ConfigParser.BOOLEAN_STATES[value]
+    except KeyError:
+        raise ValueError(f"{name} must be true or false, got {env[name]!r}") from None
 
 
 def ensure_web_user() -> None:

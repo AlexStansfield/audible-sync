@@ -1766,3 +1766,80 @@ def test_a_run_from_before_the_records_says_so(api):
 
 def test_a_runs_books_404_for_an_unknown_run(api):
     assert api.get("/api/sync/runs/999/books", headers=AUTH).status_code == 404
+
+
+# --- review fixes: CORS with *, the catch-all's methods, index.html caching ----------
+
+
+def _cors_app(origins):
+    app = create_app(
+        scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), cors_origins=origins
+    )
+    return TestClient(app)
+
+
+def test_cors_with_a_wildcard_never_lets_the_session_cookie_through(db, caplog):
+    """Starlette echoes any origin for * with credentials: any page on the host could act as the user."""
+    client = _cors_app(["*"])
+
+    response = client.get(
+        "/api/health", headers={"Origin": "http://evil:9999", "Cookie": "audible_sync_session=stolen"}
+    )
+
+    assert response.headers.get("access-control-allow-origin") == "*"
+    assert "access-control-allow-credentials" not in response.headers
+    assert "AUDIBLE_SYNC_CORS_ORIGINS is *" in caplog.text
+
+
+def test_cors_with_a_listed_origin_allows_the_session_cookie(db):
+    response = _cors_app(["http://ui:5173"]).get("/api/health", headers={"Origin": "http://ui:5173"})
+
+    assert response.headers["access-control-allow-origin"] == "http://ui:5173"
+    assert response.headers["access-control-allow-credentials"] == "true"
+
+
+def test_index_html_asked_for_by_name_is_revalidated(web):
+    response = web.get("/index.html")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+
+
+@pytest.fixture(params=["with a build", "without a build"])
+def either(request, db, tmp_path):
+    if request.param == "with a build":
+        dist = tmp_path / "dist"
+        dist.mkdir()
+        (dist / "index.html").write_text("<!doctype html>")
+        app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), web_dir=dist)
+    else:
+        app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"))
+    return TestClient(app)
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "status", "allow"),
+    [
+        ("POST", "/api/books/1/nope", 404, None),
+        ("DELETE", "/api/nope", 404, None),
+        ("POST", "/api/health", 405, "GET"),
+        ("GET", "/api/sync", 405, "POST"),
+        ("PUT", "/api/books/1", 405, "GET, PATCH"),
+    ],
+)
+def test_unknown_paths_and_wrong_methods_answer_the_same_with_or_without_a_build(either, method, path, status, allow):
+    response = either.request(method, path, headers=AUTH)
+
+    assert response.status_code == status
+    assert response.json()["detail"]
+    if allow:
+        # Starlette's own 405 names only the first matching route's methods, so check
+        # the one that matters is there
+        assert allow.split(", ")[0] in response.headers["allow"]
+
+
+def test_a_post_to_a_page_of_the_app_is_a_404(web):
+    response = web.post("/library")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}

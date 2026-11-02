@@ -125,13 +125,26 @@ def test_a_disk_behind_a_folder_it_cannot_enter_reports_nothing(tmp_path):
     assert result == system.Disk(locked / "inner" / "books", None, None, False)
 
 
-def test_a_found_ffmpeg_is_kept_and_a_missing_one_is_asked_again(monkeypatch):
+def test_a_found_ffmpeg_is_kept_and_a_missing_one_is_asked_again_after_a_while(monkeypatch):
     answers = [system.Ffmpeg(None, False), system.Ffmpeg("ffmpeg version 7.1", True)]
     calls = []
+    now = [1000.0]
     monkeypatch.setattr(system, "_probed", None)
+    monkeypatch.setattr(system, "_failed", None)
     monkeypatch.setattr(system, "probe_ffmpeg", lambda: calls.append(1) or answers[len(calls) - 1])
 
-    assert system.ffmpeg().version is None
-    assert system.ffmpeg().version == "ffmpeg version 7.1"
-    assert system.ffmpeg().version == "ffmpeg version 7.1"
+    def clock():
+        return now[0]
+
+    assert system.ffmpeg(clock).version is None
+    # A failure is believed for a while, so the Settings screen does not run FFmpeg each load
+    now[0] += system.FAILED_PROBE_TTL - 1
+    assert system.ffmpeg(clock).version is None
+    assert len(calls) == 1
+    # ... and then asked again, so FFmpeg installed meanwhile is found
+    now[0] += 2
+    assert system.ffmpeg(clock).version == "ffmpeg version 7.1"
+    # Found is kept for good
+    now[0] += 10 * system.FAILED_PROBE_TTL
+    assert system.ffmpeg(clock).version == "ffmpeg version 7.1"
     assert len(calls) == 2
