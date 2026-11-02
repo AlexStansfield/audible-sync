@@ -30,13 +30,14 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import ValidationError
 
-from src import library, webauth
+from src import crypto, database, library, system, webauth
 from src.accounts import (
     add_account_from_authenticator,
     authenticator_for,
     check_marketplace,
     replace_account_auth,
 )
+from src.apitoken import ApiToken, TokenFromEnv
 from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
@@ -66,6 +67,7 @@ from src.schemas import (
     AccountOut,
     AccountStats,
     AccountUpdate,
+    ApiTokenInfo,
     BookAction,
     BookList,
     BookOut,
@@ -73,6 +75,7 @@ from src.schemas import (
     BulkRequest,
     BulkResultOut,
     BulkSkip,
+    DiskOut,
     Health,
     LoginComplete,
     LoginOut,
@@ -81,6 +84,7 @@ from src.schemas import (
     MarketplaceOut,
     Me,
     Message,
+    NewApiToken,
     PasswordChange,
     Requeued,
     RetryUnavailable,
@@ -91,6 +95,7 @@ from src.schemas import (
     Status,
     SyncRunList,
     SyncRunOut,
+    SystemInfo,
     UsernameChange,
     WebhookTest,
 )
@@ -109,7 +114,7 @@ def read_version() -> str:
         return "unknown"
 
 
-def _require_auth(api_token: str):
+def _require_auth(api_token: ApiToken):
     """
     A dependency that lets a request through with the bearer token or a live session.
 
@@ -117,13 +122,14 @@ def _require_auth(api_token: str):
     what lets an `<img>` load a cover, which cannot send a header.
     """
     scheme = HTTPBearer(auto_error=False)
-    expected = api_token.encode()
 
     def require_auth(
         request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(scheme)]
     ) -> None:
         # compare_digest so a wrong token takes the same time whatever it gets right;
         # bytes, because the str form refuses anything outside ASCII with a TypeError
+        # The value is read per request, so a regenerated token applies at once
+        expected = api_token.value.encode()
         if credentials is not None and secrets.compare_digest(credentials.credentials.encode(), expected):
             return
         session = request.cookies.get(SESSION_COOKIE)
@@ -150,7 +156,7 @@ def create_app(
     *,
     scheduler: Scheduler,
     state: RunState,
-    api_token: str,
+    api_token: ApiToken,
     cors_origins: list[str] | None = None,
     version: str | None = None,
     logins: PendingLogins | None = None,
@@ -166,7 +172,8 @@ def create_app(
         scheduler: Started on startup and stopped on shutdown, which is how a
             `docker stop` becomes a clean cancel
         state: The run in flight, as `/api/status` reports it
-        api_token: The bearer token every request except the health check must carry
+        api_token: The bearer token every request except the health check must carry,
+            held so that regenerating it applies at once
         cors_origins: Origins allowed to call from a browser, e.g. the UI's dev server
         version: Reported by the health check; defaults to `pyproject.toml`'s
         logins: The store of logins started and not yet completed; defaults to a fresh one
@@ -361,6 +368,44 @@ def create_app(
         except Exception as error:
             raise HTTPException(status_code=502, detail=f"Webhook failed: {error}") from None
         return Message(status="sent")
+
+    @router.get("/settings/api-token", response_model=ApiTokenInfo)
+    def get_api_token() -> ApiTokenInfo:
+        """The token masked to its last four characters, and whether it is the env's or stored."""
+        return ApiTokenInfo(last4=api_token.last4, source=api_token.source)
+
+    @router.post("/settings/api-token/regenerate", response_model=NewApiToken)
+    def regenerate_api_token(request: Request) -> NewApiToken:
+        """
+        Replace the token; the old one stops working at once. The new one is returned
+        this once and never logged. 409 when `AUDIBLE_SYNC_API_TOKEN` sets it.
+
+        Only from a signed-in web app (403 under the bearer token alone): a leaked token
+        must not be able to lock its owner's scripts out by rotating itself.
+        """
+        session = request.cookies.get(SESSION_COOKIE)
+        if not (session and webauth.check_session(session)):
+            raise HTTPException(status_code=403, detail="Regenerate the API token from the signed-in web app")
+        try:
+            return NewApiToken(token=api_token.regenerate())
+        except TokenFromEnv as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+
+    @router.get("/system", response_model=SystemInfo)
+    def get_system() -> SystemInfo:
+        """FFmpeg, the library's disk, the key and the database, for the System card."""
+        ffmpeg = system.ffmpeg()
+        library_disk = system.disk(Settings.from_db().audiobook_folder)
+        key = crypto.key_source()
+        return SystemInfo(
+            version=app.version,
+            ffmpeg_version=ffmpeg.version,
+            libopus=ffmpeg.libopus,
+            audiobook_folder=DiskOut.model_validate(library_disk),
+            key_source=key.kind,
+            key_file=str(key.path) if key.path else None,
+            database_bytes=system.database_bytes(database.DB_FILE),
+        )
 
     @router.get("/logs", response_model=LogList)
     def get_logs(

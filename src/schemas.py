@@ -333,6 +333,43 @@ class BulkResultOut(BaseModel):
     skipped: list[BulkSkip]
 
 
+class ApiTokenInfo(BaseModel):
+    """The token as the Settings screen shows it: masked to its last four characters."""
+
+    last4: str
+    source: Literal["env", "stored"]
+
+
+class NewApiToken(BaseModel):
+    """A regenerated token, returned this once."""
+
+    token: str
+
+
+class DiskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    path: str
+    free_bytes: int | None
+    total_bytes: int | None
+    low_space: bool
+
+    @field_validator("path", mode="before")
+    @classmethod
+    def _path_as_text(cls, value: Any) -> Any:
+        return str(value) if isinstance(value, Path) else value
+
+
+class SystemInfo(BaseModel):
+    version: str
+    ffmpeg_version: str | None
+    libopus: bool
+    audiobook_folder: DiskOut
+    key_source: Literal["env", "file"]
+    key_file: str | None
+    database_bytes: int
+
+
 class LogEntry(BaseModel):
     time: str
     level: str

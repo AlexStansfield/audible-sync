@@ -27,7 +27,10 @@ test through the autouse fixture in `tests/conftest.py`.
 import logging
 import os
 import stat
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -88,7 +91,7 @@ def load_secret_key(env: dict[str, str] | None = None) -> bytes:
         _cipher_for(configured, KEY_ENV)
         return configured.encode()
 
-    path = resolve_path(env[KEY_FILE_ENV]) if env.get(KEY_FILE_ENV) else DEFAULT_KEY_FILE
+    path = _key_file(env)
     if path.is_file():
         key = path.read_bytes().strip()
         _cipher_for(key, str(path))
@@ -96,6 +99,30 @@ def load_secret_key(env: dict[str, str] | None = None) -> bytes:
     if path.exists():
         raise SecretKeyError(f"The secret key file {path} is not a file")
     return _generate_key_file(path)
+
+
+def _key_file(env: Mapping[str, str]) -> Path:
+    return resolve_path(env[KEY_FILE_ENV]) if env.get(KEY_FILE_ENV) else DEFAULT_KEY_FILE
+
+
+@dataclass(frozen=True)
+class KeySource:
+    """Where `load_secret_key` takes the key from: the environment, or a file and its path."""
+
+    kind: Literal["env", "file"]
+    path: Path | None = None
+
+
+def key_source(env: dict[str, str] | None = None) -> KeySource:
+    """
+    Where the key comes from, by the same rules as `load_secret_key`, reading nothing.
+
+    For the Settings screen's reminder to back the key up: the file is what to copy.
+    """
+    env = os.environ if env is None else env
+    if (env.get(KEY_ENV) or "").strip():
+        return KeySource("env")
+    return KeySource("file", _key_file(env))
 
 
 def _generate_key_file(path: Path) -> bytes:
