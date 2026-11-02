@@ -1,0 +1,32 @@
+info:
+  name: Bulk action
+  type: http
+  seq: 10
+http:
+  method: POST
+  url: "{{baseUrl}}/api/books/bulk"
+  body:
+    type: json
+    data: |-
+      {
+        "action": "monitor",
+        "filter": {
+          "account_id": 1,
+          "monitored": false
+        }
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  One action on many books. `action` is `monitor`, `unmonitor`, `retry` or `delete_files`.
+  Give exactly one of `ids` (a list of book ids) or `filter` (`account_id`, `status`,
+  `monitored`, `q`, meaning what they mean on List books, so "all matching" acts on the
+  books the listing counted); both or neither is a 422.
+
+  Returns `updated`, `queued` (how many now wait for a download: every retried book, and
+  the monitored books that were already waiting - a failed or parked book keeps its status
+  until retried) and `skipped`, a list of `{id, reason}`: `busy` (a run is downloading it),
+  `downloaded` (retry on a downloaded book; redownload is the single-book action for that),
+  `no_files` (delete_files on a book with nothing on disk) or `not_found`. Delete files
+  also unmonitors, as the single-book action does.

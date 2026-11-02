@@ -257,6 +257,7 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `POST /api/books/{id}/delete-files` | Remove the audio, PDF, cover and annotations (and folders left empty) and unmonitor the book, so it stays deleted |
 | `POST /api/books/{id}/redownload` | Remove the files and queue the book afresh, attempts reset |
 | `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
+| `POST /api/books/bulk` | `{"action", "ids" or "filter"}`: `monitor`, `unmonitor`, `retry` or `delete_files` on the books selected, or on everything a filter (`account_id`, `status`, `monitored`, `q`, as on `GET /api/books`) matches. Returns `updated`, `queued` and `skipped` with a reason each (`busy`, `downloaded`, `no_files`, `not_found`) |
 | `POST /api/books/retry-unavailable` | `{"account_id"?}`: queue every parked book Audible still reports consumable again, for one account or all; returns `requeued`. For the day every licence was refused rather than one retired title - a re-login does this for its account by itself. Titles Audible withdrew are left to the sync, which restores them when they are offered again |
 | `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
 | `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
