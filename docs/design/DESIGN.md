@@ -28,7 +28,7 @@ The sample data (titles, counts, the ASIN, run numbers) is illustrative. The rea
 | `Patterns.dc.html` | Common patterns: skeletons, a failed request, toasts | - |
 | `State*.dc.html`, `Phone*.dc.html`, `Light*.dc.html` | Frames that show a screen above with one variant switched on (first run, empty library, bulk selection, each Accounts dialog, phone width, light theme). They contain no design of their own: read the screen they import and its variant | - |
 
-Every screen's `data-props` lists its variants. Round 2 added: Dashboard `firstRun`, `generatedPassword`; Library `empty` (`noBooks`, `noResults`) and `bulk` (`selecting`, `confirmDelete`, `result`); Book `status` = `downloading`, `monitored`, `sizeKnown`; Accounts `step` = `expired`, `failed`, `relogin`, `rename`, `remove`, `menu`; Sign in `forgot`; Settings `token` (`masked`, `confirm`, `regenerated`), `lowDisk`; Activity `expanded`.
+Every screen's `data-props` lists its variants. Round 2 added: Dashboard `firstRun`, `generatedPassword`; Library `empty` (`noBooks`, `noResults`) and `bulk` (`selecting`, `confirmDelete`, `result`); Book `status` = `downloading`, `monitored`, `sizeKnown`, `noRun`; Accounts `step` = `expired`, `failed`, `relogin`, `rename`, `remove`, `menu`; Sign in `forgot`; Settings `token` (`masked`, `confirm`, `regenerated`), `lowDisk`; Activity `expanded`.
 
 ## Stack
 
@@ -224,7 +224,7 @@ Built for an account added with "Download the books already in this library" tur
 - **Select** in the header toggles selection mode (it becomes **Done**). In the grid, each cover gets a checkbox top right and a selected cover gets a 3px accent outline. In the table, a checkbox column appears, with a select-page checkbox in its header, and selected rows are tinted.
 - **The action bar** sits above the books, with an accent border. It shows "N selected", **Select all on this page (24)**, **Select all 354 matching these filters** (which turns the label into "All 354 matching books selected"), and **Clear**. The actions are **Monitor**, **Unmonitor**, **Retry** and **Delete files**, the last in the destructive outline style.
 - Only Delete files confirms, in a dialog: "Delete the files for N books?", saying what goes, that the books are unmonitored and stay in the library, and that books with no files or that a run is downloading are skipped. The confirm button reads "Delete files for N books".
-- **After any action** a dismissible result banner reads, for example, "6 books monitored and queued for download. 1 skipped because a run is downloading it." The selection is cleared.
+- **After any action** a dismissible result banner reads, for example, "6 books monitored, 4 of them queued for download. 1 skipped because a run is downloading it." Monitor queues only the selected books that are waiting; failed and unavailable books keep their status until retried, so the banner says how many were queued rather than implying all of them were. The selection is cleared.
 - Selection survives paging. "Select all matching" sends the filters, not the ids.
 
 **Backend work needed:** `POST /api/books/bulk` with `{"action": "monitor"|"unmonitor"|"retry"|"delete_files", "ids": [...]}` or `{"action": ..., "filter": {account_id, status, monitored, q}}`. It returns `{"updated": n, "skipped": [{"id", "reason"}]}`. Skips cover books a run holds (`downloading`), retrying a downloaded book, and deleting files from a book with none.
@@ -232,6 +232,7 @@ Built for an account added with "Download the books already in this library" tur
 ### Book detail: downloading and unmonitored
 
 - `status=downloading`: an accent-bordered panel above the actions reads "Downloading in run #148", with the book's place in the run, a progress bar of `transfer.bytes / transfer.total` from `GET /api/status` (`sizeKnown=false`: an indeterminate bar and "243 MB so far · size unknown"), and **Cancel run**. Redownload, Delete files and Refresh are disabled, with a line saying why. The Monitored switch stays usable.
+- `status=downloading`, `noRun`: the row says `downloading` but no run is working on it (`GET /api/status` has no `current_run`, or its `book` is another one). This happens after a run was killed part way, or while a command-line run goes beside the service, and the claim is picked up again once it is six hours old (`STALE_CLAIM_SECONDS`). Show a warning-bordered note instead of the progress panel: "Marked as downloading since <last_attempt_at>; no run is working on it. It is picked up again automatically." No progress bar and no Cancel run. The actions stay disabled, because the API refuses them (`409`) while the row is `downloading`.
 - `monitored=false`: the cover is shown at half opacity, a "Not monitored" outline chip with the outline bookmark sits beside the status, and a note says the book will not be downloaded and how to queue it.
 
 ### Accounts: dialogs (`step`)
@@ -250,9 +251,9 @@ Built for an account added with "Download the books already in this library" tur
 ### Settings: API access and System
 
 - **API access** (`token`): the token is shown masked to its last four characters, with **Copy** disabled and **Regenerate** in the destructive outline style. Regenerate confirms ("The current token stops working at once…", **Keep the current token** or **Regenerate**). Afterwards (`regenerated`) the full token is shown with an accent border, Copy is enabled, and a line says to copy it now because it is masked again after leaving the page. If the token comes from `AUDIBLE_SYNC_API_TOKEN`, say to change it there instead and disable Regenerate.
-- **System:** the audiobooks folder with free and total space and a meter (`lowDisk`: the meter, text and border in the error colour, with a warning that downloads stop when the disk is full), the app and FFmpeg versions (and whether libopus is available), where the encryption key comes from (environment variable, or the key file and its path), the database size, and a reminder to back up the key separately.
+- **System:** the audiobooks folder with free and total space and a meter (`lowDisk`: the meter, text and border in the error colour, with a warning that downloads will fail when the disk is full), the app and FFmpeg versions (and whether libopus is available), where the encryption key comes from (environment variable, or the key file and its path), the database size, and a reminder to back up the key separately.
 
-**Backend work needed:** `POST /api/settings/api-token/regenerate` (returns the new token once), `GET /api/settings/api-token` (`last4`, `source`: `env` or `stored`), and `GET /api/system` (`version`, `ffmpeg_version`, `libopus`, `audiobook_folder` with `free_bytes` and `total_bytes`, `key_source` and `key_file`, `database_bytes`). Low space means under 5% or under 50 GB free, whichever is larger.
+**Backend work needed:** `POST /api/settings/api-token/regenerate` (returns the new token once), `GET /api/settings/api-token` (`last4`, `source`: `env` or `stored`), and `GET /api/system` (`version`, `ffmpeg_version`, `libopus`, `audiobook_folder` with `free_bytes` and `total_bytes`, `key_source` and `key_file`, `database_bytes`). Low space means under 5% or under 50 GB free, whichever is smaller.
 
 ### Activity: books in a run (`expanded`)
 

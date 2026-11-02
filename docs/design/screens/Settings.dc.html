@@ -264,7 +264,7 @@ class Component extends DCLogic {
           diskBar: low ? 'var(--bad)' : 'var(--ok)',
           diskText: low ? 'var(--bad-text)' : 'var(--text)',
           diskBorder: low ? 'var(--bad-line)' : 'var(--line)',
-          diskNote: low ? 'Space is low. About 90 more books fit at your average size; downloads stop when the disk is full.' : 'About 3,900 more books fit at your average size of 410 MB.',
+          diskNote: low ? 'Space is low. About 90 more books fit at your average size; downloads will fail when the disk is full.' : 'About 3,900 more books fit at your average size of 410 MB.',
         };
       })(),
       placeholders: ['{author}', '{authors}', '{narrator}', '{title}', '{subtitle}', '{series}', '{sequence}', '{year}', '{asin}'],
