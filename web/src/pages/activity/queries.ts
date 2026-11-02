@@ -13,8 +13,8 @@ export const RUNS_PAGE = 20;
 export const LOG_LINES = 1000;
 export const FOLLOW_INTERVAL = 2_000;
 
-/** What each book a run in flight takes up changes here: the running run's books. */
-export const DURING_RUN = [["runs"]] as const;
+/** One run's books. */
+export const runBooksKey = (runId: number) => ["runs", runId, "books"] as const;
 
 /**
  * The run history, `RUNS_PAGE` at a time ("Load more" asks for the next offset). A run
@@ -41,7 +41,7 @@ export function useRunHistory(accountId: number | null) {
 /** One run's books, read when its row is opened. */
 export function useRunBooks(runId: number) {
   return useQuery({
-    queryKey: ["runs", runId, "books"],
+    queryKey: runBooksKey(runId),
     queryFn: () => unwrap(api.GET("/api/sync/runs/{run_id}/books", { params: { path: { run_id: runId } } })),
   });
 }
@@ -55,15 +55,22 @@ export function useLogs(level: Level, follow: boolean) {
   });
 }
 
-/** A run starting shows in the history at once, as a running row. */
+/**
+ * A run starting shows in the history at once, as a running row. Only a change seen
+ * after the first status counts: on a cold load during a run, the first answer is not
+ * a run starting, and the history was just read anyway.
+ */
 export function useRefreshOnRunStart(status: Status | undefined): void {
   const client = useQueryClient();
-  const runId = status?.current_run?.run_id;
-  const seen = useRef(runId);
+  const known = status !== undefined;
+  const runId = status?.current_run?.run_id ?? null;
+  // undefined until a status has been seen
+  const seen = useRef<number | null | undefined>(undefined);
   useEffect(() => {
-    if (runId != null && runId !== seen.current) {
+    if (!known) return;
+    if (seen.current !== undefined && runId !== null && runId !== seen.current) {
       void client.invalidateQueries({ queryKey: ["runs"] });
     }
     seen.current = runId;
-  }, [runId, client]);
+  }, [known, runId, client]);
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { positiveId } from "./ids";
 import { loginPath, safeNext } from "./next";
 import { passwordStrength } from "./password";
 import { applyThemeChoice, readThemeChoice, resolveTheme, THEME_KEY } from "./theme";
@@ -68,5 +69,14 @@ describe("theme", () => {
     expect(applyThemeChoice("system")).toBe("dark");
     expect(localStorage.getItem(THEME_KEY)).toBeNull();
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+});
+
+describe("positiveId", () => {
+  it("reads a positive whole number and nothing else", () => {
+    expect(positiveId("42")).toBe(42);
+    for (const value of ["0", "-1", "1.5", "1e3", "abc", "", " 4", "99999999999999999999", null, undefined]) {
+      expect(positiveId(value)).toBeNull();
+    }
   });
 });

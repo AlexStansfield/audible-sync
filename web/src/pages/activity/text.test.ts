@@ -29,19 +29,25 @@ describe("Activity's wording", () => {
     expect(runDuration(run({ outcome: "running", finished_at: null }), false, NOW)).toBe("—");
   });
 
-  it("says what a run is doing or why it stopped", () => {
+  it("says what a run is doing or why it stopped, in the Dashboard's words", () => {
     const running = run({ id: 148, outcome: "running", finished_at: null });
-    expect(runNote(running, LIVE)).toBe("Downloading Red Rising");
-    expect(runNote(running, { ...LIVE, stage: "syncing", book: null })).toBe("Reading the library from Audible");
-    expect(runNote(running, { ...LIVE, stage: "cancelling" })).toBe("Cancelling");
-    expect(runNote(running, null)).toMatch(/^Interrupted/);
-    expect(runNote(run({ outcome: "aborted", error: "5 licence refusals in a row" }), null)).toBe(
+    expect(runNote(running, LIVE, true)).toBe("Downloading Red Rising");
+    expect(runNote(running, { ...LIVE, stage: "syncing", book: null }, true)).toBe("Reading the library from Audible");
+    expect(runNote(running, { ...LIVE, stage: "cancelling" }, true)).toBe("Cancelling");
+    expect(runNote(running, null, true)).toBe("Interrupted: the service stopped during this run");
+    // Before the status has answered, the run in flight is not called interrupted
+    expect(runNote(running, undefined, false)).toBe("In progress");
+    expect(runNote(run({ outcome: "aborted", error: "5 licence refusals in a row" }), null, true)).toBe(
       "5 licence refusals in a row",
     );
-    expect(runNote(run({ outcome: "cancelled", books_downloaded: 1, books_failed: 0 }), null)).toBe(
+    expect(runNote(run({ outcome: "failed", error: null }), null, true)).toBe("Stopped early");
+    expect(runNote(run({ outcome: "cancelled", books_downloaded: 1, books_failed: 0 }), null, true)).toBe(
       "Stopped after 1 book",
     );
-    expect(runNote(run(), null)).toBe("—");
+    expect(runNote(run(), null, true)).toBe("—");
+    expect(runNote(run({ outcome: "partial", error: "Audible stopped answering" }), null, true)).toBe(
+      "Audible stopped answering",
+    );
   });
 
   it("counts the runs and the rows shown", () => {

@@ -280,6 +280,93 @@ describe("Activity", () => {
     expect(log.scrollTop).toBe(1000);
   });
 
+  it("does not call the run in flight interrupted before the status has answered", async () => {
+    let answer: (response: Response) => void = () => undefined;
+    page({
+      "GET /api/status": () => new Promise<Response>((resolve) => (answer = resolve)),
+      "GET /api/sync/runs": ok({ items: [run({ id: 150, outcome: "running", finished_at: null })], total: 1 }),
+    });
+    renderApp("/activity");
+
+    await screen.findByRole("button", { name: "Books in run 150" });
+    expect(within(rowOf(150)).queryByText("Interrupted")).not.toBeInTheDocument();
+    expect(within(rowOf(150)).getByText("In progress")).toBeInTheDocument();
+    answer(json(200, status({ accounts: [UK] })));
+    expect(await screen.findByText("Interrupted")).toBeInTheDocument();
+  });
+
+  it("brings the linked run into view once Load more has loaded it", async () => {
+    const all = Array.from({ length: 25 }, (_, i) => run({ id: 200 - i }));
+    page({
+      "GET /api/sync/runs": (request: Request) => {
+        const offset = Number(new URL(request.url).searchParams.get("offset"));
+        return json(200, { items: all.slice(offset, offset + 20), total: all.length });
+      },
+      "GET /api/sync/runs/178/books": ok({ run_id: 178, recorded: true, downloaded: [], failed: [], refused: [] }),
+    });
+    const scrolled: string[] = [];
+    Element.prototype.scrollIntoView = function (this: Element) {
+      scrolled.push(this.id);
+    };
+    renderApp("/activity?run=178");
+
+    await screen.findByText("1–20 of 25");
+    expect(scrolled).toEqual([]);
+    await userEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(scrolled).toEqual(["run-178"]));
+    // @ts-expect-error jsdom has none; put it back as it was
+    delete Element.prototype.scrollIntoView;
+  });
+
+  it("shows and clears a filter on an account that has gone", async () => {
+    const { router } = renderFiltered();
+    const select = await screen.findByRole("combobox", { name: "Account" });
+    expect(await within(select).findByRole("option", { name: "Removed account" })).toBeInTheDocument();
+    expect(select).toHaveValue("9");
+    expect(await screen.findByText("0 runs for a removed account")).toBeInTheDocument();
+
+    await userEvent.selectOptions(select, "All accounts");
+    expect(router.state.location.search).toBe("");
+  });
+
+  it("during a run, reads only the run's books again, not the whole history", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let done = 0;
+    const api = page({
+      "GET /api/status": () =>
+        json(
+          200,
+          status({
+            accounts: [UK],
+            scheduler: { enabled: true, interval_minutes: 360, next_run_at: null, running: true },
+            current_run: {
+              run_id: 150,
+              started_at: "2026-11-02T14:00:00+00:00",
+              stage: "downloading",
+              account: null,
+              book: { id: 100 + done, asin: "B0", title: `Book ${done}` },
+              books_done: done,
+              books_total: 10,
+              transfer: null,
+            },
+          }),
+        ),
+      "GET /api/sync/runs": ok({ items: [run({ id: 150, outcome: "running", finished_at: null })], total: 1 }),
+      "GET /api/sync/runs/150/books": ok({ run_id: 150, recorded: true, downloaded: [], failed: [], refused: [] }),
+    });
+    renderApp("/activity?run=150");
+    await screen.findByRole("heading", { name: "Downloaded (0)" });
+    const count = (path: string) => api.calls.filter((call) => call.path === path).length;
+    // A cold load during a run reads the history once
+    expect(count("/api/sync/runs")).toBe(1);
+    const books = count("/api/sync/runs/150/books");
+
+    done = 1;
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    await waitFor(() => expect(count("/api/sync/runs/150/books")).toBeGreaterThan(books));
+    expect(count("/api/sync/runs")).toBe(1);
+  });
+
   it("says when there are no runs yet", async () => {
     page({ "GET /api/sync/runs": ok({ items: [], total: 0 }) });
     renderApp("/activity");
@@ -290,4 +377,10 @@ describe("Activity", () => {
 function renderPage() {
   page();
   return renderApp("/activity");
+}
+
+function renderFiltered() {
+  // One account left, so without the filter there would be no select at all
+  page({ "GET /api/status": ok(status({ accounts: [UK] })), "GET /api/sync/runs": ok({ items: [], total: 0 }) });
+  return renderApp("/activity?account=9");
 }

@@ -5,7 +5,7 @@
  * Follow. The account and the open run are in the URL (`?account=`, `?run=`), so the
  * Dashboard's recent runs can link straight to one.
  */
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { type Status, useRefreshDuringRun, useStatus } from "../../api/queries";
 import { Chip, OutcomeChip } from "../../components/Chip";
@@ -14,10 +14,11 @@ import { ErrorCard } from "../../components/ErrorCard";
 import { Icon } from "../../components/Icon";
 import { Skeleton, SkeletonCard } from "../../components/Skeleton";
 import { formatTime } from "../../lib/format";
+import { positiveId } from "../../lib/ids";
 import { useNow } from "../../lib/useNow";
 import { isInterrupted } from "../dashboard/text";
 import styles from "./Activity.module.css";
-import { DURING_RUN, useLogs, useRefreshOnRunStart, useRunBooks, useRunHistory } from "./queries";
+import { runBooksKey, useLogs, useRefreshOnRunStart, useRunBooks, useRunHistory } from "./queries";
 import {
   historySubtitle,
   LEVEL_COLOUR,
@@ -28,26 +29,24 @@ import {
   runBookNote,
   runDuration,
   runNote,
+  type SyncRun,
   shownText,
 } from "./text";
-
-/** A positive whole number from the URL, else null. */
-function idParam(value: string | null): number | null {
-  if (!value || !/^\d+$/.test(value)) return null;
-  const id = Number(value);
-  return id > 0 && Number.isSafeInteger(id) ? id : null;
-}
 
 export function ActivityPage() {
   const [params, setParams] = useSearchParams();
   const status = useStatus();
   const accounts = status.data?.accounts ?? [];
-  const accountId = idParam(params.get("account"));
-  const openRun = idParam(params.get("run"));
+  const accountId = positiveId(params.get("account"));
+  const openRun = positiveId(params.get("run"));
   const history = useRunHistory(accountId);
 
   useRefreshOnRunStart(status.data);
-  useRefreshDuringRun(status.data, DURING_RUN);
+  // During a run only its books change: its counts are written when it finishes, which
+  // refetches the history anyway (AFTER_RUN)
+  const liveRunId = status.data?.current_run?.run_id;
+  const duringRun = useMemo(() => (liveRunId != null ? [runBooksKey(liveRunId)] : []), [liveRunId]);
+  useRefreshDuringRun(status.data, duringRun);
 
   const change = (key: "account" | "run", value: number | null) => {
     const next = new URLSearchParams(params);
@@ -60,6 +59,9 @@ export function ActivityPage() {
 
   const names = new Map(accounts.map((account) => [account.id, account.name]));
   const total = history.data?.pages[0]?.total;
+  // A filter from a link or an older visit can name an account that has since gone
+  const removed = accountId !== null && status.data !== undefined && !names.has(accountId);
+  const accountName = accountId === null ? null : (names.get(accountId) ?? (removed ? "a removed account" : null));
 
   return (
     <div className={styles.page}>
@@ -67,22 +69,19 @@ export function ActivityPage() {
         <div className={styles.heading}>
           <h1 className="page-title">Activity</h1>
           <span className="page-subtitle">
-            {total === undefined ? (
-              <Skeleton width={140} />
-            ) : (
-              historySubtitle(total, accountId ? (names.get(accountId) ?? null) : null)
-            )}
+            {total === undefined ? <Skeleton width={140} /> : historySubtitle(total, accountName)}
           </span>
         </div>
-        {accounts.length > 1 && (
+        {(accounts.length > 1 || accountId !== null) && (
           <label className={styles.account}>
             Account
             <select
               className="input"
               value={accountId ?? ""}
-              onChange={(event) => change("account", idParam(event.target.value))}
+              onChange={(event) => change("account", positiveId(event.target.value))}
             >
               <option value="">All accounts</option>
+              {removed && <option value={accountId}>Removed account</option>}
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.name}
@@ -96,6 +95,7 @@ export function ActivityPage() {
       <RunHistory
         history={history}
         status={status.data}
+        statusKnown={status.data !== undefined}
         names={names}
         openRun={openRun}
         onToggle={(id) => change("run", openRun === id ? null : id)}
@@ -108,24 +108,33 @@ export function ActivityPage() {
 function RunHistory({
   history,
   status,
+  statusKnown,
   names,
   openRun,
   onToggle,
 }: {
   history: ReturnType<typeof useRunHistory>;
   status: Status | undefined;
+  statusKnown: boolean;
   names: Map<number, string>;
   openRun: number | null;
   onToggle: (id: number) => void;
 }) {
   const current = status?.current_run;
-  const now = useNow(current != null);
-  // The run the URL opens, brought into view once (a link from the Dashboard)
-  const scrolled = useRef(false);
+  // The run the address opened with (a link from the Dashboard) is brought into view
+  // once its row is on screen - perhaps only after Load more - unless the user has moved
+  // on to another run first
+  const target = useRef(openRun);
   useEffect(() => {
-    if (scrolled.current || openRun === null || !history.data) return;
-    scrolled.current = true;
-    document.getElementById(`run-${openRun}`)?.scrollIntoView?.({ block: "center" });
+    if (target.current === null || !history.data) return;
+    if (openRun !== target.current) {
+      target.current = null;
+      return;
+    }
+    const row = document.getElementById(`run-${target.current}`);
+    if (!row) return;
+    target.current = null;
+    row.scrollIntoView?.({ block: "center" });
   }, [openRun, history.data]);
 
   if (history.isPending) return <SkeletonCard rows={6} label="Loading the run history" />;
@@ -196,7 +205,7 @@ function RunHistory({
                         </button>
                       </td>
                       <td>
-                        {isInterrupted(run, current?.run_id) ? (
+                        {statusKnown && isInterrupted(run, current?.run_id) ? (
                           <Chip colour="var(--bad)">Interrupted</Chip>
                         ) : (
                           <OutcomeChip outcome={run.outcome} />
@@ -204,12 +213,14 @@ function RunHistory({
                       </td>
                       <td>{run.account_id != null ? (names.get(run.account_id) ?? "—") : "—"}</td>
                       <td className={styles.secondary}>{formatTime(run.started_at)}</td>
-                      <td className={styles.duration}>{runDuration(run, live, now)}</td>
+                      <td className={styles.duration}>
+                        {live ? <LiveDuration run={run} /> : runDuration(run, false, 0)}
+                      </td>
                       <td className={styles.num}>{run.books_seen}</td>
                       <td className={styles.num}>{run.books_added}</td>
                       <td className={styles.num}>{run.books_downloaded}</td>
                       <td className={`${styles.num} ${run.books_failed ? styles.bad : ""}`}>{run.books_failed}</td>
-                      <td className={styles.note}>{runNote(run, current)}</td>
+                      <td className={styles.note}>{runNote(run, current, statusKnown)}</td>
                     </tr>
                     {open && (
                       <tr id={`run-${run.id}-books`} className={styles.booksRow}>
@@ -247,6 +258,11 @@ function RunHistory({
       )}
     </section>
   );
+}
+
+/** The run in flight's duration, ticking every second without re-rendering the table. */
+function LiveDuration({ run }: { run: SyncRun }) {
+  return runDuration(run, true, useNow());
 }
 
 const GROUPS = [

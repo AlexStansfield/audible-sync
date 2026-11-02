@@ -5,6 +5,7 @@
  * (StateBookStale); an unmonitored book is dimmed with a note (StateBookUnmonitored).
  * A book the API does not have is the 404 page.
  */
+
 import { useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -22,6 +23,7 @@ import { Skeleton } from "../../components/Skeleton";
 import { Switch } from "../../components/Switch";
 import { useToast } from "../../components/Toasts";
 import { formatDate, formatLength, formatTime, formatTimeInSentence } from "../../lib/format";
+import { positiveId } from "../../lib/ids";
 import { useBook } from "../dashboard/queries";
 import { bookOfRun } from "../dashboard/text";
 import { liveBook } from "../library/live";
@@ -34,15 +36,8 @@ type Book = components["schemas"]["BookOut"];
 type RunSnapshot = components["schemas"]["RunSnapshot"];
 type Account = components["schemas"]["AccountOut"];
 
-/** A book id from the address: a positive whole number, else nothing to ask for. */
-function bookIdFrom(param: string | undefined): number | null {
-  if (!param || !/^\d+$/.test(param)) return null;
-  const id = Number(param);
-  return Number.isSafeInteger(id) && id >= 1 ? id : null;
-}
-
 export function BookPage() {
-  const id = bookIdFrom(useParams().id);
+  const id = positiveId(useParams().id);
   if (id === null) return <NotFoundPage kind="book" />;
   // A new id is a new page: no notice or dialog carries over from the last book
   return <BookView key={id} bookId={id} />;
