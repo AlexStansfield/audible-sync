@@ -15,6 +15,8 @@ Environment:
                                logged in full that once; later starts log only its end
     AUDIBLE_SYNC_CORS_ORIGINS  Comma-separated origins allowed to call from a browser
     AUDIBLE_SYNC_DEBUG         `true` forces DEBUG logging whatever the settings say
+    AUDIBLE_SYNC_WEB_DIR       The built web app to serve; default `web/dist`. Nothing is
+                               served outside /api when it holds no index.html
     AUDIBLE_SYNC_SECURE_COOKIE `true` always marks the web app's session cookie Secure;
                                set it behind a reverse proxy that serves https, where
                                the service itself only ever sees http
@@ -29,6 +31,7 @@ import os
 import secrets
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 
 import uvicorn
 
@@ -38,6 +41,7 @@ from src.crypto import load_secret_key
 from src.database import API_TOKEN_SETTING, encrypt_stored_secrets, get_settings, init_db, save_settings
 from src.logbuffer import RingBufferHandler
 from src.main import configure_logging, run_pipeline
+from src.paths import REPO_ROOT, resolve_path
 from src.runstate import RunState, StateProgress
 from src.scheduler import Scheduler
 from src.settings import Settings, seed_settings_from_ini
@@ -57,6 +61,8 @@ DEFAULT_PORT = 8080
 STOP_TIMEOUT = 90.0
 # How many log lines GET /api/logs can look back over
 LOG_BUFFER_LINES = 1000
+# Where the image puts the web app's build (`npm run build` in web/)
+DEFAULT_WEB_DIR = REPO_ROOT / "web" / "dist"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +75,7 @@ class ServiceConfig:
     cors_origins: tuple[str, ...] = ()
     debug: bool = False
     secure_cookie: bool = False
+    web_dir: Path = DEFAULT_WEB_DIR
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "ServiceConfig":
@@ -81,6 +88,7 @@ class ServiceConfig:
             cors_origins=origins,
             debug=_flag(env.get("AUDIBLE_SYNC_DEBUG")),
             secure_cookie=_flag(env.get("AUDIBLE_SYNC_SECURE_COOKIE")),
+            web_dir=resolve_path(env["AUDIBLE_SYNC_WEB_DIR"]) if env.get("AUDIBLE_SYNC_WEB_DIR") else DEFAULT_WEB_DIR,
         )
 
 
@@ -163,6 +171,11 @@ def build(config: ServiceConfig):
     log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
     logging.getLogger().addHandler(log_buffer)
 
+    if (config.web_dir / "index.html").is_file():
+        logger.info("Serving the web app from %s", config.web_dir)
+    else:
+        logger.info("No web app build in %s; serving the API only", config.web_dir)
+
     state = RunState()
     scheduler = Scheduler(load_settings=Settings.from_db, run=_run, state=state, stop_timeout=STOP_TIMEOUT)
     return create_app(
@@ -172,6 +185,7 @@ def build(config: ServiceConfig):
         cors_origins=list(config.cors_origins),
         log_buffer=log_buffer,
         secure_cookie=config.secure_cookie,
+        web_dir=config.web_dir,
     )
 
 
