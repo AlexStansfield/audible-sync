@@ -120,7 +120,21 @@ docker compose logs audible-sync | grep "API token"
 
 Lost it? Set `AUDIBLE_SYNC_API_TOKEN` to a token of your choosing and restart; it takes precedence over the stored one.
 
-The Audible credentials and the API token are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
+The web app (coming in the next milestone) has its own sign-in: one user, created on the first start as `admin` with a generated password that is printed in the log that once, the same way:
+
+```
+docker compose logs audible-sync | grep "Web app sign-in"
+```
+
+Sign in with it and choose your own. Forgotten the password? Reset it on the server; the new one is printed and every browser is signed out:
+
+```
+docker compose exec audible-sync uv run --no-sync python -m src.main reset-password
+```
+
+Add `--username` to set the username back to `admin` as well.
+
+The Audible credentials, the API token and the web app password's hash are stored encrypted. The key is generated on the first start into `./secrets/secret.key` (or set `AUDIBLE_SYNC_SECRET_KEY` to choose one). **Back up `./data` and `./secrets` separately**: a copy of `./data` on its own is not a working Audible login, which is the point, and `./secrets` is what turns it back into one. Lose the key and the accounts show as needing a login; sign in again and carry on.
 
 The first run starts as soon as the service does, then every `interval-minutes` (six hours by default). `docker stop` cancels a run in progress cleanly: the book being downloaded goes back to the queue.
 
@@ -214,11 +228,16 @@ The service reads these environment variables:
 
 ## API
 
-Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Every request except the health check carries `Authorization: Bearer <token>`; errors are always `{"detail": "..."}`.
+Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Every request except the health check and signing in or out carries `Authorization: Bearer <token>`, or the session cookie that signing in sets; errors are always `{"detail": "..."}`.
 
 | Method and path | What it does |
 |-----------------|--------------|
 | `GET /api/health` | `{"status": "ok", "version": ...}`, no token needed |
+| `POST /api/auth/login` | Sign in to the web app with `username`, `password` and `remember`; sets an HTTP-only session cookie (30 days with `remember`, else until the browser closes). No token needed; a wrong username or password is a `401` that does not say which, and five failures in 15 minutes a `429` |
+| `POST /api/auth/logout` | End the session and clear the cookie |
+| `GET /api/auth/me` | `username` and `generated_password` (still using the generated one) |
+| `PUT /api/auth/username` | Change the username; needs `current_password` (`403` when wrong) |
+| `PUT /api/auth/password` | Change the password (12 characters or more); needs `current_password`. Every other session is signed out |
 | `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer) and the last run |
 | `POST /api/sync` | Start a run now; `409` if one is already running |
 | `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |

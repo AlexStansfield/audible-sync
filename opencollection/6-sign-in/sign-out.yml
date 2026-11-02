@@ -1,0 +1,12 @@
+info:
+  name: Sign out
+  type: http
+  seq: 2
+http:
+  method: POST
+  url: "{{baseUrl}}/api/auth/logout"
+settings:
+  encodeUrl: true
+docs: |
+  Ends the session the cookie names and clears the cookie; 204. Needs no token, so a
+  browser whose session already ended can still clear its cookie.
