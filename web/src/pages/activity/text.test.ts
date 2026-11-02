@@ -44,6 +44,9 @@ describe("Activity's wording", () => {
     expect(runNote(run({ outcome: "cancelled", books_downloaded: 1, books_failed: 0 }), null, true)).toBe(
       "Stopped after 1 book",
     );
+    expect(runNote(run({ outcome: "cancelled", books_downloaded: 0, books_failed: 0 }), null, true)).toBe(
+      "Stopped before finishing a book",
+    );
     expect(runNote(run(), null, true)).toBe("—");
     expect(runNote(run({ outcome: "partial", error: "Audible stopped answering" }), null, true)).toBe(
       "Audible stopped answering",

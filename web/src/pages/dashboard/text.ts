@@ -28,8 +28,11 @@ export function runDetail(run: SyncRun, liveRunId?: number | null): string {
   switch (run.outcome) {
     case "running":
       return isInterrupted(run, liveRunId) ? "Interrupted: the service stopped during this run" : "In progress";
-    case "cancelled":
-      return `Stopped after ${plural(run.books_downloaded + run.books_failed, "book")}`;
+    case "cancelled": {
+      // A cancel during the first book stops the run with none finished (found live, 2026-11-02)
+      const finished = run.books_downloaded + run.books_failed;
+      return finished ? `Stopped after ${plural(finished, "book")}` : "Stopped before finishing a book";
+    }
     case "failed":
     case "aborted":
       return run.error ?? "Stopped early";
