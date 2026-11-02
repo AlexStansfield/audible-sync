@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audible Sync – Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0e1014}
+[data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
+[data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
+a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+[data-shell="topbar"],[data-shell="close"],[data-shell="backdrop"]{display:none!important}
+@media (max-width: 720px){[data-shell="topbar"]{display:flex!important}[data-shell="close"]{display:flex!important}[data-shell="nav"]{display:none!important}[data-shell="nav"][data-open="true"]{display:flex!important;position:fixed;top:0;bottom:0;left:0;z-index:30;width:min(300px,86vw);overflow-y:auto;box-shadow:0 0 48px rgba(0,0,0,0.4)}[data-shell="backdrop"]{display:block!important}[data-shell="brand"]{padding:4px 4px 18px 10px!important}[data-shell="main"]{padding:20px 16px 40px!important}}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+
+<header data-shell="topbar" style="flex: 1 1 100%; align-items: center; gap: 8px; min-height: 56px; padding: 0 12px 0 4px; background: var(--nav); border-bottom: 1px solid var(--line); box-sizing: border-box">
+<button type="button" aria-label="Open menu" aria-controls="main-nav" aria-expanded="{{navOpen}}" onClick="{{openNav}}" style="width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+<span aria-hidden="true" style="width: 28px; height: 28px; flex: none; border-radius: 7px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg></span>
+<span style="font-weight: 700; font-size: 16px">Settings</span>
+<a href="Profile.dc.html" aria-label="Your sign-in" style="margin-left: auto; width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--raised); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">A</a>
+</header>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{ false }}">
+<button type="button" data-shell="backdrop" aria-label="Close menu" tabindex="-1" onClick="{{closeNav}}" style="position: fixed; inset: 0; z-index: 25; border: 0; padding: 0; background: rgba(5,6,8,0.6); cursor: pointer"></button>
+</sc-if>
+<nav aria-label="Main" id="main-nav" data-open="{{navOpen}}" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<div data-shell="brand" style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
+<div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
+</div>
+<div data-shell="brand-text" style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
+<button type="button" data-shell="close" aria-label="Close menu" onClick="{{closeNav}}" style="margin-left: auto; width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; align-items: center; justify-content: center"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
+<a href="Library.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path><path d="M8 7h7"></path></svg>Library<span style="margin-left: auto; font-size: 12px; color: var(--muted)">354</span></a>
+<a href="Activity.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Activity</a>
+<a href="Accounts.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>Accounts</a>
+<a href="Settings.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 600; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><path d="M4 6h10M4 12h4M12 12h8M4 18h12"></path><circle cx="17" cy="6" r="2.5"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="19" cy="18" r="2"></circle></svg>Settings</a>
+<div data-shell="nav-foot" style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok)"></span>Service healthy</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><a href="Profile.dc.html" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; min-height: 32px"><span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">A</span>admin</a><a href="Login.dc.html" style="font-size: 13px; color: var(--text-2); text-decoration: none">Sign out</a></div>
+</div>
+</nav>
+
+<main data-shell="main" style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; max-width: 1040px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700">Settings</h1>
+<span style="color: var(--muted); font-size: 13px">Changes apply from the next run. No restart needed.</span>
+</div>
+<div style="margin-left: auto; display: flex; align-items: center; gap: 10px">
+<span style="font-size: 13px; color: var(--accent-text)">2 unsaved changes</span>
+<button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Discard</button>
+<button type="button" style="min-height: 40px; padding: 0 18px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Save changes</button>
+</div>
+</header>
+
+<form style="display: flex; flex-direction: column; gap: 18px; max-width: 1040px">
+
+<section aria-labelledby="s-look" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-look" style="margin: 0; font-size: 16px; font-weight: 600">Appearance</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">Saved in this browser. Applies straight away.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 8px">
+<span id="l-theme" style="font-weight: 600; font-size: 13px">Theme</span>
+<div role="radiogroup" aria-labelledby="l-theme" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{themes}}" as="t" hint-placeholder-count="3">
+<button type="button" role="radio" aria-checked="{{t.on}}" onClick="{{t.pick}}" style="min-height: 72px; padding: 10px; border-radius: 10px; border: 1px solid {{t.border}}; background: var(--bg); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 12px">
+<span aria-hidden="true" style="width: 52px; height: 40px; flex: none; border-radius: 6px; border: 1px solid var(--line-strong); background: {{t.swatch}}; display: flex; gap: 3px; padding: 4px; box-sizing: border-box"><span style="width: 12px; border-radius: 2px; background: {{t.side}}"></span><span style="flex: 1; border-radius: 2px; background: {{t.card}}"></span></span>{{t.label}}</button>
+</sc-for>
+</div>
+<span style="font-size: 12px; color: var(--muted)">System follows your device's light or dark setting.</span>
+</div>
+</section>
+
+<section aria-labelledby="s-sched" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-sched" style="margin: 0; font-size: 16px; font-weight: 600">Schedule</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">When the service checks your libraries and downloads what is waiting.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center; gap: 14px"><button type="button" role="switch" aria-checked="true" aria-labelledby="l-sched" style="width: 44px; height: 26px; flex: none; border-radius: 999px; border: 0; background: var(--accent); position: relative; cursor: pointer"><span style="position: absolute; top: 3px; left: 21px; width: 20px; height: 20px; border-radius: 50%; background: #fff"></span></button><span style="display: flex; flex-direction: column"><span id="l-sched" style="font-weight: 600">Run on a schedule</span><span style="font-size: 13px; color: var(--muted)">Off: runs only start when you press Sync now.</span></span></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="int" style="font-weight: 600; font-size: 13px">Run every</label>
+<div style="display: flex; gap: 10px; align-items: center"><input id="int" type="number" value="6" min="1" style="width: 96px; min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); font: inherit"><select aria-label="Unit" style="min-height: 42px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit"><option>hours</option><option>minutes</option></select><span style="font-size: 13px; color: var(--muted)">Next run 20:00. At least 5 minutes.</span></div></div>
+<div style="display: flex; align-items: center; gap: 14px"><button type="button" role="switch" aria-checked="true" aria-labelledby="l-auto" style="width: 44px; height: 26px; flex: none; border-radius: 999px; border: 0; background: var(--accent); position: relative; cursor: pointer"><span style="position: absolute; top: 3px; left: 21px; width: 20px; height: 20px; border-radius: 50%; background: #fff"></span></button><span style="display: flex; flex-direction: column"><span id="l-auto" style="font-weight: 600">Download new purchases automatically</span><span style="font-size: 13px; color: var(--muted)">Off: new books arrive unmonitored for you to pick.</span></span></div>
+</div>
+</section>
+
+<section aria-labelledby="s-dl" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-dl" style="margin: 0; font-size: 16px; font-weight: 600">Downloads</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">Limits per account, per run.</p></div>
+<div style="flex: 2 1 460px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="maxd" style="font-weight: 600; font-size: 13px">Books per run</label><input id="maxd" type="number" placeholder="No limit" value="10" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit"><span style="font-size: 12px; color: var(--muted)">Empty: everything waiting.</span></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="maxa" style="font-weight: 600; font-size: 13px">Attempts per book</label><input id="maxa" type="number" value="3" min="1" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit"><span style="font-size: 12px; color: var(--muted)">Then marked failed.</span></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="maxc" style="font-weight: 600; font-size: 13px">Stop after failures in a row</label><input id="maxc" type="number" value="5" placeholder="Never" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit"><span style="font-size: 12px; color: var(--muted)">Empty: never give up.</span></div>
+</div>
+</section>
+
+<section aria-labelledby="s-fmt" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-fmt" style="margin: 0; font-size: 16px; font-weight: 600">Audio format</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">Applies to books downloaded from now on. Existing files are not converted.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 16px">
+<fieldset style="margin: 0; padding: 0; border: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+<legend style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Format</legend>
+<sc-for list="{{formats}}" as="f" hint-placeholder-count="2">
+<label style="display: flex; gap: 12px; padding: 14px; border-radius: 10px; border: 1px solid {{f.border}}; background: {{f.bg}}; cursor: pointer"><input type="radio" name="fmt" checked="{{f.on}}" onChange="{{f.pick}}" style="width: 18px; height: 18px; margin-top: 2px; accent-color: var(--accent); flex: none"><span style="display: flex; flex-direction: column; gap: 3px"><span style="font-weight: 600">{{f.title}}</span><span style="font-size: 13px; color: var(--muted)">{{f.desc}}</span></span></label>
+</sc-for>
+</fieldset>
+<sc-if value="{{isOga}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="br" style="font-weight: 600; font-size: 13px">Bitrate <span style="color: var(--accent-text); font-family: 'JetBrains Mono', monospace">48 kbps</span></label><input id="br" type="range" min="16" max="128" value="48" style="accent-color: var(--accent)"><span style="font-size: 12px; color: var(--muted)">64 matches Audible's quality. 32 to 48 is still very good for speech.</span></div>
+</sc-if>
+</div>
+</section>
+
+<section aria-labelledby="s-names" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-names" style="margin: 0; font-size: 16px; font-weight: 600">Folders and naming</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">Where books are filed. Text in [brackets] is left out when a placeholder in it is empty.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="abf" style="font-weight: 600; font-size: 13px">Audiobooks folder</label><input id="abf" type="text" value="/audiobooks" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px"></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="dlf" style="font-weight: 600; font-size: 13px">Temporary downloads folder</label><input id="dlf" type="text" value="data/downloads" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px"></div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="ft" style="font-weight: 600; font-size: 13px">Folder template</label><input id="ft" type="text" value="{author}/[{series}/][{sequence} - ]{title}" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px"></div>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="fn" style="font-weight: 600; font-size: 13px">File name template</label><input id="fn" type="text" value="{title}" style="min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px"></div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center"><span style="font-size: 12px; color: var(--muted); margin-right: 4px">Insert</span>
+<sc-for list="{{placeholders}}" as="p" hint-placeholder-count="10">
+<button type="button" style="min-height: 30px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text-2); font-family: 'JetBrains Mono', monospace; font-size: 12px; cursor: pointer">{{p}}</button>
+</sc-for>
+</div>
+<div style="padding: 12px 14px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px">
+<span style="font-size: 12px; color: var(--muted)">Preview</span>
+<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text)">/audiobooks/Mark Lawrence/Impossible Times/1 - One Word Kill/One Word Kill.{{ext}}</code>
+<code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">/audiobooks/Andy Weir/Project Hail Mary/Project Hail Mary.{{ext}}</code>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="s-notify" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-notify" style="margin: 0; font-size: 16px; font-weight: 600">Notifications</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">A JSON POST after every run, for example to make Audiobookshelf rescan.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 8px">
+<label for="wh" style="font-weight: 600; font-size: 13px">Webhook URL</label>
+<div style="display: flex; gap: 10px"><input id="wh" type="url" value="http://audiobookshelf:13378/api/hooks/scan" style="flex: 1; min-width: 0; min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px"><button type="button" style="min-height: 42px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Send test</button></div>
+<span role="status" style="font-size: 13px; color: var(--ok)">Test event delivered (200).</span>
+</div>
+</section>
+
+<section aria-labelledby="s-api" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-api" style="margin: 0; font-size: 16px; font-weight: 600">API access</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">A bearer token for scripts and the command line. The web app does not need it.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 10px">
+<span id="l-tok" style="font-weight: 600; font-size: 13px">API token</span>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<code aria-labelledby="l-tok" style="flex: 1 1 300px; min-width: 0; min-height: 42px; padding: 0 12px; border-radius: 8px; border: 1px solid {{tokBorder}}; background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; display: flex; align-items: center; overflow-x: auto; white-space: nowrap">{{tokText}}</code>
+<button type="button" disabled="{{copyDisabled}}" style="min-height: 42px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: {{copyBg}}; color: {{copyFg}}; font: inherit; font-weight: 600; cursor: {{copyCursor}}">Copy</button>
+<button type="button" onClick="{{askRegen}}" style="min-height: 42px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--bad-line); background: transparent; color: var(--bad-text); font: inherit; font-weight: 600; cursor: pointer">Regenerate</button>
+</div>
+<sc-if value="{{tokFresh}}" hint-placeholder-val="{{ false }}">
+<span role="status" style="font-size: 13px; color: var(--accent-text); font-weight: 500">Copy it now. Once you leave this page only the last four characters are shown again.</span>
+</sc-if>
+<sc-if value="{{tokMasked}}" hint-placeholder-val="{{ true }}">
+<span style="font-size: 12px; color: var(--muted)">Only the last four characters are shown. To copy a token, regenerate it. If the token comes from <code style="font-family: 'JetBrains Mono', monospace">AUDIBLE_SYNC_API_TOKEN</code>, change it there instead.</span>
+</sc-if>
+</div>
+</section>
+
+<section aria-labelledby="s-sys" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-sys" style="margin: 0; font-size: 16px; font-weight: 600">System</h2><p style="margin: 0; font-size: 13px; color: var(--muted)">What the service is running with. Read only.</p></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 14px; border-radius: 10px; background: var(--bg); border: 1px solid {{diskBorder}}">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px"><span style="font-weight: 600">Audiobooks folder</span><code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">/audiobooks</code><span style="margin-left: auto; font-size: 13px; color: {{diskText}}; font-weight: 600">{{diskFree}}</span></div>
+<div role="meter" aria-label="Disk space used" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{diskPct}}" style="height: 8px; border-radius: 4px; background: var(--line); overflow: hidden"><div style="width: {{diskWidth}}; height: 100%; background: {{diskBar}}"></div></div>
+<span style="font-size: 12px; color: var(--muted)">{{diskNote}}</span>
+</div>
+<dl style="margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px">
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Audible Sync</dt><dd style="margin: 0; font-weight: 500">2.0.0</dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">FFmpeg</dt><dd style="margin: 0; font-weight: 500">7.1.1 <span style="color: var(--muted); font-weight: 400">· libopus available</span></dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Encryption key</dt><dd style="margin: 0; font-weight: 500">Key file <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">/app/secrets/secret.key</code></dd></div>
+<div style="display: flex; flex-direction: column; gap: 2px"><dt style="font-size: 12px; color: var(--muted)">Database</dt><dd style="margin: 0; font-weight: 500">4.2 MB <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2)">data/audible_sync.db</code></dd></div>
+</dl>
+<span style="font-size: 12px; color: var(--muted)">Back up the key separately from the database: one without the other is not a working Audible sign-in.</span>
+</div>
+</section>
+
+<section aria-labelledby="s-adv" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 4px"><h2 id="s-adv" style="margin: 0; font-size: 16px; font-weight: 600">Advanced</h2></div>
+<div style="flex: 2 1 460px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center; gap: 14px"><button type="button" role="switch" aria-checked="false" aria-labelledby="l-dbg" style="width: 44px; height: 26px; flex: none; border-radius: 999px; border: 0; background: var(--line-strong); position: relative; cursor: pointer"><span style="position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff"></span></button><span style="display: flex; flex-direction: column"><span id="l-dbg" style="font-weight: 600">Debug logging</span><span style="font-size: 13px; color: var(--muted)">Applies immediately.</span></span></div>
+</div>
+</section>
+</form>
+</main>
+
+<sc-if value="{{regenOpen}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; background: rgba(5,6,8,0.72); display: flex; align-items: flex-start; justify-content: center; padding: 1380px 20px 40px; box-sizing: border-box">
+<div role="dialog" aria-modal="true" aria-labelledby="regen-h" style="width: 100%; max-width: 460px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<h2 id="regen-h" style="margin: 0; font-size: 18px; font-weight: 700">Regenerate the API token?</h2>
+<p style="margin: 0; color: var(--text-2)">The current token stops working at once. Scripts and command-line tools that use it fail until you give them the new one. The web app is not affected.</p>
+<div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding-top: 6px">
+<button type="button" onClick="{{cancelRegen}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Keep the current token</button>
+<button type="button" onClick="{{doRegen}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: #e55b5b; color: #fff; font: inherit; font-weight: 700; cursor: pointer">Regenerate</button>
+</div>
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mobileMenu":{"editor":"boolean","default":false},"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"format":{"editor":"enum","options":["m4b","oga"],"default":"m4b"},"token":{"editor":"enum","options":["masked","confirm","regenerated"],"default":"masked"},"lowDisk":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":2160}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const fmt = (this.state && this.state.fmt) || this.props.format || 'm4b';
+    const mk = (id, title, desc) => ({
+      title, desc, on: fmt === id,
+      border: fmt === id ? 'var(--accent-text)' : 'var(--line-strong)',
+      bg: fmt === id ? 'rgba(242,165,65,0.08)' : 'var(--bg)',
+      pick: () => this.setState({ fmt: id }),
+    });
+    return {
+      theme: (this.state && this.state.theme) || this.props.theme || 'dark',
+      navOpen: (this.state && this.state.navOpen != null) ? this.state.navOpen : (this.props.mobileMenu ?? false),
+      openNav: () => this.setState({ navOpen: true }),
+      closeNav: () => this.setState({ navOpen: false }),
+      themes: [
+        ['system', 'System', 'linear-gradient(90deg, #f4f5f7 50%, #0e1014 50%)', '#c6ccd5', '#3a404c'],
+        ['light', 'Light', '#f4f5f7', '#ffffff', '#e2e5ea'],
+        ['dark', 'Dark', '#0e1014', '#161920', '#272c36'],
+      ].map(([id, label, swatch, side, card]) => {
+        const cur = (this.state && this.state.pref) || this.props.theme || 'dark';
+        return {
+          label, swatch, side, card, on: cur === id,
+          border: cur === id ? 'var(--accent)' : 'var(--line-strong)',
+          pick: () => this.setState({ pref: id, theme: id === 'system' ? 'dark' : id }),
+        };
+      }),
+      formats: [
+        mk('m4b', 'M4B (original audio)', 'AAC exactly as Audible supplies it. No re-encoding, no quality loss.'),
+        mk('oga', 'Ogg Opus', 'Re-encoded. Much smaller for speech at the same perceived quality.'),
+      ],
+      isOga: fmt === 'oga',
+      ext: fmt === 'oga' ? 'oga' : 'm4b',
+      ...(() => {
+        const st = this.state || {};
+        const tok = st.tok || this.props.token || 'masked';
+        const fresh = tok === 'regenerated';
+        const low = this.props.lowDisk ?? false;
+        return {
+          tokText: fresh ? 'r7Vq2LmX9pK4tW8sN1cB6yH3jF0dZ5aE-Gu1oQxk' : '•••••••••••••••••••••••• Xk3f',
+          tokBorder: fresh ? 'var(--accent)' : 'var(--line-strong)',
+          tokFresh: fresh, tokMasked: !fresh,
+          copyDisabled: !fresh,
+          copyBg: fresh ? 'var(--accent)' : 'transparent',
+          copyFg: fresh ? '#1a1206' : 'var(--faint)',
+          copyCursor: fresh ? 'pointer' : 'not-allowed',
+          regenOpen: tok === 'confirm',
+          askRegen: () => this.setState({ tok: 'confirm' }),
+          cancelRegen: () => this.setState({ tok: 'masked' }),
+          doRegen: () => this.setState({ tok: 'regenerated' }),
+          diskFree: low ? '38 GB free of 4 TB' : '1.6 TB free of 4 TB',
+          diskPct: low ? 99 : 60,
+          diskWidth: low ? '99%' : '60%',
+          diskBar: low ? 'var(--bad)' : 'var(--ok)',
+          diskText: low ? 'var(--bad-text)' : 'var(--text)',
+          diskBorder: low ? 'var(--bad-line)' : 'var(--line)',
+          diskNote: low ? 'Space is low. About 90 more books fit at your average size; downloads will fail when the disk is full.' : 'About 3,900 more books fit at your average size of 410 MB.',
+        };
+      })(),
+      placeholders: ['{author}', '{authors}', '{narrator}', '{title}', '{subtitle}', '{series}', '{sequence}', '{year}', '{asin}'],
+    };
+  }
+}
+</script>
+</body>
+</html>

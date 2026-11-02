@@ -107,6 +107,7 @@ audible-sync/
 │   ├── test_sync.py          # Incremental cursor, its fallbacks, the availability refresh pass
 │   ├── test_progress.py      # NullProgress and the tqdm adapter's lifecycle
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
+├── docs/design/              # Milestone 4 web app design: DESIGN.md (the spec) and screens/ (the mockups)
 ├── opencollection/           # The API as a request collection (OpenCollection YAML) for Bruno and the like; not in the image
 ├── secrets/                  # secret.key, generated on the first start (gitignored, its own mount)
 ├── compose.yml
@@ -702,7 +703,7 @@ See `todo.md` for the authoritative list.
 
 **Milestone 3 - complete (2026-09-12):** settings table; the service runtime (scheduler, run state, cancel, status/sync/runs/settings endpoints, bearer token, Docker runs the service); accounts (one per marketplace login, credentials in the database, per-account pipeline and endpoints); the browser login flow; book management (listing, monitor, delete, redownload, retry, refresh, cover); and the extras (logs, webhook, stats).
 
-**Milestone 4 - next:** the web app. The API it needs is in place: polling `GET /api/status` for progress (SSE is an option if polling proves too coarse), the bearer token until the app's own login replaces it, and `AUDIBLE_SYNC_CORS_ORIGINS` for a dev server. **Step 0 is complete** (2026-09-09), including the smaller items folded in with it.
+**Milestone 4 - next:** the web app. The API it needs is in place: polling `GET /api/status` for progress (SSE is an option if polling proves too coarse), the bearer token until the app's own login replaces it, and `AUDIBLE_SYNC_CORS_ORIGINS` for a dev server. **Step 0 is complete** (2026-09-09), including the smaller items folded in with it. **The design is in [`docs/design/`](docs/design/)**: read `docs/design/DESIGN.md` before building any part of the web app - it has the stack, the theme values, every screen with the endpoints it calls, and the backend work the UI depends on (the web app's own username/password sign-in, serving the build from FastAPI); `docs/design/screens/` holds the mockups.
 
 ## Understanding "Sync"
 

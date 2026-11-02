@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audible Sync – Accounts</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap">
+<style>
+body{margin:0;background:#0e1014}
+[data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
+[data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
+a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+[data-shell="topbar"],[data-shell="close"],[data-shell="backdrop"]{display:none!important}
+@media (max-width: 720px){[data-shell="topbar"]{display:flex!important}[data-shell="close"]{display:flex!important}[data-shell="nav"]{display:none!important}[data-shell="nav"][data-open="true"]{display:flex!important;position:fixed;top:0;bottom:0;left:0;z-index:30;width:min(300px,86vw);overflow-y:auto;box-shadow:0 0 48px rgba(0,0,0,0.4)}[data-shell="backdrop"]{display:block!important}[data-shell="brand"]{padding:4px 4px 18px 10px!important}[data-shell="main"]{padding:20px 16px 40px!important}}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+
+<header data-shell="topbar" style="flex: 1 1 100%; align-items: center; gap: 8px; min-height: 56px; padding: 0 12px 0 4px; background: var(--nav); border-bottom: 1px solid var(--line); box-sizing: border-box">
+<button type="button" aria-label="Open menu" aria-controls="main-nav" aria-expanded="{{navOpen}}" onClick="{{openNav}}" style="width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+<span aria-hidden="true" style="width: 28px; height: 28px; flex: none; border-radius: 7px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg></span>
+<span style="font-weight: 700; font-size: 16px">Accounts</span>
+<a href="Profile.dc.html" aria-label="Your sign-in" style="margin-left: auto; width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--raised); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">A</a>
+</header>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{ false }}">
+<button type="button" data-shell="backdrop" aria-label="Close menu" tabindex="-1" onClick="{{closeNav}}" style="position: fixed; inset: 0; z-index: 25; border: 0; padding: 0; background: rgba(5,6,8,0.6); cursor: pointer"></button>
+</sc-if>
+<nav aria-label="Main" id="main-nav" data-open="{{navOpen}}" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<div data-shell="brand" style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
+<div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
+</div>
+<div data-shell="brand-text" style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v2.0.0</span></div>
+<button type="button" data-shell="close" aria-label="Close menu" onClick="{{closeNav}}" style="margin-left: auto; width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; align-items: center; justify-content: center"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
+<a href="Library.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path><path d="M8 7h7"></path></svg>Library<span style="margin-left: auto; font-size: 12px; color: var(--muted)">354</span></a>
+<a href="Activity.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Activity</a>
+<a href="Accounts.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 600; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>Accounts<span style="margin-left: auto; width: 8px; height: 8px; border-radius: 50%; background: var(--bad)" aria-label="1 account needs sign-in"></span></a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 12h4M12 12h8M4 18h12"></path><circle cx="17" cy="6" r="2.5"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="19" cy="18" r="2"></circle></svg>Settings</a>
+<div data-shell="nav-foot" style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok)"></span>Service healthy</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><a href="Profile.dc.html" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; min-height: 32px"><span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">A</span>admin</a><a href="Login.dc.html" style="font-size: 13px; color: var(--text-2); text-decoration: none">Sign out</a></div>
+</div>
+</nav>
+
+<main data-shell="main" style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 22px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700">Accounts</h1>
+<span style="color: var(--muted); font-size: 13px">One account per Audible marketplace. Your Amazon password never passes through Audible Sync.</span>
+</div>
+<button type="button" onClick="{{openAdd}}" style="margin-left: auto; min-height: 42px; padding: 0 18px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>Add account</button>
+</header>
+
+<section aria-label="Accounts" style="display: flex; flex-direction: column; gap: 14px">
+<sc-for list="{{accounts}}" as="a" hint-placeholder-count="3">
+<article style="background: var(--panel); border: 1px solid {{a.border}}; border-radius: 12px; padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 18px; align-items: center">
+<div style="width: 48px; height: 48px; flex: none; border-radius: 10px; background: var(--raised); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 15px; color: var(--text-2)">{{a.cc}}</div>
+<div style="flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+<h2 style="margin: 0; font-size: 16px; font-weight: 600">{{a.name}}</h2>
+<span style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 999px; background: {{a.chipBg}}; color: {{a.chipFg}}; font-size: 12px; font-weight: 600">{{a.state}}</span>
+</div>
+<span style="font-size: 13px; color: var(--muted)">{{a.detail}}</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 24px; font-size: 13px">
+<div style="display: flex; flex-direction: column"><span style="color: var(--muted); font-size: 12px">Books</span><span style="font-weight: 600">{{a.books}}</span></div>
+<div style="display: flex; flex-direction: column"><span style="color: var(--muted); font-size: 12px">Last synced</span><span style="font-weight: 600">{{a.synced}}</span></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+<sc-if value="{{a.needsLogin}}" hint-placeholder-val="{{ false }}">
+<button type="button" onClick="{{a.relogin}}" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Sign in</button>
+</sc-if>
+<sc-if value="{{a.ok}}" hint-placeholder-val="{{ true }}">
+<button type="button" onClick="{{a.relogin}}" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Sign in again</button>
+</sc-if>
+<div style="display: flex; align-items: center; gap: 8px; padding: 0 6px; min-height: 40px">
+<button type="button" role="switch" aria-checked="{{a.enabled}}" aria-label="Sync {{a.name}}" style="width: 40px; height: 24px; border-radius: 999px; border: 0; background: {{a.switchBg}}; position: relative; cursor: pointer"><span style="position: absolute; top: 3px; left: {{a.knob}}; width: 18px; height: 18px; border-radius: 50%; background: #fff"></span></button>
+<span style="font-size: 13px; color: var(--text-2)">Sync</span>
+</div>
+<div style="position: relative">
+<button type="button" aria-label="More actions for {{a.name}}" aria-haspopup="menu" aria-expanded="{{a.menuOpen}}" onClick="{{a.toggleMenu}}" style="width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"></circle><circle cx="12" cy="12" r="1.8"></circle><circle cx="19" cy="12" r="1.8"></circle></svg></button>
+<sc-if value="{{a.menuOpen}}" hint-placeholder-val="{{ false }}">
+<div role="menu" style="position: absolute; right: 0; top: 46px; z-index: 2; min-width: 180px; padding: 6px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-strong); box-shadow: 0 12px 32px rgba(0,0,0,0.28); display: flex; flex-direction: column">
+<button type="button" role="menuitem" onClick="{{a.rename}}" style="min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer">Rename</button>
+<button type="button" role="menuitem" onClick="{{a.remove}}" style="min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px; background: transparent; color: var(--bad-text); font: inherit; text-align: left; cursor: pointer">Remove account</button>
+</div>
+</sc-if>
+</div>
+</div>
+</article>
+</sc-for>
+</section>
+
+<section aria-labelledby="help-h" style="display: flex; flex-wrap: wrap; gap: 14px">
+<div style="flex: 1 1 300px; background: var(--nav); border: 1px dashed var(--line-strong); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
+<h2 id="help-h" style="margin: 0; font-size: 14px; font-weight: 600">Downloads refused with &quot;License not granted&quot;?</h2>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Audible stopped licensing devices registered with the older app profile. Use Sign in again: the library and history are kept, the old device is removed from Amazon, and refused books are queued again.</p>
+</div>
+<div style="flex: 1 1 300px; background: var(--nav); border: 1px dashed var(--line-strong); border-radius: 12px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 14px; font-weight: 600">Removing an account</h2>
+<p style="margin: 0; font-size: 13px; color: var(--muted)">Deletes its library rows and run history. Files already in your audiobooks folder stay. You can also remove the device from your Amazon account at the same time.</p>
+</div>
+</section>
+</main>
+
+<sc-if value="{{renameOpen}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; background: rgba(5,6,8,0.74); display: flex; align-items: flex-start; justify-content: center; padding: 200px 20px 40px; box-sizing: border-box">
+<form role="dialog" aria-modal="true" aria-labelledby="ren-h" style="width: 100%; max-width: 420px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+<h2 id="ren-h" style="margin: 0; font-size: 18px; font-weight: 700">Rename account</h2>
+<div style="display: flex; flex-direction: column; gap: 8px"><label for="ren" style="font-weight: 600; font-size: 13px">Name</label><input id="ren" type="text" value="Alex (UK)" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--bg); color: var(--text); font: inherit"><span style="font-size: 12px; color: var(--muted)">Only used in this app. Your Amazon account is not changed.</span></div>
+<div style="display: flex; justify-content: flex-end; gap: 10px">
+<button type="button" onClick="{{close}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Cancel</button>
+<button type="button" onClick="{{close}}" style="min-height: 42px; padding: 0 18px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Save</button>
+</div>
+</form>
+</div>
+</sc-if>
+
+<sc-if value="{{removeOpen}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; background: rgba(5,6,8,0.74); display: flex; align-items: flex-start; justify-content: center; padding: 200px 20px 40px; box-sizing: border-box">
+<div role="dialog" aria-modal="true" aria-labelledby="rem-h" style="width: 100%; max-width: 480px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 14px; padding: 24px; display: flex; flex-direction: column; gap: 14px">
+<h2 id="rem-h" style="margin: 0; font-size: 18px; font-weight: 700">Remove Alex (US)?</h2>
+<p style="margin: 0; color: var(--text-2)">Its library rows and run history are deleted from Audible Sync. The 41 books already in your audiobooks folder stay on disk. You can add the account again later.</p>
+<label style="display: flex; gap: 12px; padding: 12px; border-radius: 8px; background: var(--raised); cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">Also remove this device from my Amazon account</span><span style="font-size: 13px; color: var(--muted)">It disappears from Your Devices on Amazon. If Amazon cannot be reached, the account is removed anyway.</span></span></label>
+<div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; padding-top: 4px">
+<button type="button" onClick="{{close}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Keep account</button>
+<button type="button" onClick="{{close}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: #e55b5b; color: #fff; font: inherit; font-weight: 700; cursor: pointer">Remove account</button>
+</div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{dialogOpen}}" hint-placeholder-val="{{ true }}">
+<div style="position: absolute; inset: 0; background: rgba(5,6,8,0.74); display: flex; align-items: flex-start; justify-content: center; padding: 110px 20px 40px; box-sizing: border-box">
+<div role="dialog" aria-modal="true" aria-labelledby="add-h" style="width: 100%; max-width: 520px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 16px; padding: 26px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; align-items: center; gap: 12px">
+<h2 id="add-h" style="margin: 0; font-size: 19px; font-weight: 700">{{dialogTitle}}</h2>
+<button type="button" aria-label="Close" onClick="{{close}}" style="margin-left: auto; width: 40px; height: 40px; border-radius: 8px; border: 0; background: transparent; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+<ol aria-label="Steps" style="margin: 0; padding: 0; list-style: none; display: flex; gap: 8px">
+<sc-for list="{{steps}}" as="s" hint-placeholder-count="3">
+<li style="flex: 1; display: flex; flex-direction: column; gap: 6px"><span style="height: 4px; border-radius: 2px; background: {{s.bar}}"></span><span style="font-size: 12px; color: {{s.fg}}; font-weight: 500">{{s.label}}</span></li>
+</sc-for>
+</ol>
+
+<sc-if value="{{isSetup}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="mkt" style="font-weight: 600; font-size: 13px">Marketplace</label>
+<select id="mkt" style="min-height: 44px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit"><option>Germany (audible.de)</option><option>United Kingdom (audible.co.uk)</option><option>United States (audible.com)</option><option>France (audible.fr)</option><option>Canada (audible.ca)</option><option>Australia (audible.com.au)</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<label for="nm" style="font-weight: 600; font-size: 13px">Name <span style="font-weight: 400; color: var(--muted)">(optional)</span></label>
+<input id="nm" type="text" placeholder="Defaults to your Amazon name and country" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit">
+</div>
+<label style="display: flex; gap: 12px; padding: 12px; border-radius: 8px; background: var(--raised); cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">Download the books already in this library</span><span style="font-size: 13px; color: var(--muted)">Off: they are added unmonitored, and you choose which to download.</span></span></label>
+<button type="button" onClick="{{toCode}}" style="min-height: 46px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Get sign-in code</button>
+</div>
+</sc-if>
+
+<sc-if value="{{isRelogin}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<span id="mkt-fixed" style="font-weight: 600; font-size: 13px">Marketplace</span>
+<div aria-labelledby="mkt-fixed" style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--raised); color: var(--text-2); display: flex; align-items: center; gap: 10px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>United Kingdom (audible.co.uk)</div>
+<span style="font-size: 12px; color: var(--muted)">Fixed to this account's library. To use another marketplace, add a new account.</span>
+</div>
+<div style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 8px; background: rgba(76,207,143,0.08); border: 1px solid var(--line-strong); font-size: 13px; color: var(--text-2)">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ok); flex: none; margin-top: 2px"><path d="m5 12 5 5 9-10"></path></svg>
+<span>Your library and download history are kept. Books Audible refused to license are queued again once you have signed in.</span>
+</div>
+<label style="display: flex; gap: 12px; padding: 12px; border-radius: 8px; background: var(--raised); cursor: pointer"><input type="checkbox" checked style="width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); flex: none"><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">Remove the old device from my Amazon account</span><span style="font-size: 13px; color: var(--muted)">Recommended. The old registration is the one Audible stopped licensing.</span></span></label>
+<button type="button" onClick="{{toCode}}" style="min-height: 46px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Get sign-in code</button>
+</div>
+</sc-if>
+
+<sc-if value="{{showCode}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 18px; align-items: stretch">
+<p style="margin: 0; color: var(--text-2)">On any device, phone included, go to <a href="https://www.{{domain}}/code" style="font-weight: 600">{{domain}}/code</a>, sign in if asked, and enter this code:</p>
+<div aria-label="Code K Q 7 X M" style="display: flex; justify-content: center; gap: 10px; opacity: {{codeOpacity}}">
+<sc-for list="{{code}}" as="c" hint-placeholder-count="5">
+<span aria-hidden="true" style="width: 60px; height: 72px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line-strong); display: flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 34px; font-weight: 700; color: {{c.color}}; text-decoration: {{c.strike}}">{{c.ch}}</span>
+</sc-for>
+</div>
+<sc-if value="{{isCode}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; justify-content: center; gap: 10px">
+<button type="button" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Copy code</button>
+<a href="https://www.{{domain}}/code" style="min-height: 38px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); color: var(--text); font-size: 13px; font-weight: 600; text-decoration: none; display: flex; align-items: center">Open {{domain}}/code</a>
+</div>
+<div role="status" style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 8px; background: var(--raised)">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="color: var(--accent)"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>
+<span style="flex: 1">Waiting for you to enter the code…</span>
+<span style="font-size: 13px; color: var(--muted); font-family: 'JetBrains Mono', monospace">9:12 left</span>
+</div>
+</sc-if>
+<sc-if value="{{isExpired}}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--warn-line)">
+<div style="display: flex; gap: 10px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-text); flex: none; margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></svg><span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">This code has expired</span><span style="font-size: 13px; color: var(--muted)">A code lasts ten minutes. Get a new one and enter it at {{domain}}/code.</span></span></div>
+<button type="button" onClick="{{toCode}}" style="align-self: flex-start; min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Get a new code</button>
+</div>
+</sc-if>
+<sc-if value="{{isFailed}}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="display: flex; flex-direction: column; gap: 12px; padding: 14px; border-radius: 8px; background: rgba(255,122,122,0.08); border: 1px solid var(--bad-line)">
+<div style="display: flex; gap: 10px"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--bad); flex: none; margin-top: 1px"><path d="M12 3 2 21h20L12 3z"></path><path d="M12 10v4M12 17.5v.01"></path></svg><span style="display: flex; flex-direction: column; gap: 6px"><span style="font-weight: 600; color: var(--bad-text)">Sign-in failed</span><code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-2); white-space: pre-wrap">[error text from the server]</code></span></div>
+<div style="display: flex; flex-wrap: wrap; gap: 10px">
+<button type="button" onClick="{{toCode}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Try again</button>
+<button type="button" onClick="{{toBrowser}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Use browser sign-in</button>
+</div>
+</div>
+</sc-if>
+<sc-if value="{{isCode}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 13px; color: var(--muted)">
+<span>Code refused? Older Audible accounts may need</span><button type="button" onClick="{{toBrowser}}" style="border: 0; background: transparent; padding: 0; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; min-height: 32px">browser sign-in</button>
+<button type="button" onClick="{{toDone}}" style="margin-left: auto; border: 0; background: transparent; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; min-height: 32px">(demo: confirm)</button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{isBrowser}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div style="display: flex; gap: 12px"><span style="width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">1</span><div style="display: flex; flex-direction: column; gap: 8px"><span>Sign in to Amazon in a new tab.</span><a href="#" style="align-self: flex-start; min-height: 40px; padding: 0 14px; border-radius: 8px; background: var(--raised); border: 1px solid var(--line-strong); color: var(--text); font-weight: 600; text-decoration: none; display: flex; align-items: center">Open Amazon sign-in</a></div></div>
+<div style="display: flex; gap: 12px"><span style="width: 26px; height: 26px; flex: none; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">2</span><div style="flex: 1; display: flex; flex-direction: column; gap: 8px"><label for="resp">You land on a &quot;page not found&quot; page. Copy its full address and paste it here.</label><input id="resp" type="url" placeholder="https://www.amazon.de/ap/maplanding?..." style="min-height: 44px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px"></div></div>
+<button type="button" onClick="{{toDone}}" style="min-height: 46px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Finish sign-in</button>
+</div>
+</sc-if>
+
+<sc-if value="{{isDone}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px; align-items: center; text-align: center; padding: 8px 0">
+<div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(76,207,143,0.14); color: var(--ok); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-size: 17px; font-weight: 700">{{doneTitle}}</span><span style="color: var(--muted)">{{doneText}}</span></div>
+<div style="display: flex; gap: 10px">
+<button type="button" onClick="{{close}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Done</button>
+<button type="button" onClick="{{close}}" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 0; background: var(--accent); color: #1a1206; font: inherit; font-weight: 700; cursor: pointer">Sync now</button>
+</div>
+</div>
+</sc-if>
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mobileMenu":{"editor":"boolean","default":false},"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"step":{"editor":"enum","options":["closed","setup","code","expired","failed","browser","done","relogin","relogin-code","relogin-done","rename","remove","menu"],"default":"code"},"$preview":{"width":1440,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const raw = st.step || this.props.step || 'code';
+    const relogin = st.step ? !!st.relogin : raw.startsWith('relogin');
+    const step = raw === 'relogin' ? 'relogin' : raw.replace('relogin-', '');
+    const go = (s, extra) => () => this.setState({ step: s, relogin, menu: null, ...(extra || {}) });
+    const idx = { setup: 0, relogin: 0, code: 1, expired: 1, failed: 1, browser: 1, done: 2 }[step] ?? 0;
+    const menu = st.step ? st.menu : (step === 'menu' ? 1 : null);
+    const labels = relogin ? ['Confirm account', 'Sign in with Amazon', 'Signed in'] : ['Choose marketplace', 'Sign in with Amazon', 'Connected'];
+    const steps = labels.map((label, i) => ({
+      label, bar: i <= idx ? 'var(--accent-text)' : 'var(--line)', fg: i <= idx ? 'var(--text)' : 'var(--muted)',
+    }));
+    let n = 0;
+    const acc = (cc, name, ok, needsLogin, enabled, books, synced, detail) => ({
+      cc, name, ok, needsLogin, enabled, books, synced, detail,
+      menuOpen: menu === n,
+      toggleMenu: ((i) => () => this.setState({ step: 'closed', menu: menu === i ? null : i }))(n++),
+      rename: () => this.setState({ step: 'rename', menu: null }),
+      remove: () => this.setState({ step: 'remove', menu: null }),
+      relogin: () => this.setState({ step: 'relogin', relogin: true, menu: null }),
+      state: needsLogin ? 'Needs sign-in' : enabled ? 'Active' : 'Paused',
+      chipBg: needsLogin ? 'rgba(255,122,122,0.14)' : enabled ? 'rgba(76,207,143,0.14)' : 'rgba(155,163,180,0.16)',
+      chipFg: needsLogin ? 'var(--bad)' : enabled ? 'var(--ok)' : 'var(--text-2)',
+      border: needsLogin ? 'var(--bad-line)' : 'var(--line)',
+      switchBg: enabled ? 'var(--accent-text)' : 'var(--line-strong)', knob: enabled ? '19px' : '3px',
+      openAdd: go('setup'),
+    });
+    return {
+      theme: this.props.theme ?? 'dark',
+      navOpen: (this.state && this.state.navOpen != null) ? this.state.navOpen : (this.props.mobileMenu ?? false),
+      openNav: () => this.setState({ navOpen: true }),
+      closeNav: () => this.setState({ navOpen: false }),
+      accounts: [
+        acc('UK', 'Alex (UK)', true, false, true, '306', 'Today 08:00', 'Alex Stansfield · audible.co.uk · added 12 Sep 2026'),
+        acc('US', 'Alex (US)', true, false, true, '48', 'Today 08:00', 'Alex Stansfield · audible.com · added 3 Oct 2026'),
+        acc('JP', 'Alex (JP)', false, true, false, '0', 'Never', 'The stored sign-in could not be read. Sign in again to keep syncing.'),
+      ],
+      dialogOpen: ['setup', 'relogin', 'code', 'expired', 'failed', 'browser', 'done'].includes(step),
+      renameOpen: step === 'rename',
+      removeOpen: step === 'remove',
+      dialogTitle: relogin ? 'Sign in again: Alex (UK)' : 'Add an Audible account',
+      domain: relogin ? 'amazon.co.uk' : 'amazon.de',
+      isSetup: step === 'setup', isRelogin: step === 'relogin',
+      showCode: step === 'code' || step === 'expired' || step === 'failed',
+      isCode: step === 'code', isExpired: step === 'expired', isFailed: step === 'failed',
+      codeOpacity: step === 'code' ? 1 : 0.45,
+      isBrowser: step === 'browser', isDone: step === 'done',
+      doneTitle: relogin ? 'Alex (UK) is signed in again' : 'Alex (DE) is connected',
+      doneText: relogin ? 'The library and history are unchanged. Refused books are queued for the next run.' : 'The library is fetched on the next run.',
+      steps,
+      code: ['K', 'Q', '7', 'X', 'M'].map((ch) => ({ ch, color: step === 'code' ? 'var(--accent-text)' : 'var(--muted)', strike: step === 'expired' ? 'line-through' : 'none' })),
+      openAdd: () => this.setState({ step: 'setup', relogin: false, menu: null }), close: () => this.setState({ step: 'closed', relogin: false, menu: null }), toCode: go('code'), toBrowser: go('browser'), toDone: go('done'),
+    };
+  }
+}
+</script>
+</body>
+</html>
