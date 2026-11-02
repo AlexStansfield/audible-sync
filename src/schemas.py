@@ -37,6 +37,9 @@ class SchedulerStatus(BaseModel):
 
 
 class BookRef(BaseModel):
+    # The library row: what /api/books/{id} and the cover take. None only for a book
+    # that never came from the database, which the pipeline does not report
+    id: int | None
     asin: str
     title: str
 

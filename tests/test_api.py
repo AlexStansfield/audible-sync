@@ -145,6 +145,7 @@ def test_status_shows_the_run_in_flight_and_the_last_run(api, monkeypatch):
     database.finish_sync_run(run_id, outcome=SyncOutcome.PARTIAL, books_seen=4, books_failed=1, error=None)
     api.state.begin(run_id + 1)
     api.state.set_stage(RunStage.DOWNLOADING)
+    api.state.set_book(make_book("B1", "Book", id=7), done=0, total=1)
     api.state.transfer_started("Book", 100)
     api.state.transfer_advanced(40)
 
@@ -152,6 +153,7 @@ def test_status_shows_the_run_in_flight_and_the_last_run(api, monkeypatch):
 
     assert body["current_run"]["run_id"] == run_id + 1
     assert body["current_run"]["stage"] == "downloading"
+    assert body["current_run"]["book"] == {"id": 7, "asin": "B1", "title": "Book"}
     assert body["current_run"]["transfer"] == {"desc": "Book", "bytes": 40, "total": 100}
     assert body["last_run"]["id"] == run_id
     assert body["last_run"]["outcome"] == "partial"
