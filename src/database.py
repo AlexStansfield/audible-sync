@@ -104,6 +104,17 @@ def init_db():
             updated_at TEXT NOT NULL
         )
     """)
+    # Web app sign-ins. `id` is the SHA-256 of the cookie's token, never the token, so
+    # a copy of the database cannot be used to take over a session (`src.webauth`).
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            persistent BOOLEAN NOT NULL,
+            created_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
     conn.commit()
 
     # Migrate existing databases to add new columns
@@ -1085,6 +1096,8 @@ def count_sync_runs(*, account_id: int | None = None) -> int:
 
 # The settings-table key the API token is stored under, encrypted like the credentials
 API_TOKEN_SETTING = "api_token"
+# ... and the web app password's hash (`src.webauth`)
+WEB_PASSWORD_SETTING = "web_password"
 
 # Accounts whose credentials do not decrypt, logged once per process rather than on
 # every poll of the status endpoint
@@ -1155,7 +1168,10 @@ def count_unreadable_secrets() -> int:
     with closing(_get_connection()) as conn:
         values = [row["auth"] for row in conn.execute("SELECT auth FROM accounts WHERE auth IS NOT NULL")]
         values += [
-            row["value"] for row in conn.execute("SELECT value FROM settings WHERE key = ?", (API_TOKEN_SETTING,))
+            row["value"]
+            for row in conn.execute(
+                "SELECT value FROM settings WHERE key IN (?, ?)", (API_TOKEN_SETTING, WEB_PASSWORD_SETTING)
+            )
         ]
     unreadable = 0
     for value in values:
@@ -1329,3 +1345,58 @@ def has_settings() -> bool:
     """Whether anything has ever been stored, which is what decides if config.ini is seeded."""
     with closing(_get_connection()) as conn:
         return bool(conn.execute("SELECT EXISTS(SELECT 1 FROM settings)").fetchone()[0])
+
+
+# --- sessions ------------------------------------------------------------------
+# Web app sign-ins, keyed by the hash of the cookie's token. `src.webauth` owns the
+# lifetimes and the hashing; this layer stores and compares the ISO 8601 text.
+
+
+def add_session(session_id: str, *, persistent: bool, created_at: str, expires_at: str) -> None:
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            "INSERT INTO sessions (id, persistent, created_at, last_seen_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+            (session_id, persistent, created_at, created_at, expires_at),
+        )
+        conn.commit()
+
+
+def get_session(session_id: str) -> dict | None:
+    """The session's row as a dict (`persistent` a bool), or None."""
+    with closing(_get_connection()) as conn:
+        row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+    if row is None:
+        return None
+    session = dict(row)
+    session["persistent"] = bool(session["persistent"])
+    return session
+
+
+def touch_session(session_id: str, *, last_seen_at: str, expires_at: str) -> None:
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            "UPDATE sessions SET last_seen_at = ?, expires_at = ? WHERE id = ?",
+            (last_seen_at, expires_at, session_id),
+        )
+        conn.commit()
+
+
+def delete_session(session_id: str) -> None:
+    with closing(_get_connection()) as conn:
+        conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
+        conn.commit()
+
+
+def delete_sessions(*, keep: str | None = None) -> int:
+    """End every session, or every one but `keep`; return how many went."""
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute("DELETE FROM sessions WHERE id IS NOT ?", (keep,))
+        conn.commit()
+        return cursor.rowcount
+
+
+def delete_expired_sessions(now: str) -> int:
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute("DELETE FROM sessions WHERE expires_at <= ?", (now,))
+        conn.commit()
+        return cursor.rowcount
