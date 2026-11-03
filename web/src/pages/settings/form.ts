@@ -139,13 +139,18 @@ const SETTING_OF: Record<ErrorField, keyof Values> = {
   webhook_url: "webhook_url",
 };
 
-/** The fields that differ from what is saved: the interval once, whatever its unit. */
+/**
+ * The fields that differ from what is saved: the interval once, whatever its unit, and
+ * the bitrate only while Ogg Opus is chosen - the one format it shows for.
+ */
 export function changedFields(draft: Draft, saved: Draft): ErrorField[] {
   return (Object.keys(SETTING_OF) as ErrorField[]).filter((field) =>
-    field === "interval"
-      ? intervalMinutes(draft) !== intervalMinutes(saved)
-      : // Text compared as it would be sent: trailing spaces on a folder are not a change
-        normalise(field, draft[field]) !== normalise(field, saved[field]),
+    field === "bitrate" && draft.encoding_format !== "oga"
+      ? false
+      : field === "interval"
+        ? intervalMinutes(draft) !== intervalMinutes(saved)
+        : // Text compared as it would be sent: trailing spaces on a folder are not a change
+          normalise(field, draft[field]) !== normalise(field, saved[field]),
   );
 }
 

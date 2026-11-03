@@ -31,9 +31,19 @@ describe("what changed", () => {
   });
 
   it("counts each field once", () => {
-    expect(
-      changedFields({ ...SAVED, interval: "5", unit: "minutes", bitrate: 48, debug: true } as never, SAVED),
-    ).toEqual(["interval", "bitrate"]);
+    const oga = { ...SAVED, encoding_format: "oga" };
+    expect(changedFields({ ...oga, interval: "5", unit: "minutes", bitrate: 48, debug: true } as never, oga)).toEqual([
+      "interval",
+      "bitrate",
+    ]);
+  });
+
+  it("counts the bitrate only while Ogg Opus is chosen", () => {
+    expect(changedFields({ ...SAVED, encoding_format: "m4b", bitrate: 32 }, SAVED)).toEqual([]);
+    expect(changedFields({ ...SAVED, encoding_format: "oga", bitrate: 32 }, SAVED)).toEqual([
+      "encoding_format",
+      "bitrate",
+    ]);
   });
 });
 

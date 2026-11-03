@@ -1,7 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fail, fakeApi, json, ok, type Reply, signedIn } from "../../test/fakeApi";
+import { type FakeApi, fail, fakeApi, json, ok, type Reply, signedIn } from "../../test/fakeApi";
 import { counts, settings, system } from "../../test/fixtures";
 import { renderApp } from "../../test/render";
 
@@ -35,6 +35,9 @@ function saving(initial = settings()) {
     });
 }
 
+const statusReads = (api: FakeApi) =>
+  api.calls.filter((call) => call.method === "GET" && call.path === "/api/status").length;
+
 async function open(extra: Record<string, Reply> = {}) {
   const api = page(extra);
   const view = renderApp("/settings");
@@ -51,10 +54,10 @@ afterEach(() => {
 describe("Settings", () => {
   it("shows the saved settings, and nothing to save until something changes", async () => {
     await open();
-    expect(screen.getByLabelText("Run every")).toHaveValue(6);
+    expect(screen.getByLabelText("Run every")).toHaveValue("6");
     expect(screen.getByLabelText("Unit")).toHaveValue("hours");
-    expect(screen.getByLabelText("Books per run")).toHaveValue(20);
-    expect(screen.getByLabelText("Stop after failures in a row")).toHaveValue(null);
+    expect(screen.getByLabelText("Books per run")).toHaveValue("20");
+    expect(screen.getByLabelText("Stop after failures in a row")).toHaveValue("");
     expect(screen.getByRole("radio", { name: /M4B/ })).toBeChecked();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     // Bitrate is for Ogg Opus only
@@ -72,19 +75,31 @@ describe("Settings", () => {
     await screen.findByText("Settings saved.");
     expect(api.sent("PUT /api/settings")).toEqual([{ max_download: null, auto_monitor_new: false }]);
     expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Books per run")).toHaveValue(null);
+    expect(screen.getByLabelText("Books per run")).toHaveValue("");
   });
 
   it("does not count an interval written in other units as a change", async () => {
     const user = userEvent.setup();
     await open();
     await user.selectOptions(screen.getByLabelText("Unit"), "minutes");
-    expect(screen.getByLabelText("Run every")).toHaveValue(360);
+    expect(screen.getByLabelText("Run every")).toHaveValue("360");
     expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
     await user.clear(screen.getByLabelText("Run every"));
     await user.type(screen.getByLabelText("Run every"), "90");
     expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
     expect(screen.getByText("The next run is worked out again when you save. At least 5 minutes.")).toBeInTheDocument();
+  });
+
+  it("turns the next run to due now when its time comes with the page left open", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: Date.parse("2026-11-02T17:59:58Z") });
+    try {
+      await open();
+      expect(await screen.findByText(/^Next run .*(18:00|6:00 PM)/)).toBeInTheDocument();
+      await act(() => vi.advanceTimersByTimeAsync(3000));
+      expect(screen.getByText("Next run due now. At least 5 minutes.")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the service's refusal under the field it names", async () => {
@@ -119,6 +134,29 @@ describe("Settings", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     expect(screen.getByLabelText("Attempts per book")).toHaveAccessibleDescription("Enter a whole number.");
     expect(api.sent("PUT /api/settings")).toEqual([]);
+  });
+
+  it("refuses a limit that is not a number rather than reading it as no limit", async () => {
+    const user = userEvent.setup();
+    const { api } = await open({ "PUT /api/settings": saving() });
+    for (const typed of ["5e", "-", "1,5"]) {
+      fireEvent.change(screen.getByLabelText("Books per run"), { target: { value: typed } });
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+      expect(screen.getByLabelText("Books per run")).toHaveAccessibleDescription(
+        "Enter a whole number, or leave it empty.",
+      );
+    }
+    expect(api.sent("PUT /api/settings")).toEqual([]);
+  });
+
+  it("does not count a bitrate hidden by going back to M4B", async () => {
+    const user = userEvent.setup();
+    await open();
+    await user.click(screen.getByRole("radio", { name: /Ogg Opus/ }));
+    fireEvent.change(screen.getByLabelText(/Bitrate/), { target: { value: "32" } });
+    expect(screen.getByText("2 unsaved changes")).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: /M4B/ }));
+    expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
   });
 
   it("puts every field back on Discard", async () => {
@@ -200,6 +238,14 @@ describe("Settings: notifications", () => {
     await user.click(screen.getByRole("button", { name: "Send test" }));
     expect(await screen.findByText("Webhook failed: Connection refused")).toBeInTheDocument();
   });
+
+  it("cannot test an emptied field, which would test the saved webhook instead", async () => {
+    const user = userEvent.setup();
+    await open({ "GET /api/settings": ok(settings({ webhook_url: "http://abs:13378/hook" })) });
+    expect(screen.getByRole("button", { name: "Send test" })).toBeEnabled();
+    await user.clear(screen.getByLabelText("Webhook URL"));
+    expect(screen.getByRole("button", { name: "Send test" })).toBeDisabled();
+  });
 });
 
 describe("Settings: API access", () => {
@@ -269,6 +315,45 @@ describe("Settings: what applies at once", () => {
     expect(screen.queryByText(/unsaved change/)).not.toBeInTheDocument();
   });
 
+  it("does not read the status and queue again for debug logging, as a saved schedule does", async () => {
+    const user = userEvent.setup();
+    const { api } = await open({ "PUT /api/settings": saving() });
+    await waitFor(() => expect(statusReads(api)).toBeGreaterThan(0));
+    const before = statusReads(api);
+    await user.click(screen.getByRole("switch", { name: "Debug logging" }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Debug logging" })).toBeChecked());
+    expect(statusReads(api)).toBe(before);
+
+    await user.click(screen.getByRole("switch", { name: "Run on a schedule" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("Settings saved.");
+    await waitFor(() => expect(statusReads(api)).toBe(before + 1));
+  });
+
+  it("saves one thing at a time: debug logging waits for the form, and the form for it", async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    const respond = saving();
+    await open({
+      "PUT /api/settings": (request: Request) =>
+        new Promise<Response>((resolve) => {
+          release = () => resolve(respond(request));
+        }),
+    });
+    await user.click(screen.getByRole("switch", { name: "Run on a schedule" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(screen.getByRole("switch", { name: "Debug logging" })).toBeDisabled();
+    await act(async () => release());
+    await screen.findByText("Settings saved.");
+    expect(screen.getByRole("switch", { name: "Debug logging" })).toBeEnabled();
+
+    await user.click(screen.getByRole("switch", { name: "Download new purchases automatically" }));
+    await user.click(screen.getByRole("switch", { name: "Debug logging" }));
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    await act(async () => release());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled());
+  });
+
   it("keeps unsaved changes when debug logging is switched", async () => {
     const user = userEvent.setup();
     await open({ "PUT /api/settings": saving() });
@@ -276,7 +361,7 @@ describe("Settings: what applies at once", () => {
     await user.click(screen.getByRole("switch", { name: "Debug logging" }));
     await waitFor(() => expect(screen.getByRole("switch", { name: "Debug logging" })).toBeChecked());
     expect(screen.getByText("1 unsaved change")).toBeInTheDocument();
-    expect(screen.getByLabelText("Books per run")).toHaveValue(null);
+    expect(screen.getByLabelText("Books per run")).toHaveValue("");
   });
 
   it("applies and remembers the theme in this browser", async () => {
@@ -309,6 +394,16 @@ describe("Settings: leaving with unsaved changes", () => {
       }),
     );
     await waitFor(() => expect(router.state.location.pathname).toBe("/library"));
+  });
+
+  it("does not ask on the way to the sign-in: Sign out with unsaved changes signs out", async () => {
+    const user = userEvent.setup();
+    const { router } = await open({ "POST /api/auth/logout": () => new Response(null, { status: 204 }) });
+    await user.click(screen.getByRole("switch", { name: "Run on a schedule" }));
+    await user.click(screen.getAllByRole("button", { name: "Sign out" })[0] as HTMLElement);
+    // To the sign-in, which (the fake still answering /me) moves on to the Dashboard
+    await waitFor(() => expect(router.state.location.pathname).not.toBe("/settings"));
+    expect(screen.queryByRole("dialog", { name: "Leave without saving?" })).not.toBeInTheDocument();
   });
 
   it("does not ask when nothing changed", async () => {

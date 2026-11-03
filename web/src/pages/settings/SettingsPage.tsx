@@ -3,7 +3,7 @@
  * changed fields only, the theme and debug logging, which apply at once, the API token
  * and what the service is running with.
  */
-import { type FormEvent, type ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useBlocker } from "react-router";
 import { ApiError } from "../../api/client";
 import { useStatus } from "../../api/queries";
@@ -14,6 +14,7 @@ import { Switch } from "../../components/Switch";
 import { useToast } from "../../components/Toasts";
 import { formatBytes } from "../../lib/format";
 import type { ThemeChoice } from "../../lib/theme";
+import { useNow } from "../../lib/useNow";
 import { useTheme } from "../../lib/useTheme";
 import { useStats } from "../dashboard/queries";
 import {
@@ -30,7 +31,15 @@ import {
   updateFrom,
 } from "./form";
 import { type NamingBook, outputPath, PLACEHOLDERS, templateError } from "./naming";
-import { useApiToken, useRegenerateToken, useSaveSettings, useSettings, useSystem, useWebhookTest } from "./queries";
+import {
+  useApiToken,
+  useRegenerateToken,
+  useSaveSettings,
+  useSavingSettings,
+  useSettings,
+  useSystem,
+  useWebhookTest,
+} from "./queries";
 import styles from "./Settings.module.css";
 import { averageBookBytes, diskFree, diskNote, diskUsedPercent, ffmpegText, scheduleText, unsavedText } from "./text";
 
@@ -79,6 +88,7 @@ type Set = (patch: Partial<Draft>) => void;
 function SettingsForm({ settings }: { settings: Settings }) {
   const toast = useToast();
   const save = useSaveSettings();
+  const saving = useSavingSettings();
   const saved = useMemo(() => draftFrom(settings), [settings]);
   const [changes, setChanges] = useState<Partial<Draft>>({});
   const [errors, setErrors] = useState<Errors>({});
@@ -102,7 +112,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
-    if (!dirty || save.isPending) return;
+    if (!dirty || saving) return;
     const { update, errors: found } = updateFrom(draft, saved);
     if (Object.keys(found).length) {
       setErrors(found);
@@ -124,9 +134,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
     });
   }
 
-  // Leaving with unsaved changes asks first, in the app and when the tab is closed
+  // Leaving with unsaved changes asks first, in the app and when the tab is closed - but
+  // not on the way to the sign-in: the session has ended (Sign out, a 401), and asking
+  // could only leave a signed-out page asking again at every poll
   const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
+    ({ currentLocation, nextLocation }) =>
+      dirty && currentLocation.pathname !== nextLocation.pathname && nextLocation.pathname !== "/login",
   );
   useEffect(() => {
     if (!dirty) return;
@@ -141,10 +154,10 @@ function SettingsForm({ settings }: { settings: Settings }) {
         {dirty && (
           <div className={styles.saveBar}>
             <span className={styles.unsaved}>{unsavedText(changed.length)}</span>
-            <button type="button" className="btn btn-secondary" onClick={discard} disabled={save.isPending}>
+            <button type="button" className="btn btn-secondary" onClick={discard} disabled={saving}>
               Discard
             </button>
-            <button type="submit" form={FORM_ID} className="btn btn-primary" disabled={save.isPending}>
+            <button type="submit" form={FORM_ID} className="btn btn-primary" disabled={saving}>
               {save.isPending ? "Saving…" : "Save changes"}
             </button>
           </div>
@@ -302,6 +315,9 @@ interface SectionProps {
 
 function Schedule({ draft, set, errors, edited }: SectionProps & { edited: boolean }) {
   const status = useStatus();
+  const scheduler = status.data?.scheduler;
+  // Ticks while a next run is ahead, so the line turns to "due now" with the page left open
+  const now = useNow(Boolean(scheduler?.enabled && scheduler.next_run_at && !edited));
   return (
     <Section title="Schedule" description="When the service checks your libraries and downloads what is waiting.">
       <SwitchRow
@@ -310,14 +326,15 @@ function Schedule({ draft, set, errors, edited }: SectionProps & { edited: boole
         checked={draft.sync_enabled}
         onChange={(sync_enabled) => set({ sync_enabled })}
       />
-      <Field label="Run every" error={errors.interval} hint={scheduleText(status.data?.scheduler, edited)}>
+      <Field label="Run every" error={errors.interval} hint={scheduleText(scheduler, edited, new Date(now))}>
         {(props) => (
           <div className={styles.interval}>
             <input
               {...props}
-              type="number"
+              // Text, not a number box: that reads anything it cannot parse as "", which
+              // would pass for an empty field
+              type="text"
               inputMode="numeric"
-              min={1}
               className={`input ${styles.short}`}
               value={draft.interval}
               onChange={(event) => set({ interval: event.target.value })}
@@ -363,9 +380,9 @@ function NumberField({
       {(props) => (
         <input
           {...props}
-          type="number"
+          // Text, not a number box: that reads "5e" as "", which here means no limit
+          type="text"
           inputMode="numeric"
-          min={1}
           placeholder={placeholder}
           className="input"
           value={draft[field]}
@@ -502,16 +519,24 @@ function Naming({ draft, set, errors }: SectionProps) {
   const live = templateError(draft.folder_template, draft.filename_template);
   const extension = draft.encoding_format === "oga" ? "oga" : "m4b";
 
+  // Where the caret goes once an insert is rendered: React setting the new value moves
+  // it to the end, so it is put back straight after, before anything else can read it
+  const caret = useRef<{ field: Template; at: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!caret.current) return;
+    const input = inputs[caret.current.field].current;
+    input?.focus();
+    input?.setSelectionRange(caret.current.at, caret.current.at);
+    caret.current = null;
+  });
+
   function insert(placeholder: string) {
     const input = inputs[target].current;
     const value = draft[target];
     const start = input?.selectionStart ?? value.length;
     const end = input?.selectionEnd ?? value.length;
+    caret.current = { field: target, at: start + placeholder.length };
     set({ [target]: value.slice(0, start) + placeholder + value.slice(end) });
-    requestAnimationFrame(() => {
-      input?.focus();
-      input?.setSelectionRange(start + placeholder.length, start + placeholder.length);
-    });
   }
 
   const templateField = (field: Template, label: string) => {
@@ -634,7 +659,13 @@ function Notifications({ draft, set, errors }: SectionProps) {
                 set({ webhook_url: event.target.value });
               }}
             />
-            <button type="button" className="btn btn-secondary" onClick={send} disabled={test.isPending}>
+            {/* Off while empty: the service would test the saved URL, not the one removed here */}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={send}
+              disabled={test.isPending || !draft.webhook_url.trim()}
+            >
               {test.isPending ? "Sending…" : "Send test"}
             </button>
           </div>
@@ -835,6 +866,7 @@ function SystemDetails({
 function Advanced({ debug }: { debug: boolean }) {
   const toast = useToast();
   const save = useSaveSettings();
+  const saving = useSavingSettings();
   const shown = save.isPending ? Boolean(save.variables?.debug) : debug;
   return (
     <Section title="Advanced">
@@ -842,7 +874,7 @@ function Advanced({ debug }: { debug: boolean }) {
         label="Debug logging"
         hint="Applies immediately."
         checked={shown}
-        disabled={save.isPending}
+        disabled={saving}
         onChange={(value) =>
           save.mutate({ debug: value }, { onError: (error) => toast.error("Could not change debug logging", error) })
         }
