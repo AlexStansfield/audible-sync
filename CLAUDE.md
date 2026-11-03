@@ -7,18 +7,19 @@ Guidance for AI assistants working with the audible-sync codebase.
 | Aspect | Details |
 |--------|---------|
 | **Language** | Python 3.12 (`.python-version`, `pyproject.toml`) |
-| **Type** | Background service with an HTTP API, plus a one-shot CLI |
+| **Type** | Background service with an HTTP API and a web app, plus a one-shot CLI |
 | **Entry Point** | `python -m src.service` (the service); `python -m src.main` (one sync and exit) |
 | **Database** | SQLite 3 (`data/audible_sync.db`) |
 | **Config** | `config/config.ini`, seeded once into the `settings` table which the app then runs on |
 | **Secrets** | Credentials, API token and the web app password's hash encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/crypto.py`) |
-| **Lines of Code** | ~4300 lines across 17 Python modules, plus ~5100 lines of tests |
+| **Lines of Code** | ~8800 lines across 26 Python modules, plus ~11000 lines of tests; the web app ~8400 lines of TypeScript, plus ~4300 lines of tests |
 | **Logging** | Python `logging`, configured in `src/main.py` |
 | **Testing** | pytest (`tests/`, binary fixtures in `tests/fixtures/`), run with `uv run pytest`; unit tests required for new code |
 | **Linting / Formatting** | ruff (config in `pyproject.toml`), run with `uv run ruff check .` and `uv run ruff format .` |
-| **CI** | GitHub Actions: lint, format check and tests on every push/PR to `dev` and `main` |
+| **CI** | GitHub Actions on every push/PR to `dev` and `main`: ruff, pytest, and the web app's lint, typecheck, tests, build and stale-types check |
 | **Package Manager** | uv (`pyproject.toml` + `uv.lock`); `requirements.txt` is generated for pip users |
 | **Web framework** | FastAPI + uvicorn (`src/api.py`, `src/service.py`); pydantic models in `src/schemas.py` |
+| **Web app** | `web/`: Vite + React 19 + TypeScript, TanStack Query, Biome, Vitest (see "Web app" below); served by the service from `web/dist` |
 
 ## Project Overview
 
@@ -28,7 +29,7 @@ Guidance for AI assistants working with the audible-sync codebase.
 
 **Important:** This app does NOT crack DRM. It only decrypts audiobooks the user owns.
 
-**Current State (Milestone 2 complete, Milestone 3 in progress):**
+**Current State (Milestones 1-4 complete):**
 - Incremental library sync from the Audible API
 - Download and decrypt to M4B (stream copy) or re-encode to Ogg Opus (`.oga`) at a configurable bitrate, with metadata, cover art and chapters embedded in either format
 - Companion PDF, high-res cover and annotations downloaded alongside the book
@@ -39,9 +40,10 @@ Guidance for AI assistants working with the audible-sync codebase.
 - Book management: a paged, searchable library listing, monitor/unmonitor, delete the files, redownload, retry, refresh from Audible, and a cover endpoint
 - The extras: recent log lines over the API, a webhook after every run, and a stats endpoint for a dashboard
 - A background service: a scheduler runs the pipeline every `sync_interval_minutes`, and a bearer-token API reports the run in flight, starts or cancels a run, lists the run history and reads/changes the settings. The Docker image runs the service
-- Docker image built by GitHub Actions on version tags
+- The web app: sign-in, Dashboard with the live run, Library with bulk actions, Book detail, Accounts with the code sign-in, Activity with the service log, and Settings; served by the service, under a base path behind a reverse proxy if need be
+- Docker image built by GitHub Actions on version tags, the web app built in its Node stage
 
-**Milestone 3 is complete** (2026-09-12). Milestone 4 - the web app on top of this API - is next; `todo.md` has the roadmap.
+**Milestone 4 is complete** (2026-11-03): the web app on top of this API. `todo.md` has what is left.
 
 ## Codebase Structure
 
@@ -629,14 +631,14 @@ Service (a quick local version with no Audible access is a scratch database with
 - [ ] After a re-login with `account_id`, the account's `unavailable` books are back in `waiting_download` (the log says how many) and `POST /api/books/retry-unavailable` on an account with none left answers `requeued: 0`
 - [ ] The first start logs `Web app sign-in: user admin, password ...` once and a restart does not; signing in (`curl -c jar`) makes `/api/status` 200 by cookie as well as by token; a sixth wrong password from one address is a 429; a password change signs out a second cookie jar but not the first; `reset-password` (`docker compose exec ... python -m src.main reset-password`) prints a new password and signs out both, with the service still running (checked on a scratch database, 2026-11-02)
 - [ ] With a build in `web/dist` (or `AUDIBLE_SYNC_WEB_DIR`): the start logs `Serving the web app from ...`, `/` and a deep link such as `/library?status=failed` return `index.html`, an `assets/` file comes back with `immutable` caching, and `/api/nope` is a JSON 404; with none, the log says the API only and `/` is a 404
-- [ ] With `AUDIBLE_SYNC_BASE_PATH=/audible-sync` behind nginx stripping the prefix and behind a proxy passing it on (or straight at the service): `/audible-sync` redirects to `/audible-sync/`, the page carries `<base href="/audible-sync/">`, a deep link reloads, covers load, `/audible-sync/docs` works, and the session cookie's path is `/audible-sync/`
+- [ ] With `AUDIBLE_SYNC_BASE_PATH=/audible-sync` behind nginx stripping the prefix and behind a proxy passing it on (or straight at the service): `/audible-sync` redirects to `/audible-sync/`, the page carries `<base href="/audible-sync/">`, a deep link reloads, covers load, `/audible-sync/docs` works, and the session cookie's path is `/audible-sync/` (checked 2026-11-03 in the image, behind nginx stripping the prefix and straight at the service with it)
 - [ ] Web app shell (in the image, under `AUDIBLE_SYNC_BASE_PATH`): a signed-out deep link goes to the sign-in with `next` and back after it; a wrong password says so, the sixth says how long to wait; the sidebar shows the version, the library count and Service healthy, Accounts gets a red dot for an account needing a sign-in; at 390px the menu opens the drawer (focus inside, Escape closes it, the page does not scroll); an unknown path is the 404 inside the layout; stopping the container brings up Cannot reach Audible Sync within a poll and starting it returns to the same page; Sign out ends the session (checked 2026-11-02 with agent-browser)
 - [ ] Dashboard on a seeded scratch database: the totals, account bars, recent covers, Up next with "+N more waiting", Needs attention and Recent runs match the data; Retry unavailable toasts the count and the totals move; a new install shows the welcome card with the totals at zero; at 390px nothing scrolls sideways (checked 2026-11-02; the live run card only in tests, since a real run needs Audible)
 - [ ] Library on a copy of a real database: the chips' counts match the Dashboard's totals; a status, Unmonitored only, the account and the sort each land in the URL and survive a reload; the Dashboard's "+N more waiting" opens it filtered to monitored waiting books; the search waits for typing to pause; the table shows the series and switches monitoring; Select, a few books on two pages, Unmonitor → the banner says how many and the rows dim; Delete files asks first; a search matching nothing offers Clear filters; at 390px two covers across and nothing scrolls sideways (checked 2026-11-02 on a copy of the live library)
 - [ ] Book detail on a copy of a real database: a downloaded book's details, Download card and file paths match the row; a failed or licence-refused book shows its error and Retry download; a withdrawn title says it comes back on its own; a row set to `downloading` with no run shows the stale note with the actions off; Refresh on an account with no credentials says it needs a sign-in, linking to Accounts; Delete files asks first; `/library/999999` and `/library/abc` are the book 404; at 390px the cover sits above the details and nothing scrolls sideways (checked 2026-11-02 on a copy of the live library; the live download panel only in tests, since a real run needs Audible)
 - [ ] Accounts: a card per account with its state chip (Active, Paused, Needs sign-in), book count and last synced; the Sync switch, Rename and Remove (the deregister checkbox only for an account with credentials; a 409 while the run is on it) each act on the next poll; Sign in again shows the marketplace locked; a code from Add account entered at `amazon.{domain}/code` on a phone turns the dialog to Connected within 3 s and the account appears; an unentered code turns expired after ten minutes and Get a new code gives another; the browser sign-in's pasted address finishes it, a wrong one asks to paste again; at 390px the five code boxes fit (checked 2026-11-02 on a copy of the live library, the code, expired, failed and browser steps with the login calls stubbed in the page; the real code sign-in still to do)
 - [ ] Activity on a copy of a real database: the runs match `sync_runs` (outcome, account, start, duration, counts, note); a recent run opens onto its books with covers, times and sizes, and links to each book; Load more pages by 20; a Dashboard recent run opens its row here; during a run the running row's duration ticks and its note names the book; the log follows new lines, a level hides the ones below it, and scrolling up turns Follow off; at 390px the page does not scroll sideways and an open run's groups stack (checked 2026-11-02 on a copy of the live library with runs #1-#20, and live in the test container: run #21's row showed at once and filled book by book, run #22 cancelled during its first book reads Stopped before finishing a book)
-- [ ] Settings on a copy of a real database: the form shows the stored settings; an edit shows the unsaved count, Save stores only it (the settings table) and Discard puts it back; an interval under 5 minutes is refused under Run every with the service's words; a bad template is said as it is typed; the preview follows the templates and the format; leaving with an unsaved change asks; the theme applies at once; Regenerate shows the new token once; System shows the disk, FFmpeg, the key and the database; at 390px nothing scrolls sideways (checked 2026-11-02 on a copy of the live library, on a host without FFmpeg; Send test against a real receiver still to do)
+- [ ] Settings on a copy of a real database: the form shows the stored settings; an edit shows the unsaved count, Save stores only it (the settings table) and Discard puts it back; an interval under 5 minutes is refused under Run every with the service's words; a bad template is said as it is typed; the preview follows the templates and the format; leaving with an unsaved change asks; the theme applies at once; Regenerate shows the new token once; System shows the disk, FFmpeg, the key and the database; at 390px nothing scrolls sideways (checked 2026-11-02 on a copy of the live library, on a host without FFmpeg; System's FFmpeg and libopus, and Send test against a receiver and with it down, checked in the image 2026-11-03)
 - [ ] The `opencollection/` folder opens in Bruno as a collection: with `apiToken` set in the `local` environment, Health and Status both answer 200
 - [ ] A refused licence does not use a `max-download` slot: with the oldest queued titles refused, the run still downloads `max-download` books from further down the queue, and the refused ones stay `unavailable` across the next sync
 
@@ -659,7 +661,7 @@ Pipeline:
 - [ ] A second run started while the first is downloading skips the in-flight book rather than duplicating it
 - [ ] Cover, chapters and metadata visible in the M4B (e.g. `ffprobe -show_format`), including `series` and `series-part` for a series book
 - [ ] With `format = oga`: `ffprobe` shows an `mjpeg (attached pic)` stream (decoded from `METADATA_BLOCK_PICTURE`), the chapter list once with no duplicates, and `comment=ASIN: ...` among the audio stream tags (`-show_streams`, Ogg tags are stream-level); the DB row has `encoding_format` and `downloaded_at`
-- [ ] Docker image builds and runs
+- [ ] Docker image builds and runs (from `git archive HEAD`, so a file the repository does not hold fails the web stage as it would fail CI), `/` serves the web app at the root and the healthcheck turns healthy (checked 2026-11-03)
 
 ### Debugging
 
@@ -676,7 +678,7 @@ docker compose run --rm -it audible-sync bash
 - `Dockerfile`: a `node:24-slim` stage `web` runs `npm ci` and `npm run build` in `web/`, and only its `dist` is copied to `/app/web/dist` in the final stage (no Node in the image); then `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
 - `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` and `AUDIBLE_SYNC_SECRET_KEY` through from the environment (empty means "generate one"), `AUDIBLE_SYNC_SECURE_COOKIE` (for a reverse proxy serving https) and `AUDIBLE_SYNC_BASE_PATH` (for one serving it under a path), mounts `./data`, `./secrets` (the key file, to be backed up separately from `./data`), `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
 - Run with `docker compose up -d`; `restart: unless-stopped` is right for the service. A one-shot run is `docker compose run --rm audible-sync uv run --no-sync python -m src.main`
-- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/`, `secrets/`, `opencollection/`, `web/dist/` and every `node_modules`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored): a compose file with `build: ..` and its own `config/` mount.
+- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/`, `secrets/`, `opencollection/`, `web/dist/` and every `node_modules`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored as `/test/`, anchored to the root: unanchored, the rule also hid `web/src/test/`, the web tests' helpers, which were then never committed): a compose file with `build: ..` and its own `config/` mount.
 - Image: `ghcr.io/alexstansfield/audible-sync:latest` and `:vX.Y.Z`, published on `v*` tags
 
 ## Web app
@@ -736,15 +738,15 @@ See `todo.md` for the authoritative list.
 
 **Milestone 3 - complete (2026-09-12):** settings table; the service runtime (scheduler, run state, cancel, status/sync/runs/settings endpoints, bearer token, Docker runs the service); accounts (one per marketplace login, credentials in the database, per-account pipeline and endpoints); the browser login flow; book management (listing, monitor, delete, redownload, retry, refresh, cover); and the extras (logs, webhook, stats).
 
-**Milestone 4 - in progress:** the web app. The backend it needs is merged (2026-11-02, #32-#38): the web sign-in and `reset-password`, serving `web/dist`, the book id on the run in flight, bulk book actions, the API-token and system endpoints, `GET /api/queue` and per-run book records. Next is `web/` itself, with the Docker Node stage and the web CI checks. Progress comes from polling `GET /api/status` (SSE is an option if polling proves too coarse); a dev server either proxies `/api` or is listed in `AUDIBLE_SYNC_CORS_ORIGINS`. **The design is in [`docs/design/`](docs/design/)**: read `docs/design/DESIGN.md` before building any part of the web app - it has the stack, the theme values and every screen with the endpoints it calls; `docs/design/screens/` holds the mockups.
+**Milestone 4 - complete (2026-11-03):** the web app. The backend it needed (2026-11-02, #32-#38): the web sign-in and `reset-password`, serving `web/dist`, the book id on the run in flight, bulk book actions, the API-token and system endpoints, `GET /api/queue` and per-run book records; then the base path and `web/` itself in ten phases - the scaffold with the Docker Node stage and the web CI checks, the shell, Dashboard, Library, Book detail, Accounts, Activity and Settings (see "Web app"). Progress comes from polling `GET /api/status` (SSE is an option if polling proves too coarse). Still open in `todo.md`: cancelling a pending login, and the counts Retry unavailable and the Library's chips need. **The design is in [`docs/design/`](docs/design/)**: read `docs/design/DESIGN.md` before building any part of the web app - it has the stack, the theme values and every screen with the endpoints it calls; `docs/design/screens/` holds the mockups.
 
 ## Understanding "Sync"
 
-"Sync" means keeping the local audiobook collection in step with the Audible library: metadata into the database, then files onto disk. Both happen in one run. Milestone 3 turns this into a scheduled background service with a manual trigger.
+"Sync" means keeping the local audiobook collection in step with the Audible library: metadata into the database, then files onto disk. Both happen in one run, which the service starts on a schedule or when Sync now is pressed.
 
 ---
 
-**Document Version:** 4.19
-**Last Updated:** 2026-11-01
-**Codebase Version:** Milestones 2 and 3 complete (background service with scheduler, run state and cancellation; bearer-token API for status/sync/runs/settings/accounts/login (device code, browser fallback)/books/logs/stats; library keyed per account; credentials and API token encrypted at rest with a key outside `data/`; webhook after each run; the Docker image runs the service)
+**Document Version:** 4.20
+**Last Updated:** 2026-11-03
+**Codebase Version:** Milestones 1-4 complete (the web app, served by the service and under a base path; background service with scheduler, run state and cancellation; bearer-token API for status/sync/runs/settings/accounts/login (device code, browser fallback)/books/logs/stats; library keyed per account; credentials and API token encrypted at rest with a key outside `data/`; webhook after each run; the Docker image runs the service)
 **Primary Branch:** `dev`
