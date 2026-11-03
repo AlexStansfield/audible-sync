@@ -10,8 +10,8 @@ data/
 
 # tmp 
 example-book.json
-# Local test deployments
-test/
+# Local test deployments, at the root only: web/src/test/ holds the web tests' helpers
+/test/
 
 # The secret key the stored credentials are encrypted with; never commit it
 secrets/
