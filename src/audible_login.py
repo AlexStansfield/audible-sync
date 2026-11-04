@@ -53,7 +53,7 @@ LOGIN_TTL = timedelta(minutes=15)
 # How long a cancel waits for a login that is being turned into an account, in seconds
 CANCEL_WAIT = 30.0
 
-# Turns an `Authenticator` into an account and returns the account id; the API's business
+# Turns an `Authenticator` into an account and says which; the API's business
 Finish = Callable[[Authenticator], StoredLogin]
 
 
@@ -542,7 +542,7 @@ class PendingLogins:
     In memory on purpose: a login is a minute's interaction, a restart in the middle of
     one just means starting again, and nothing secret is persisted. Every login carries
     the `finish` callback given when it was started, which turns the `Authenticator`
-    into an account; a confirmed login records the account id it returned. A finished
+    into an account; a confirmed login records the account it was stored as. A finished
     or expired login stays readable for `ttl` so a client polling it sees how it ended.
     A pending login can be cancelled; a code login's polling then stops, and a
     registration Amazon answered after the cancel is deregistered rather than kept.

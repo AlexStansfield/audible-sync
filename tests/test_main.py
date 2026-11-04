@@ -5,6 +5,7 @@ import threading
 import pytest
 
 from src import main as main_module
+from src.accounts import LoginAlreadyHeld
 from src.audible_login import LoginFailed
 from src.downloader import DownloadStats
 from src.main import configure_logging, main, run_pipeline
@@ -632,6 +633,24 @@ def test_login_command_deregisters_the_device_when_the_account_cannot_be_stored(
 
     with pytest.raises(SystemExit, match="could not be stored: database is locked"):
         main(["login", "--marketplace", "uk"])
+
+    assert discarded == ["auth"]
+
+
+def test_login_command_refuses_a_login_another_account_holds_and_discards_the_device(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+    discarded = []
+    monkeypatch.setattr(main_module, "discard_device", lambda auth: discarded.append(auth) or True)
+
+    def held(account, auth):
+        raise LoginAlreadyHeld("Other already holds this Audible login")
+
+    monkeypatch.setattr(main_module, "replace_account_auth", held)
+
+    with pytest.raises(SystemExit, match="Other already holds this Audible login"):
+        main(["login", "--marketplace", "uk", "--account", "1"])
 
     assert discarded == ["auth"]
 

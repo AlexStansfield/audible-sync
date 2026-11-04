@@ -71,6 +71,13 @@ describe("the sign-in dialog's rules", () => {
       title: "Alex (DE) is signed in again",
       text: "This Audible login already had this account. The library and history are unchanged. Refused books are queued for the next run.",
     });
+    const paused =
+      "The library and history are unchanged. The account is paused, so runs skip it until you turn Sync back on.";
+    const off = account({ enabled: false });
+    expect(doneText({ kind: "add" }, { account: off, replaced: true }).text).toBe(
+      `This Audible login already had this account. ${paused}`,
+    );
+    expect(doneText({ kind: "relogin", account: off }, { account: null, replaced: true }).text).toBe(paused);
     expect(doneText({ kind: "relogin", account: account() }, { account: null, replaced: true })).toEqual({
       title: "Alex (UK) is signed in again",
       text: "The library and history are unchanged. Refused books are queued for the next run.",

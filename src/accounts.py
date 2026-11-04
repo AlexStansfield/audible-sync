@@ -81,7 +81,7 @@ def customer_name_of(auth: Authenticator) -> str | None:
 
 def display_name(auth: Authenticator) -> str:
     """A default account name: the customer's name and the marketplace, e.g. "Alex (UK)"."""
-    country = (auth.locale.country_code if auth.locale else "").upper()
+    country = (_country_of(auth) or "").upper()
     name = customer_name_of(auth) or "Audible"
     return f"{name} ({country})" if country else name
 
@@ -92,7 +92,7 @@ def add_account_from_authenticator(
     """Store a freshly logged-in authenticator as a new account."""
     return add_account(
         name or display_name(auth),
-        auth.locale.country_code if auth.locale else "",
+        _country_of(auth) or "",
         auth=auth_to_dict(auth),
         customer_name=customer_name_of(auth),
         monitor_existing=monitor_existing,
@@ -115,8 +115,22 @@ def check_marketplace(account: Account, country_code: str | None) -> None:
         )
 
 
+def _country_of(auth: Authenticator) -> str | None:
+    return auth.locale.country_code if auth.locale else None
+
+
+# Two logins finishing together must not both find no account holding theirs and both be
+# stored. Within this process only: the customer id is inside the encrypted blob, so the
+# database has nothing to enforce it with (todo.md has the column that would).
+_store_lock = threading.Lock()
+
+
 class AccountGone(LookupError):
     """The account a login was for no longer exists."""
+
+
+class LoginAlreadyHeld(LookupError):
+    """Another account already holds this Audible login."""
 
 
 def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> None:
@@ -125,75 +139,97 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
 
     This is the recovery when a registration stops working - Audible began refusing
     download licences to devices registered with the library's old profile in October
-    2026 - without deleting the account and losing which books are downloaded. The
-    previous device is deregistered with Amazon first, best effort: it is the one that
-    stopped working, so it may well not be able to, and the new credentials are stored
-    either way. Books parked `unavailable` because that device was refused a licence
-    are queued again for the new one (`requeue_unavailable`).
+    2026 - without deleting the account and losing which books are downloaded. Once the
+    new credentials are stored the previous device is deregistered with Amazon, best
+    effort: it is the one that stopped working, so it may well not be able to. Books
+    parked `unavailable` because that device was refused a licence are queued again for
+    the new one (`requeue_unavailable`). Nothing raises after the store, so a caller that
+    sees an exception can discard the new device knowing nothing holds it.
 
     Raises:
         AccountGone: if the account was deleted while the login was going; the caller
             owns the new device and should deregister it (`audible_login.discard_device`)
+        LoginAlreadyHeld: if another account holds this Audible login: one login, one
+            account, or both would download and file every book. Likewise the caller's
         ValueError: if `auth` is another marketplace's login. An account's library
             is one marketplace's: credentials for another would leave its books asking
             the wrong store for licences, and its cursor skipping the other's catalogue.
             The migration's placeholder has no marketplace yet and takes any
+    """
+    with _store_lock:
+        holders = _holders(auth)
+        if holders and account.id not in {holder.id for holder in holders}:
+            raise LoginAlreadyHeld(
+                f"{holders[0].name} already holds this Audible login. Sign in on that account, or remove it first"
+            )
+        previous = _store_auth(account, auth)
+    if deregister_previous:
+        _deregister_previous(previous)
+
+
+def _store_auth(account: Account, auth: Authenticator) -> Account:
+    """
+    Store new credentials for an account and return the account as it was, whose device
+    is now held by nothing. The caller deregisters that, outside `_store_lock`: Amazon
+    may be slow, and every other login would wait.
     """
     # The account as it is now: a login takes minutes, and the one it was started for may
     # have been removed or given other credentials meanwhile
     current = get_account(account.id)
     if current is None:
         raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
-    account = current
-    check_marketplace(account, auth.locale.country_code if auth.locale else None)
-    if deregister_previous and account.auth is not None:
-        try:
-            authenticator_for(account).deregister_device()
-            logger.info("Deregistered the previous device of %r", account)
-        except Exception:
-            logger.warning(
-                "Could not deregister the previous device of %r; replacing it anyway", account, exc_info=True
-            )
-    update_account(
-        account.id,
-        country_code=auth.locale.country_code if auth.locale else None,
-        customer_name=customer_name_of(auth),
-    )
-    if not save_account_auth(account.id, auth_to_dict(auth)):
-        raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
-    logger.info("Replaced the credentials of %r", account)
+    check_marketplace(current, _country_of(auth))
+    update_account(current.id, country_code=_country_of(auth), customer_name=customer_name_of(auth))
+    if not save_account_auth(current.id, auth_to_dict(auth)):
+        raise AccountGone(f"Account {current.id} ({current.name}) was removed while the login was in progress")
+    logger.info("Replaced the credentials of %r", current)
     # The books the old device was refused licences for get another go with the new
     # one; a title Audible really has retired is refused once more and parks again.
-    requeued = requeue_unavailable(account.id)
-    if requeued:
-        logger.info("Queued %d parked book(s) of %r again for the new device", requeued, account)
+    # Past the store, so a failure here must not read as the login not being kept.
+    try:
+        requeued = requeue_unavailable(current.id)
+    except Exception:
+        logger.exception("Could not queue the parked books of %r again; Retry unavailable will", current)
+    else:
+        if requeued:
+            logger.info("Queued %d parked book(s) of %r again for the new device", requeued, current)
+    return current
 
 
-def account_for_login(auth: Authenticator) -> Account | None:
+def _deregister_previous(previous: Account) -> None:
+    """Deregister the device of credentials just replaced; best effort, never raises."""
+    if previous.auth is None:
+        return
+    try:
+        authenticator_for(previous).deregister_device()
+        logger.info("Deregistered the previous device of %r", previous)
+    except Exception:
+        logger.warning("Could not deregister the previous device of %r", previous, exc_info=True)
+
+
+def _holders(auth: Authenticator) -> list[Account]:
     """
-    The account that already holds this Audible login: the same customer in the same
-    marketplace. Amazon's `customer_info.user_id` says who it is, and every registration
-    carries it. None when the login does not say, and for an account whose credentials
-    cannot be read (none yet, or under another key), since nothing says whose that is.
+    The accounts already holding this Audible login, oldest first: the same customer in
+    the same marketplace. Amazon's `customer_info.user_id` says who it is, and every
+    registration carries it. None when the login does not say, and an account whose
+    credentials cannot be read (none yet, or under another key) is never one, since
+    nothing says whose that is.
     """
     user_id = _user_id(auth.customer_info)
-    country_code = auth.locale.country_code if auth.locale else None
+    country_code = _country_of(auth)
     if not user_id or not country_code:
-        return None
-    for account in get_accounts():
-        same_marketplace = (account.country_code or "").lower() == country_code.lower()
-        if same_marketplace and account.auth and _user_id(account.auth.get("customer_info")) == user_id:
-            return account
-    return None
+        return []
+    return [
+        account
+        for account in get_accounts()
+        if (account.country_code or "").lower() == country_code.lower()
+        and account.auth
+        and _user_id(account.auth.get("customer_info")) == user_id
+    ]
 
 
 def _user_id(customer_info: dict | None) -> str | None:
     return (customer_info or {}).get("user_id")
-
-
-# Two sign-ins confirmed together must not both find no account and both add one. Within
-# this process: the column is encrypted, so the database cannot hold a unique key on it.
-_store_lock = threading.Lock()
 
 
 def store_login(
@@ -209,17 +245,22 @@ def store_login(
 
     One login, one account: a second row would hold the same library and download and file
     every book again. On a match the account keeps its id, library and name, and `name` and
-    `monitor_existing` are not used, since they describe an account being created.
+    `monitor_existing` are not used, since they describe an account being created. A match
+    removed meanwhile means a new account.
 
     Raises:
-        ValueError, AccountGone: as `replace_account_auth`; the caller owns the new device
+        ValueError: as `replace_account_auth`; the caller owns the new device
     """
     with _store_lock:
-        existing = account_for_login(auth)
-        if existing is not None:
+        holders = _holders(auth)
+        previous = None
+        if holders:
             try:
-                replace_account_auth(existing, auth, deregister_previous=deregister_previous)
-                return StoredLogin(existing.id, replaced=True)
+                previous = _store_auth(holders[0], auth)
             except AccountGone:
-                logger.info("%r was removed as a login for it arrived; adding a new account", existing)
-        return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
+                logger.info("%r was removed as a login for it arrived; adding a new account", holders[0])
+        if previous is None:
+            return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
+    if deregister_previous:
+        _deregister_previous(previous)
+    return StoredLogin(previous.id, replaced=True)

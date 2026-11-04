@@ -421,6 +421,52 @@ describe("Accounts", () => {
     expect(within(dialog).queryByText(/is connected/)).not.toBeInTheDocument();
   });
 
+  it("offers no Sync now for a paused account a sign-in landed on, since a run would skip it", async () => {
+    const user = fakeTime();
+    const paused = account({ enabled: false });
+    page([paused], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "GET /api/accounts/login/abc": () =>
+        json(200, codeLogin({ status: "confirmed", account: paused, replaced: true })),
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+
+    expect(await within(dialog).findByText(/The account is paused/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Sync now" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Done" })).toBeInTheDocument();
+  });
+
+  it("offers to start again when another account holds the browser sign-in's login", async () => {
+    page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser"
+          ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
+          : json(202, codeLogin());
+      },
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+      "POST /api/accounts/login/web": fail(409, "Main already holds this Audible login."),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+    await userEvent.type(await within(dialog).findByRole("textbox", { name: /page not found/ }), "https://x/y");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Finish sign-in" }));
+
+    expect(await within(dialog).findByText("Main already holds this Audible login.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Start again" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Finish sign-in" })).not.toBeInTheDocument();
+  });
+
   it("cancels nothing when closed after the sign-in is done", async () => {
     const user = fakeTime();
     const api = page([UK], {

@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import threading
 import time
 
@@ -9,6 +10,7 @@ import src.database as database
 from src import accounts
 from src.accounts import (
     AccountGone,
+    LoginAlreadyHeld,
     authenticator_for,
     display_name,
     persist_auth_if_changed,
@@ -293,6 +295,107 @@ def test_store_login_gives_the_account_holding_the_login_new_credentials(db, mon
     assert deregistered == ["Atna|old"]
 
 
+def _save_fails(monkeypatch):
+    def locked(account_id, auth):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(accounts, "save_account_auth", locked)
+
+
+@pytest.mark.parametrize("through", ["store_login", "replace_account_auth"])
+def test_a_failed_store_leaves_the_old_device_working(db, monkeypatch, through):
+    """It still holds the account: deregistering it first would leave the account with nothing."""
+    deregistered = _deregistered(monkeypatch)
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    _save_fails(monkeypatch)
+
+    with pytest.raises(sqlite3.OperationalError):
+        if through == "store_login":
+            accounts.store_login(_login())
+        else:
+            replace_account_auth(database.get_account(account_id), _login())
+
+    assert deregistered == []
+    assert database.get_account(account_id).auth == AUTH_BLOB
+
+
+def test_the_old_device_is_deregistered_only_after_the_new_one_is_stored(db, monkeypatch):
+    account_id = database.add_account("Alex", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"})
+    stored_then = []
+    monkeypatch.setattr(
+        Authenticator,
+        "deregister_device",
+        lambda self: stored_then.append(database.get_account(account_id).auth["access_token"]),
+    )
+
+    accounts.store_login(_login(access_token="Atna|new"))
+
+    assert stored_then == ["Atna|new"]
+
+
+def test_a_failed_requeue_does_not_read_as_the_login_not_stored(db, monkeypatch, caplog):
+    """The caller discards the new device on an exception, and that device is now the account's."""
+    _deregistered(monkeypatch)
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+
+    def locked(account_id):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(accounts, "requeue_unavailable", locked)
+
+    assert accounts.store_login(_login(access_token="Atna|new")) == (account_id, True)
+    assert database.get_account(account_id).auth["access_token"] == "Atna|new"
+    assert "Could not queue the parked books" in caplog.text
+
+
+@pytest.mark.parametrize("through", ["store_login", "replace_account_auth"])
+def test_other_logins_are_not_held_up_while_the_old_device_is_deregistered(db, monkeypatch, through):
+    """Amazon can be slow, and a login waiting on the lock holds its own cancel up too."""
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    locked = []
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: locked.append(accounts._store_lock.locked()))
+
+    if through == "store_login":
+        accounts.store_login(_login())
+    else:
+        replace_account_auth(database.get_account(account_id), _login())
+
+    assert locked == [False]
+
+
+def test_replace_account_auth_refuses_a_login_another_account_holds(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    holder = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    placeholder = database.add_account("Audible", "", auth=None)
+
+    with pytest.raises(LoginAlreadyHeld, match=r"Alex \(UK\) already holds this Audible login"):
+        replace_account_auth(database.get_account(placeholder), _login(access_token="Atna|new"))
+
+    assert database.get_account(placeholder).needs_login is True
+    assert database.get_account(holder).auth == AUTH_BLOB
+    assert deregistered == []
+
+
+def test_replace_account_auth_lets_a_duplicate_sign_in_on_its_own_row(db, monkeypatch):
+    """Rows from before the rule: each must still be able to get working credentials."""
+    _deregistered(monkeypatch)
+    database.add_account("First", "uk", auth=dict(AUTH_BLOB))
+    second = database.add_account("Second", "uk", auth=dict(AUTH_BLOB))
+
+    replace_account_auth(database.get_account(second), _login(access_token="Atna|new"))
+
+    assert database.get_account(second).auth["access_token"] == "Atna|new"
+
+
+def test_replace_account_auth_can_move_an_account_to_a_login_nobody_holds(db, monkeypatch):
+    _deregistered(monkeypatch)
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+
+    replace_account_auth(database.get_account(account_id), _login(user_id="someone-else"))
+
+    assert database.get_account(account_id).auth["customer_info"]["user_id"] == "someone-else"
+
+
 def test_store_login_can_leave_the_previous_device_registered(db, monkeypatch):
     deregistered = _deregistered(monkeypatch)
     accounts.store_login(_login())
@@ -316,7 +419,8 @@ def test_store_login_adds_an_account_for_another_customer_or_marketplace(db, oth
     assert second.account_id != first.account_id
 
 
-def test_store_login_matches_the_marketplace_whatever_its_case(db):
+def test_store_login_matches_the_marketplace_whatever_its_case(db, monkeypatch):
+    _deregistered(monkeypatch)
     account_id = database.add_account("Alex", "UK", auth=dict(AUTH_BLOB))
 
     assert accounts.store_login(_login()) == (account_id, True)
@@ -353,11 +457,11 @@ def test_store_login_does_not_guess_at_an_account_with_no_credentials(db):
 def test_store_login_adds_an_account_when_the_match_is_removed_meanwhile(db, monkeypatch):
     accounts.store_login(_login())
 
-    def removed(account, auth, *, deregister_previous):
+    def removed(account, auth):
         database.delete_account(account.id)
         raise accounts.AccountGone("removed")
 
-    monkeypatch.setattr(accounts, "replace_account_auth", removed)
+    monkeypatch.setattr(accounts, "_store_auth", removed)
 
     stored = accounts.store_login(_login())
 

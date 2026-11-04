@@ -68,7 +68,8 @@ export interface paths {
          *
          *     404 for a login that is unknown, expired or already finished (start again), 400
          *     for an address that carries no authorization code (the login stays open for the
-         *     right one), 502 when Amazon rejects the code.
+         *     right one), 409 when another account holds this Audible login, 502 when Amazon
+         *     rejects the code.
          */
         post: operations["complete_account_login_api_accounts_login__login_id__post"];
         /**

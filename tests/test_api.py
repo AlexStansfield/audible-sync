@@ -828,6 +828,38 @@ def test_login_for_an_account_that_holds_it_replaces_its_credentials(api, monkey
     assert database.get_book(book.id) is not None
 
 
+def test_sign_in_again_with_a_login_another_account_holds_fails_and_discards_the_device(api, monkeypatch):
+    deregistered = []
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: deregistered.append(self.access_token))
+    api.amazon.polls = [registered_response()]
+    holder = _confirmed(api, _start(api, name="Main")["login_id"])["account"]
+    placeholder = database.add_account("Audible", "", auth=None)
+
+    api.amazon.polls = [registered_response()]
+    body = _confirmed(api, _start(api, account_id=placeholder)["login_id"])
+
+    assert body["status"] == "failed"
+    assert "Main already holds this Audible login" in body["error"]
+    assert deregistered == ["Atna|access"]
+    assert database.get_account(placeholder).needs_login is True
+    assert database.get_account(holder["id"]).needs_login is False
+
+
+def test_browser_sign_in_with_a_login_another_account_holds_is_a_409(api, monkeypatch):
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
+    _fake_complete(monkeypatch)
+    api.amazon.polls = [registered_response()]
+    _confirmed(api, _start(api, name="Main")["login_id"])
+    placeholder = database.add_account("Audible", "", auth=None)
+    login_id = _start(api, method="browser", account_id=placeholder)["login_id"]
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 409
+    assert "Main already holds this Audible login" in response.json()["detail"]
+    assert api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING}).status_code == 404
+
+
 def test_login_with_a_code_takes_a_name(api):
     api.amazon.polls = [registered_response()]
 

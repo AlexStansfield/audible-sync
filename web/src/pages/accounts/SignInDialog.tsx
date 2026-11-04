@@ -19,6 +19,7 @@ import {
   defaultMarketplace,
   dialogTitle,
   doneText,
+  isPaused,
   type Login,
   type Marketplace,
   marketplaceLabel,
@@ -472,8 +473,9 @@ function BrowserStep({
   const error = complete.error instanceof ApiError ? complete.error : null;
   // 400: no code in that address - the login stays open for the right one
   const pasteAgain = error?.status === 400 ? error.detail : null;
-  // 404 (expired, finished) or 502 (Amazon rejected it): this login is over
-  const over = error && (error.status === 404 || error.status === 502) ? error.detail : null;
+  // 404 (expired, finished), 409 (another account holds this login) or 502 (Amazon
+  // rejected it): this login is over
+  const over = error && [404, 409, 502].includes(error.status) ? error.detail : null;
   // Anything else (no answer, a 5xx on the way) says nothing about the login: try again
   const retry = complete.error && !pasteAgain && !over ? errorDetail(complete.error) : null;
 
@@ -553,6 +555,8 @@ function BrowserStep({
 function DoneStep({ purpose, login, onClose }: { purpose: Purpose; login: Login; onClose: () => void }) {
   const { start } = useSyncActions();
   const { title, text } = doneText(purpose, login);
+  // A run skips a paused account, so Sync now would do nothing for this one
+  const paused = isPaused(purpose, login);
   return (
     <div className={styles.done}>
       <span className={styles.doneMark}>
@@ -566,14 +570,16 @@ function DoneStep({ purpose, login, onClose }: { purpose: Purpose; login: Login;
         <button type="button" className="btn btn-secondary" onClick={onClose}>
           Done
         </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={start.isPending}
-          onClick={() => start.mutate(undefined, { onSettled: onClose })}
-        >
-          Sync now
-        </button>
+        {!paused && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={start.isPending}
+            onClick={() => start.mutate(undefined, { onSettled: onClose })}
+          >
+            Sync now
+          </button>
+        )}
       </div>
     </div>
   );
