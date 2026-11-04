@@ -793,7 +793,7 @@ def test_store_cancel_discards_a_device_amazon_registered_after_it(monkeypatch, 
     assert store.get(login.id).status is LoginStatus.CANCELLED
     assert finished == []
     assert deregistered == ["Atna|access"]
-    assert "confirmed after it was cancelled" in caplog.text
+    assert "confirmed after it was cancelled; its device was deregistered" in caplog.text
 
 
 def test_store_cancel_reports_a_confirm_that_won_the_race():
@@ -854,6 +854,59 @@ def test_store_cancel_gives_up_waiting_and_reports_the_login_pending():
 
     assert ended.status is LoginStatus.PENDING
     assert store.get(login.id).status is LoginStatus.CONFIRMED  # not cancelled underneath
+
+
+def test_store_reads_a_login_being_stored_as_pending_even_past_its_time():
+    """Amazon has confirmed it, so it can yet become the account: `expired` would be wrong."""
+    finish, entered, release = _held_finish()
+    store, clock = _store(amazon=FakeAmazon(polls=[registered_response()]))
+    login = store.start_code("uk", finish)
+    assert entered.wait(5)
+    clock["now"] = NOW + timedelta(minutes=11)
+    try:
+        assert store.cancel(login.id, wait=0.05).status is LoginStatus.PENDING
+        assert store.get(login.id).status is LoginStatus.PENDING
+    finally:
+        release.set()
+    store.join(login.id, timeout=5)
+
+    assert store.get(login.id).status is LoginStatus.CONFIRMED
+
+
+def test_store_cancel_past_its_time_stops_the_poll_in_flight(monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    gate = threading.Event()
+    store, clock = _store(amazon=FakeAmazon(polls=[registered_response()], gate=gate))
+    finished = []
+    login = store.start_code("uk", _finish(finished))
+    clock["now"] = NOW + timedelta(minutes=11)
+
+    ended = store.cancel(login.id)
+    gate.set()
+    store.join(login.id, timeout=5)
+
+    assert ended.status is LoginStatus.EXPIRED
+    assert store.get(login.id).status is LoginStatus.EXPIRED
+    assert finished == []
+    assert deregistered == ["Atna|access"]
+
+
+def test_store_cancel_says_when_the_late_device_could_not_be_deregistered(monkeypatch, caplog):
+    def unreachable(self):
+        raise RuntimeError("amazon down")
+
+    monkeypatch.setattr(Authenticator, "deregister_device", unreachable)
+    gate = threading.Event()
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()], gate=gate))
+    login = store.start_code("uk", _finish([]))
+
+    store.cancel(login.id)
+    gate.set()
+    store.join(login.id, timeout=5)
+
+    assert store.get(login.id).status is LoginStatus.CANCELLED
+    assert "its device could not be deregistered" in caplog.text
+    assert "its device was deregistered" not in caplog.text
 
 
 def test_store_cancel_wakes_the_poll_at_once():

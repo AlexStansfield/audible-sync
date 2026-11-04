@@ -30,8 +30,9 @@ export function useAccounts() {
 
 /**
  * The polled status carries the accounts too. When its list moves - an account added
- * or signed in again from another tab, a sign-in that cleared Needs sign-in - the list
- * here is read again, within one status poll.
+ * or signed in again from another tab, a code entered after the tab that showed it
+ * closed (nothing could cancel that one), a sign-in that cleared Needs sign-in - the
+ * list here is read again, within one status poll.
  */
 export function useFollowStatus(): void {
   const client = useQueryClient();
@@ -109,8 +110,11 @@ export type LoginChoice = {
   deregisterPrevious: boolean;
 };
 
-/** `POST /api/accounts/login`, for a new account or for `purpose`'s account. */
-export function useStartLogin(purpose: Purpose) {
+/**
+ * `POST /api/accounts/login`, for a new account or for `purpose`'s account. `onStarted`
+ * hears every answer, even one that comes after the dialog has gone.
+ */
+export function useStartLogin(purpose: Purpose, onStarted: (login: Login) => void) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: ({ method, choice }: { method: "code" | "browser"; choice: LoginChoice }) =>
@@ -127,7 +131,10 @@ export function useStartLogin(purpose: Purpose) {
         }),
       ),
     // The answer is the login's state now: what the code step starts from, never an older poll
-    onSuccess: (login) => client.setQueryData(loginKey(login.login_id), login),
+    onSuccess: (login) => {
+      client.setQueryData(loginKey(login.login_id), login);
+      onStarted(login);
+    },
   });
 }
 
@@ -163,8 +170,9 @@ export function isForgotten(error: unknown): boolean {
  * `DELETE /api/accounts/login/{id}`: stop a login the dialog is leaving, so a code
  * entered afterwards does not become an account. The answer is how it ended: a code
  * confirmed just before the cancel is `confirmed`, and its account stays - said in a
- * toast when the dialog is closing. Either way the accounts are read again. Set
- * up here rather than per call, so it finishes after the dialog has unmounted.
+ * toast when the dialog is closing. Either way the accounts are read again, without
+ * waiting: `mutate`'s own callbacks only run after this hook's are done. Set up here
+ * rather than per call, so it finishes after the dialog has unmounted.
  */
 export function useCancelLogin() {
   const client = useQueryClient();
@@ -178,7 +186,9 @@ export function useCancelLogin() {
         toast.success(`${ended.account?.name ?? "The account"} was signed in.`);
       }
     },
-    onSettled: () => refreshAfterAccountChange(client, { books: true }),
+    onSettled: () => {
+      void refreshAfterAccountChange(client, { books: true });
+    },
   });
 }
 
