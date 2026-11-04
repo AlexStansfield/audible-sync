@@ -514,18 +514,19 @@ def poll_code_login(
 
 def discard_device(auth: Authenticator) -> bool:
     """
-    Deregister a device a login registered but that could not be stored; best effort.
+    Deregister a device a login registered but that nothing will store; best effort.
 
-    Without this a failed store leaves the device on the user's Amazon device list with
-    nothing holding its credentials. Returns whether Amazon took it; a failure is logged,
-    never raised, because the caller is already reporting the error that led here.
+    Without this a failed store, or a login cancelled as Amazon confirmed it, leaves the
+    device on the user's Amazon device list with nothing holding its credentials. Returns
+    whether Amazon took it; a failure is logged, never raised, because the caller is
+    already reporting the error that led here.
     """
     try:
         auth.deregister_device()
     except Exception:
         logger.warning("Could not deregister the device of a login that was not stored", exc_info=True)
         return False
-    logger.info("Deregistered the device of a login that could not be stored")
+    logger.info("Deregistered the device of a login that was not stored")
     return True
 
 
@@ -602,10 +603,7 @@ class PendingLogins:
             entry = self._logins.get(login_id)
             if entry is None:
                 return None
-            login = replace(entry[0])
-        if login.status is LoginStatus.PENDING and login.expires_at <= self._now():
-            login.status = LoginStatus.EXPIRED
-        return login
+            return self._as_read(entry[0])
 
     def complete(self, login_id: str, response_url: str) -> BrowserLogin:
         """
@@ -646,9 +644,10 @@ class PendingLogins:
         A pending login turns `cancelled`: a code login's polling stops, and a browser
         login can no longer be completed. One that has already ended - confirmed,
         expired, failed, cancelled - is returned unchanged, so a confirm that won the
-        race is reported as confirmed (the account stays). One that is being turned into
-        an account right now is waited for, up to `wait` seconds, and reported as that
-        ended.
+        race is reported as confirmed (the account stays). One past its time is `expired`,
+        and its polling stops too. One that is being turned into an account right now is
+        waited for, up to `wait` seconds, and reported as that ended - or still `pending`
+        when the wait runs out, since it can yet become the account.
         """
         deadline = time.monotonic() + wait
         with self._changed:
@@ -662,18 +661,15 @@ class PendingLogins:
             if entry is None:
                 return None
             login = entry[0]
-            expired = login.expires_at <= self._now()
-            if login.status is LoginStatus.PENDING and not expired and login_id not in self._busy:
-                login.status = LoginStatus.CANCELLED
+            if login.status is LoginStatus.PENDING and login_id not in self._busy:
+                expired = login.expires_at <= self._now()
+                login.status = LoginStatus.EXPIRED if expired else LoginStatus.CANCELLED
                 event = self._cancels.get(login_id)
                 if event is not None:
                     event.set()
-            ended = replace(login)
-        if ended.status is LoginStatus.CANCELLED:
-            logger.info("The login for Audible %s was cancelled", ended.country_code)
-        if ended.status is LoginStatus.PENDING and expired:
-            ended.status = LoginStatus.EXPIRED
-        return ended
+                if not expired:
+                    logger.info("The login for Audible %s was cancelled", login.country_code)
+            return self._as_read(login)
 
     def join(self, login_id: str, timeout: float | None = None) -> None:
         """Wait for a device-code login's polling thread; for tests and a tidy shutdown."""
@@ -702,13 +698,24 @@ class PendingLogins:
             self._fail(login, str(error))
             return
         with self._lock:
-            cancelled = login.status is LoginStatus.CANCELLED
-            if not cancelled:
+            ended = login.status if login.status is not LoginStatus.PENDING else None
+            if ended is None:
                 self._busy.add(login.id)
-        if cancelled:
+        if ended is not None:
             # Amazon registered the device after the cancel: nothing will hold it
-            discard_device(auth)
-            logger.info("A login for Audible %s was confirmed after it was cancelled; discarded", login.country_code)
+            if discard_device(auth):
+                logger.info(
+                    "A login for Audible %s was confirmed after it was %s; its device was deregistered",
+                    login.country_code,
+                    ended.value,
+                )
+            else:
+                logger.warning(
+                    "A login for Audible %s was confirmed after it was %s; its device could not be deregistered, "
+                    "so remove it from the Amazon account's devices",
+                    login.country_code,
+                    ended.value,
+                )
             return
         try:
             self._finish(login, finish, auth)
@@ -733,6 +740,17 @@ class PendingLogins:
             login.status = LoginStatus.CONFIRMED
             login.account_id = account_id
 
+    def _as_read(self, login: BrowserLogin | CodeLogin) -> BrowserLogin | CodeLogin:
+        """
+        A copy of a login, `expired` once past its time. Not while it is being turned into
+        an account: Amazon has confirmed that one, and it is about to say how it ended.
+        The caller holds the lock.
+        """
+        copy = replace(login)
+        if copy.status is LoginStatus.PENDING and copy.id not in self._busy and copy.expires_at <= self._now():
+            copy.status = LoginStatus.EXPIRED
+        return copy
+
     def _done(self, login_id: str) -> None:
         with self._changed:
             self._busy.discard(login_id)
@@ -740,7 +758,7 @@ class PendingLogins:
 
     def _fail(self, login: BrowserLogin | CodeLogin, error: str) -> None:
         with self._lock:
-            if login.status is LoginStatus.CANCELLED:
+            if login.status is not LoginStatus.PENDING:
                 return  # cancelled first; how the poll ended after that is not news
             login.status = LoginStatus.FAILED
             login.error = error

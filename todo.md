@@ -123,7 +123,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Web: Dashboard with the live run card
 - [x] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
 - [x] Web: Accounts with the code and browser sign-in flows
-- [x] Backend: `DELETE /api/accounts/login/{login_id}` cancels a pending login (a code login's polling stops under the store's lock; the answer is the login as it ended, so a confirm that won the race is reported). The web app calls it when the sign-in dialog closes or switches from the code to the browser sign-in, so an abandoned code entered afterwards no longer becomes an account, and a code plus a browser sign-in no longer adds the account twice
+- [x] Backend: `DELETE /api/accounts/login/{login_id}` cancels a pending login (a code login's polling stops under the store's lock; the answer is the login as it ended, so a confirm that won the race is reported). The web app calls it when the sign-in dialog goes, by any way, or switches from the code to the browser sign-in, so a code abandoned there and entered afterwards no longer becomes an account, and a code plus a browser sign-in no longer adds the account twice. A closed tab or an ended session cannot cancel, so its code stays live until it expires
 - [x] Web: Activity (runs, log)
 - [x] Web: Settings
 - [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password

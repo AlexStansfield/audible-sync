@@ -51,8 +51,28 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
     deregisterPrevious: true,
   });
   const marketplaces = useMarketplaces();
-  const start = useStartLogin(purpose);
   const cancel = useCancelLogin();
+  const { mutate: cancelLogin, reset: resetCancel } = cancel;
+  // Amazon confirmed the code but the account is not stored yet, so it cannot be left
+  const [storing, setStoring] = useState(false);
+
+  // The login open at the service, and whether the dialog has gone. Leaving by any way -
+  // the ×, Escape, the browser's Back - cancels it, so a code entered afterwards does not
+  // become an account; the cancel's answer says if one did just before. A start answering
+  // after that is cancelled as soon as it does.
+  const open = useRef<string | null>(null);
+  const gone = useRef(false);
+  const start = useStartLogin(purpose, (login) => {
+    if (gone.current) cancelLogin({ loginId: login.login_id, closing: true });
+    else open.current = login.login_id;
+  });
+  useEffect(() => {
+    gone.current = false;
+    return () => {
+      gone.current = true;
+      if (open.current) cancelLogin({ loginId: open.current, closing: true });
+    };
+  }, [cancelLogin]);
 
   // An account's own marketplace is fixed; the migration's placeholder has none, so any goes
   const fixed = purpose.kind === "relogin" && purpose.account.country_code ? purpose.account.country_code : null;
@@ -60,6 +80,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
     fixed ?? choice.countryCode ?? defaultMarketplace(marketplaces.data ?? [], globalThis.navigator?.languages ?? []);
 
   const begin = (method: "code" | "browser") => {
+    resetCancel();
     start.mutate(
       { method, choice: { ...choice, countryCode } },
       { onSuccess: (login) => setStage({ step: method, login }) },
@@ -67,26 +88,27 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
   };
 
   const finished = (account: Account | null) => {
+    open.current = null;
     // A new account brings a library; a sign-in again queues the refused books
     void refreshAfterAccountChange(client, { books: true });
     setStage({ step: "done", account });
   };
 
-  // A login still open at the service is cancelled, so a code entered after the close
-  // does not become an account; the cancel's answer says if one did just before
-  const close = () => {
-    if (stage.step === "code" || stage.step === "browser")
-      cancel.mutate({ loginId: stage.login.login_id, closing: true });
-    onClose();
-  };
-
   // From a code to the browser: the code is cancelled first, so entering it as well
-  // cannot add the account twice. A code confirmed meanwhile is the account after all.
+  // cannot add the account twice. A code confirmed meanwhile is the account after all, or
+  // about to be (`pending`: the poll carries on to how it ends). A 404 has nothing to stop.
   const toBrowser = (login: Login) => {
-    cancel.mutate(
+    cancelLogin(
       { loginId: login.login_id, closing: false },
       {
-        onSuccess: (ended) => (ended.status === "confirmed" ? finished(ended.account ?? null) : begin("browser")),
+        onSuccess: (ended) => {
+          if (ended.status === "confirmed") finished(ended.account ?? null);
+          else if (ended.status === "pending") setStoring(true);
+          else begin("browser");
+        },
+        onError: (error) => {
+          if (isForgotten(error)) begin("browser");
+        },
       },
     );
   };
@@ -99,7 +121,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
       : null;
 
   return (
-    <Dialog open onClose={close} title={dialogTitle(purpose)} width={520} closeButton>
+    <Dialog open onClose={onClose} title={dialogTitle(purpose)} width={520} closeButton>
       <ol aria-label="Steps" className={styles.steps}>
         {stepLabels(purpose).map((label, i) => (
           <li
@@ -204,7 +226,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
           key={stage.login.login_id}
           login={stage.login}
           starting={start.isPending || cancel.isPending}
-          switching={cancel.isPending}
+          storing={storing}
           startError={startError}
           onNewCode={() => begin("code")}
           onBrowser={() => toBrowser(stage.login)}
@@ -223,7 +245,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
         />
       )}
 
-      {stage.step === "done" && <DoneStep purpose={purpose} account={stage.account} onClose={close} />}
+      {stage.step === "done" && <DoneStep purpose={purpose} account={stage.account} onClose={onClose} />}
     </Dialog>
   );
 }
@@ -283,7 +305,7 @@ function CheckCard({
 function CodeStep({
   login,
   starting,
-  switching,
+  storing,
   startError,
   onNewCode,
   onBrowser,
@@ -291,8 +313,7 @@ function CodeStep({
 }: {
   login: Login;
   starting: boolean;
-  // On the way to the browser sign-in: the code is being cancelled, so it reads waiting
-  switching: boolean;
+  storing: boolean;
   startError: string | null;
   onNewCode: () => void;
   onBrowser: () => void;
@@ -302,10 +323,10 @@ function CodeStep({
   const poll = useLoginStatus(login);
   const now = useNow();
   const current = poll.data ?? login;
-  // A 404: the service has forgotten the login, so the code is no use any more; nor is
-  // a cancelled one (only this dialog cancels, on its way somewhere else)
-  const forgotten = isForgotten(poll.error) || current.status === "cancelled";
-  const state: CodeState = switching ? "pending" : forgotten ? "expired" : current.status;
+  // A 404: the service has forgotten the login, so the code is no use any more
+  const forgotten = isForgotten(poll.error);
+  const state: CodeState = forgotten ? "expired" : current.status;
+  const dead = state === "expired" || state === "cancelled";
   const code = current.code ?? "";
   const address = current.verification_url ?? "";
 
@@ -338,7 +359,7 @@ function CodeStep({
         <span className="visually-hidden">Code: {code}</span>
         {[...code].map((letter, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: a code's letters can repeat
-          <span key={i} aria-hidden="true" className={state === "expired" ? styles.struck : undefined}>
+          <span key={i} aria-hidden="true" className={dead ? styles.struck : undefined}>
             {letter}
           </span>
         ))}
@@ -361,12 +382,16 @@ function CodeStep({
             <span>Waiting for you to enter the code…</span>
             <span className={styles.countdown}>{remainingText(current.expires_at, now)}</span>
           </div>
-          <div className={styles.fallback}>
-            <span>Code refused? Older Audible accounts may need</span>
-            <button type="button" className="link-btn" onClick={onBrowser} disabled={starting}>
-              browser sign-in
-            </button>
-          </div>
+          {storing ? (
+            <p className={styles.lead}>Amazon has confirmed this code. The account is still being stored.</p>
+          ) : (
+            <div className={styles.fallback}>
+              <span>Code refused? Older Audible accounts may need</span>
+              <button type="button" className="link-btn" onClick={onBrowser} disabled={starting}>
+                browser sign-in
+              </button>
+            </div>
+          )}
         </>
       )}
 
@@ -384,6 +409,26 @@ function CodeStep({
           <button type="button" className="btn btn-primary" onClick={onNewCode} disabled={starting}>
             {starting ? "Asking Amazon…" : "Get a new code"}
           </button>
+        </div>
+      )}
+
+      {state === "cancelled" && (
+        <div role="alert" className={styles.expired}>
+          <div className={styles.alertHead}>
+            <Icon name="clock" size={18} />
+            <span>
+              <span className={styles.alertTitle}>This code was cancelled</span>
+              <span className={styles.alertText}>Get a new one, or use the browser sign-in.</span>
+            </span>
+          </div>
+          <div className={styles.codeActions}>
+            <button type="button" className="btn btn-primary" onClick={onNewCode} disabled={starting}>
+              {starting ? "Asking Amazon…" : "Get a new code"}
+            </button>
+            <button type="button" className="btn btn-secondary" onClick={onBrowser} disabled={starting}>
+              Use browser sign-in
+            </button>
+          </div>
         </div>
       )}
 
