@@ -15,6 +15,7 @@ that has none or whose registration stopped working.
 """
 
 import logging
+import threading
 from typing import Any
 
 from audible import Authenticator
@@ -22,12 +23,13 @@ from audible import Authenticator
 from src.database import (
     add_account,
     get_account,
+    get_accounts,
     replace_account_auth_if_unchanged,
     requeue_unavailable,
     save_account_auth,
     update_account,
 )
-from src.model import Account
+from src.model import Account, StoredLogin
 
 logger = logging.getLogger(__name__)
 
@@ -165,3 +167,59 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     requeued = requeue_unavailable(account.id)
     if requeued:
         logger.info("Queued %d parked book(s) of %r again for the new device", requeued, account)
+
+
+def account_for_login(auth: Authenticator) -> Account | None:
+    """
+    The account that already holds this Audible login: the same customer in the same
+    marketplace. Amazon's `customer_info.user_id` says who it is, and every registration
+    carries it. None when the login does not say, and for an account whose credentials
+    cannot be read (none yet, or under another key), since nothing says whose that is.
+    """
+    user_id = _user_id(auth.customer_info)
+    country_code = auth.locale.country_code if auth.locale else None
+    if not user_id or not country_code:
+        return None
+    for account in get_accounts():
+        same_marketplace = (account.country_code or "").lower() == country_code.lower()
+        if same_marketplace and account.auth and _user_id(account.auth.get("customer_info")) == user_id:
+            return account
+    return None
+
+
+def _user_id(customer_info: dict | None) -> str | None:
+    return (customer_info or {}).get("user_id")
+
+
+# Two sign-ins confirmed together must not both find no account and both add one. Within
+# this process: the column is encrypted, so the database cannot hold a unique key on it.
+_store_lock = threading.Lock()
+
+
+def store_login(
+    auth: Authenticator,
+    *,
+    name: str | None = None,
+    monitor_existing: bool = True,
+    deregister_previous: bool = True,
+) -> StoredLogin:
+    """
+    Store a login that was not started for a particular account: new credentials for the
+    account that already holds this Audible login, otherwise a new account.
+
+    One login, one account: a second row would hold the same library and download and file
+    every book again. On a match the account keeps its id, library and name, and `name` and
+    `monitor_existing` are not used, since they describe an account being created.
+
+    Raises:
+        ValueError, AccountGone: as `replace_account_auth`; the caller owns the new device
+    """
+    with _store_lock:
+        existing = account_for_login(auth)
+        if existing is not None:
+            try:
+                replace_account_auth(existing, auth, deregister_previous=deregister_previous)
+                return StoredLogin(existing.id, replaced=True)
+            except AccountGone:
+                logger.info("%r was removed as a login for it arrived; adding a new account", existing)
+        return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))

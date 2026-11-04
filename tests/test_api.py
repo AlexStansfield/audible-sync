@@ -5,6 +5,7 @@ import threading
 
 import httpx
 import pytest
+from audible import Authenticator
 from fastapi.testclient import TestClient
 
 import src.database as database
@@ -809,6 +810,24 @@ def test_login_with_a_code_becomes_the_account_once_confirmed(api):
     assert [a.id for a in database.get_accounts()] == [account["id"]]
 
 
+def test_login_for_an_account_that_holds_it_replaces_its_credentials(api, monkeypatch):
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
+    api.amazon.polls = [registered_response()]
+    first = _confirmed(api, _start(api, name="Main")["login_id"])
+    assert first["replaced"] is False
+    (book,) = _shelve(first["account"]["id"], make_book("B001"))
+
+    api.amazon.polls = [registered_response()]
+    second = _confirmed(api, _start(api, name="Other", monitor_existing=False)["login_id"])
+
+    assert second["status"] == "confirmed"
+    assert second["replaced"] is True
+    assert second["account"]["id"] == first["account"]["id"]
+    assert second["account"]["name"] == "Main"
+    assert [a.id for a in database.get_accounts()] == [first["account"]["id"]]
+    assert database.get_book(book.id) is not None
+
+
 def test_login_with_a_code_takes_a_name(api):
     api.amazon.polls = [registered_response()]
 
@@ -966,7 +985,6 @@ LANDING = "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=
 
 
 def _fake_complete(monkeypatch, *, raises=None):
-    from audible import Authenticator
 
     from tests.test_accounts import AUTH_BLOB
 

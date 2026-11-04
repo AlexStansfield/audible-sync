@@ -25,6 +25,7 @@ function login(overrides: Partial<Login> = {}): Login {
     login_id: "abc",
     method: "code",
     status: "pending",
+    replaced: false,
     expires_at: "2026-11-02T12:10:00+00:00",
     code: "KQ7XM",
     verification_url: "https://www.amazon.co.uk/code",
@@ -60,13 +61,17 @@ describe("the sign-in dialog's rules", () => {
   it("knows how far along each stage is", () => {
     expect(stepIndex({ step: "setup" })).toBe(0);
     expect(stepIndex({ step: "code", login: login() })).toBe(1);
-    expect(stepIndex({ step: "done", account: null })).toBe(2);
+    expect(stepIndex({ step: "done", login: login({ status: "confirmed" }) })).toBe(2);
   });
 
   it("words the done screen for a new account and for a sign-in again", () => {
     const de = account({ name: "Alex (DE)" });
-    expect(doneText({ kind: "add" }, de).title).toBe("Alex (DE) is connected");
-    expect(doneText({ kind: "relogin", account: account() }, null)).toEqual({
+    expect(doneText({ kind: "add" }, { account: de, replaced: false }).title).toBe("Alex (DE) is connected");
+    expect(doneText({ kind: "add" }, { account: de, replaced: true })).toEqual({
+      title: "Alex (DE) is signed in again",
+      text: "This Audible login already had this account. The library and history are unchanged. Refused books are queued for the next run.",
+    });
+    expect(doneText({ kind: "relogin", account: account() }, { account: null, replaced: true })).toEqual({
       title: "Alex (UK) is signed in again",
       text: "The library and history are unchanged. Refused books are queued for the next run.",
     });

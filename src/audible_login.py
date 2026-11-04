@@ -43,6 +43,8 @@ from audible.localization import LOCALE_TEMPLATES, Locale
 from audible.login import build_oauth_url, create_code_verifier
 from audible.register import register
 
+from src.model import StoredLogin
+
 logger = logging.getLogger(__name__)
 
 # How long a started browser login stays completable, and how long a finished or expired
@@ -52,7 +54,7 @@ LOGIN_TTL = timedelta(minutes=15)
 CANCEL_WAIT = 30.0
 
 # Turns an `Authenticator` into an account and returns the account id; the API's business
-Finish = Callable[[Authenticator], int]
+Finish = Callable[[Authenticator], StoredLogin]
 
 
 @dataclass(frozen=True, slots=True)
@@ -172,6 +174,8 @@ class Login:
     status: LoginStatus = LoginStatus.PENDING
     # The account the login produced, once confirmed
     account_id: int | None = None
+    # Whether that account already existed, and only got new credentials
+    replaced: bool = False
     # Why it failed, once it has
     error: str | None = None
 
@@ -726,7 +730,7 @@ class PendingLogins:
 
     def _finish(self, login: BrowserLogin | CodeLogin, finish: Finish, auth: Authenticator) -> None:
         try:
-            account_id = finish(auth)
+            stored = finish(auth)
         except Exception as error:
             # Amazon has registered a device that nothing will ever hold or deregister
             discarded = discard_device(auth)
@@ -738,7 +742,8 @@ class PendingLogins:
             raise
         with self._lock:
             login.status = LoginStatus.CONFIRMED
-            login.account_id = account_id
+            login.account_id = stored.account_id
+            login.replaced = stored.replaced
 
     def _as_read(self, login: BrowserLogin | CodeLogin) -> BrowserLogin | CodeLogin:
         """

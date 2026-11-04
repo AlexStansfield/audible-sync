@@ -3,7 +3,14 @@ import math
 import sqlite3
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, NamedTuple
+
+
+class StoredLogin(NamedTuple):
+    """What a confirmed login became: the account, and whether it was one that already existed."""
+
+    account_id: int
+    replaced: bool = False
 
 
 class BookStatus(StrEnum):

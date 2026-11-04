@@ -4,11 +4,11 @@ import threading
 
 from src import crypto, webauth
 from src.accounts import (
-    add_account_from_authenticator,
     authenticator_for,
     check_marketplace,
     persist_auth_if_changed,
     replace_account_auth,
+    store_login,
 )
 from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, LoginFailed, discard_device, login_interactively, login_with_code
@@ -272,7 +272,8 @@ def login_command(
     """
     Add an account by signing in to Amazon - a code entered on any device, or with
     `browser` a sign-in in the browser and the address pasted back - or with
-    `account_id` give an existing account new credentials and keep its library.
+    `account_id` give an existing account new credentials and keep its library. A login
+    an account already holds gives that account new credentials too.
     """
     _prepare()
     existing = None
@@ -292,7 +293,7 @@ def login_command(
         if existing is not None:
             replace_account_auth(existing, auth)
         else:
-            account_id = add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
+            stored = store_login(auth, name=name, monitor_existing=monitor_existing)
     except Exception as error:
         logger.exception("Could not store the login")
         # Otherwise the device Amazon just registered stays on the account with nothing holding it
@@ -301,8 +302,11 @@ def login_command(
     if existing is not None:
         print(f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept.")
         return
-    logger.info("Added account %d for Audible %s", account_id, marketplace)
-    print(f"Logged in. Account {account_id} added; the next run will sync it.")
+    if stored.replaced:
+        print(f"Logged in. Account {stored.account_id} already held this login: new credentials, same library.")
+        return
+    logger.info("Added account %d for Audible %s", stored.account_id, marketplace)
+    print(f"Logged in. Account {stored.account_id} added; the next run will sync it.")
 
 
 def reset_password_command(*, reset_username: bool = False) -> None:

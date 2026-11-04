@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 
 import pytest
 from audible import Authenticator
@@ -249,3 +251,140 @@ def test_check_marketplace(account_country, login_country, accepted):
     else:
         with pytest.raises(ValueError):
             accounts.check_marketplace(account, login_country)
+
+
+# --- one account per login -----------------------------------------------------------
+
+
+def _login(user_id="u1", locale_code="uk", **fields):
+    blob = {**AUTH_BLOB, "customer_info": {"user_id": user_id, "name": "Alex"}, "locale_code": locale_code, **fields}
+    return Authenticator.from_dict(blob)
+
+
+def _deregistered(monkeypatch):
+    seen = []
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: seen.append(self.access_token))
+    return seen
+
+
+def test_store_login_adds_an_account_for_a_login_nobody_holds(db):
+    stored = accounts.store_login(_login(), name="Main", monitor_existing=False)
+
+    assert stored.replaced is False
+    account = database.get_account(stored.account_id)
+    assert (account.name, account.monitor_existing) == ("Main", False)
+
+
+def test_store_login_gives_the_account_holding_the_login_new_credentials(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"), name="Main", monitor_existing=False)
+    book = make_book("B001", id=None)
+    database.update_books(first.account_id, [book])
+
+    second = accounts.store_login(_login(access_token="Atna|new"), name="Other", monitor_existing=True)
+
+    assert second == (first.account_id, True)
+    assert [a.id for a in database.get_accounts()] == [first.account_id]
+    account = database.get_account(first.account_id)
+    assert account.auth["access_token"] == "Atna|new"
+    # What was asked for describes a new account; this one keeps what it had
+    assert (account.name, account.monitor_existing) == ("Main", False)
+    assert database.get_book_by_asin("B001", account_id=first.account_id) is not None
+    assert deregistered == ["Atna|old"]
+
+
+def test_store_login_can_leave_the_previous_device_registered(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    accounts.store_login(_login())
+
+    accounts.store_login(_login(), deregister_previous=False)
+
+    assert deregistered == []
+
+
+@pytest.mark.parametrize(
+    "other",
+    [{"user_id": "someone-else"}, {"locale_code": "us"}],
+    ids=["another customer", "another marketplace"],
+)
+def test_store_login_adds_an_account_for_another_customer_or_marketplace(db, other):
+    first = accounts.store_login(_login())
+
+    second = accounts.store_login(_login(**other))
+
+    assert second.replaced is False
+    assert second.account_id != first.account_id
+
+
+def test_store_login_matches_the_marketplace_whatever_its_case(db):
+    account_id = database.add_account("Alex", "UK", auth=dict(AUTH_BLOB))
+
+    assert accounts.store_login(_login()) == (account_id, True)
+
+
+@pytest.mark.parametrize("customer_info", [{}, {"name": "Alex"}, None])
+def test_store_login_adds_an_account_when_the_login_does_not_say_whose_it_is(db, customer_info):
+    database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+
+    stored = accounts.store_login(Authenticator.from_dict({**AUTH_BLOB, "customer_info": customer_info}))
+
+    assert stored.replaced is False
+
+
+def test_store_login_does_not_match_two_logins_that_both_do_not_say_whose_they_are(db):
+    blob = {**AUTH_BLOB, "customer_info": {"name": "Alex"}}
+    first = accounts.store_login(Authenticator.from_dict(dict(blob)))
+
+    second = accounts.store_login(Authenticator.from_dict(dict(blob)))
+
+    assert second.replaced is False
+    assert second.account_id != first.account_id
+
+
+def test_store_login_does_not_guess_at_an_account_with_no_credentials(db):
+    """The migration's placeholder could be anybody's; Sign in on its card is the way in."""
+    placeholder = database.add_account("Audible", "uk", auth=None)
+
+    stored = accounts.store_login(_login())
+
+    assert stored.account_id != placeholder
+
+
+def test_store_login_adds_an_account_when_the_match_is_removed_meanwhile(db, monkeypatch):
+    accounts.store_login(_login())
+
+    def removed(account, auth, *, deregister_previous):
+        database.delete_account(account.id)
+        raise accounts.AccountGone("removed")
+
+    monkeypatch.setattr(accounts, "replace_account_auth", removed)
+
+    stored = accounts.store_login(_login())
+
+    assert stored.replaced is False
+    assert [a.id for a in database.get_accounts()] == [stored.account_id]
+
+
+def test_store_login_adds_only_one_account_for_two_logins_at_once(db, monkeypatch):
+    _deregistered(monkeypatch)
+    together = threading.Barrier(2)
+    add = accounts.add_account_from_authenticator
+    results = []
+
+    def run():
+        together.wait(5)
+        results.append(accounts.store_login(_login()))
+
+    def slow_add(auth, **kwargs):
+        time.sleep(0.05)  # the window a second login would find no account in
+        return add(auth, **kwargs)
+
+    monkeypatch.setattr(accounts, "add_account_from_authenticator", slow_add)
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(5)
+
+    assert len(database.get_accounts()) == 1
+    assert sorted(r.replaced for r in results) == [False, True]

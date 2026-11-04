@@ -56,6 +56,7 @@ function codeLogin(overrides: Partial<Login> = {}): Login {
     login_id: "abc",
     method: "code",
     status: "pending",
+    replaced: false,
     expires_at: new Date(NOW + 600_000).toISOString(),
     code: "KQ7XM",
     verification_url: "https://www.amazon.co.uk/code",
@@ -399,6 +400,25 @@ describe("Accounts", () => {
     answer(json(202, codeLogin()));
 
     await waitFor(() => expect(api.calls.filter((call) => call.method === "DELETE")).toHaveLength(1));
+  });
+
+  it("says an account already held the login, rather than that a new one is connected", async () => {
+    const user = fakeTime();
+    page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "GET /api/accounts/login/abc": () => json(200, codeLogin({ status: "confirmed", account: UK, replaced: true })),
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+
+    expect(await within(dialog).findByText("Alex (UK) is signed in again")).toBeInTheDocument();
+    expect(within(dialog).getByText(/This Audible login already had this account/)).toBeInTheDocument();
+    expect(within(dialog).queryByText(/is connected/)).not.toBeInTheDocument();
   });
 
   it("cancels nothing when closed after the sign-in is done", async () => {

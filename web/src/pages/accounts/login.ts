@@ -24,7 +24,7 @@ export type Stage =
   | { step: "setup" }
   | { step: "code"; login: Login }
   | { step: "browser"; login: Login }
-  | { step: "done"; account: Account | null };
+  | { step: "done"; login: Login };
 
 /** The progress bar's three steps, and how far along a stage is. */
 export function stepLabels(purpose: Purpose): [string, string, string] {
@@ -92,14 +92,19 @@ export function defaultMarketplace(marketplaces: readonly Marketplace[], languag
   return marketplaces[0]?.country_code ?? "";
 }
 
-/** The account a done screen names, and what it says next. */
-export function doneText(purpose: Purpose, account: Account | null): { title: string; text: string } {
-  const name = account?.name ?? (purpose.kind === "relogin" ? purpose.account.name : "The account");
-  return purpose.kind === "relogin"
-    ? {
-        title: `${name} is signed in again`,
-        text: "The library and history are unchanged. Refused books are queued for the next run.",
-      }
+/**
+ * The account a done screen names, and what it says next. Adding a login an account
+ * already holds signs that account in again (`replaced`), which says why no new one came.
+ */
+export function doneText(
+  purpose: Purpose,
+  login: Pick<Login, "account" | "replaced">,
+): { title: string; text: string } {
+  const name = login.account?.name ?? (purpose.kind === "relogin" ? purpose.account.name : "The account");
+  const unchanged = "The library and history are unchanged. Refused books are queued for the next run.";
+  if (purpose.kind === "relogin") return { title: `${name} is signed in again`, text: unchanged };
+  return login.replaced
+    ? { title: `${name} is signed in again`, text: `This Audible login already had this account. ${unchanged}` }
     : { title: `${name} is connected`, text: "The library is fetched on the next run." };
 }
 

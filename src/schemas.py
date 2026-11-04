@@ -191,7 +191,9 @@ class LoginStart(BaseModel):
     download or inserted unmonitored so the user picks) for a new account, or
     `account_id` to give an existing account the new credentials instead, keeping its
     library - the way back when a registration stops working - with
-    `deregister_previous` removing its old device from Amazon first, best effort.
+    `deregister_previous` removing its old device from Amazon first, best effort. Without
+    an `account_id`, a login an account already holds (the same customer and marketplace)
+    is treated the same way, and `name` and `monitor_existing` are not used.
 
     `method` is `code` (show a code, the user enters it at Amazon on any device, the
     service polls until confirmed) or `browser` (the user signs in at `url` in a browser
@@ -226,6 +228,8 @@ class LoginOut(BaseModel):
     verification_url: str | None = None
     url: str | None = None
     account: AccountOut | None = None
+    # Confirmed into an account that already existed, which only got new credentials
+    replaced: bool = False
     error: str | None = None
 
 
