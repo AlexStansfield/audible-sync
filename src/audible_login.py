@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 # How long a started browser login stays completable, and how long a finished or expired
 # login of either kind stays readable afterwards
 LOGIN_TTL = timedelta(minutes=15)
+# How long a cancel waits for a login that is being turned into an account, in seconds
+CANCEL_WAIT = 30.0
 
 # Turns an `Authenticator` into an account and returns the account id; the API's business
 Finish = Callable[[Authenticator], int]
@@ -141,6 +143,7 @@ class LoginStatus(StrEnum):
     CONFIRMED = "confirmed"
     EXPIRED = "expired"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class LoginFailed(Exception):
@@ -149,6 +152,10 @@ class LoginFailed(Exception):
 
 class LoginExpired(LoginFailed):
     """The code was not confirmed before it expired."""
+
+
+class LoginCancelled(LoginFailed):
+    """The login was cancelled while the code was still being polled for."""
 
 
 @dataclass(slots=True, kw_only=True)
@@ -473,19 +480,24 @@ def poll_code_login(
     http: httpx.Client | None = None,
     sleep: Callable[[float], Any] = time.sleep,
     now: Callable[[], datetime] | None = None,
+    cancel: threading.Event | None = None,
 ) -> Authenticator:
     """
     Poll until the user has confirmed the code, then build the `Authenticator`.
 
     Blocks for up to the code's lifetime, sleeping `login.interval` between polls; a
     network error is logged and waited out the same way rather than ending the login.
+    `cancel` is checked before every poll.
 
     Raises:
         LoginExpired: when the code's lifetime passes unconfirmed
+        LoginCancelled: when `cancel` is set before the code is confirmed
         LoginFailed: when Amazon refuses the registration
     """
     now = now or (lambda: datetime.now(UTC))
     while now() < login.expires_at:
+        if cancel is not None and cancel.is_set():
+            raise LoginCancelled("the login was cancelled")
         try:
             registered = try_register(login, http=http)
         except httpx.HTTPError as error:
@@ -527,6 +539,8 @@ class PendingLogins:
     the `finish` callback given when it was started, which turns the `Authenticator`
     into an account; a confirmed login records the account id it returned. A finished
     or expired login stays readable for `ttl` so a client polling it sees how it ended.
+    A pending login can be cancelled; a code login's polling then stops, and a
+    registration Amazon answered after the cancel is deregistered rather than kept.
     """
 
     def __init__(
@@ -535,16 +549,22 @@ class PendingLogins:
         ttl: timedelta = LOGIN_TTL,
         now: Callable[[], datetime] | None = None,
         http: httpx.Client | None = None,
-        sleep: Callable[[float], Any] = time.sleep,
+        sleep: Callable[[float], Any] | None = None,
     ) -> None:
         self._ttl = ttl
         self._now = now or (lambda: datetime.now(UTC))
         self._http = http
+        # None: wait on the login's cancel event, so a cancel ends the wait at once
         self._sleep = sleep
         self._lock = threading.Lock()
+        # Notified whenever a login leaves `_busy`, which is what `cancel` waits for
+        self._changed = threading.Condition(self._lock)
         self._logins: dict[str, tuple[BrowserLogin | CodeLogin, Finish]] = {}
         self._threads: dict[str, threading.Thread] = {}
-        # Browser logins whose step two is in progress, so a second paste cannot register twice
+        self._cancels: dict[str, threading.Event] = {}
+        # Logins being turned into an account (a browser login's step two, or a code
+        # login Amazon has confirmed), so a second paste cannot register twice and a
+        # cancel waits to report how it ended
         self._busy: set[str] = set()
 
     def start(self, country_code: str, finish: Finish) -> BrowserLogin:
@@ -569,6 +589,7 @@ class PendingLogins:
             self._prune()
             self._logins[login.id] = (login, finish)
             self._threads[login.id] = thread
+            self._cancels[login.id] = threading.Event()
         # The copy is taken before the thread runs, so what is handed back says `pending`
         started = replace(login)
         thread.start()
@@ -615,9 +636,44 @@ class PendingLogins:
                 raise
             self._finish(login, finish, auth)
         finally:
-            with self._lock:
-                self._busy.discard(login_id)
+            self._done(login_id)
         return replace(login)
+
+    def cancel(self, login_id: str, *, wait: float = CANCEL_WAIT) -> BrowserLogin | CodeLogin | None:
+        """
+        Cancel a pending login and return it as it ended; None if unknown or long finished.
+
+        A pending login turns `cancelled`: a code login's polling stops, and a browser
+        login can no longer be completed. One that has already ended - confirmed,
+        expired, failed, cancelled - is returned unchanged, so a confirm that won the
+        race is reported as confirmed (the account stays). One that is being turned into
+        an account right now is waited for, up to `wait` seconds, and reported as that
+        ended.
+        """
+        deadline = time.monotonic() + wait
+        with self._changed:
+            while login_id in self._busy:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._changed.wait(remaining)
+            self._prune()
+            entry = self._logins.get(login_id)
+            if entry is None:
+                return None
+            login = entry[0]
+            expired = login.expires_at <= self._now()
+            if login.status is LoginStatus.PENDING and not expired and login_id not in self._busy:
+                login.status = LoginStatus.CANCELLED
+                event = self._cancels.get(login_id)
+                if event is not None:
+                    event.set()
+            ended = replace(login)
+        if ended.status is LoginStatus.CANCELLED:
+            logger.info("The login for Audible %s was cancelled", ended.country_code)
+        if ended.status is LoginStatus.PENDING and expired:
+            ended.status = LoginStatus.EXPIRED
+        return ended
 
     def join(self, login_id: str, timeout: float | None = None) -> None:
         """Wait for a device-code login's polling thread; for tests and a tidy shutdown."""
@@ -629,21 +685,37 @@ class PendingLogins:
     def _poll(self, login: CodeLogin) -> None:
         with self._lock:
             finish = self._logins[login.id][1]
+            cancel = self._cancels[login.id]
+        sleep = self._sleep or cancel.wait
         try:
-            auth = poll_code_login(login, http=self._http, sleep=self._sleep, now=self._now)
+            auth = poll_code_login(login, http=self._http, sleep=sleep, now=self._now, cancel=cancel)
+        except LoginCancelled:
+            return
         except LoginExpired:
             with self._lock:
-                login.status = LoginStatus.EXPIRED
+                if login.status is LoginStatus.PENDING:
+                    login.status = LoginStatus.EXPIRED
             logger.info("The device code for Audible %s expired unconfirmed", login.country_code)
             return
         except Exception as error:
             logger.warning("The device-code login for Audible %s failed", login.country_code, exc_info=True)
             self._fail(login, str(error))
             return
+        with self._lock:
+            cancelled = login.status is LoginStatus.CANCELLED
+            if not cancelled:
+                self._busy.add(login.id)
+        if cancelled:
+            # Amazon registered the device after the cancel: nothing will hold it
+            discard_device(auth)
+            logger.info("A login for Audible %s was confirmed after it was cancelled; discarded", login.country_code)
+            return
         try:
             self._finish(login, finish, auth)
         except Exception:
             logger.exception("Could not store the account for a confirmed login")
+        finally:
+            self._done(login.id)
 
     def _finish(self, login: BrowserLogin | CodeLogin, finish: Finish, auth: Authenticator) -> None:
         try:
@@ -661,8 +733,15 @@ class PendingLogins:
             login.status = LoginStatus.CONFIRMED
             login.account_id = account_id
 
+    def _done(self, login_id: str) -> None:
+        with self._changed:
+            self._busy.discard(login_id)
+            self._changed.notify_all()
+
     def _fail(self, login: BrowserLogin | CodeLogin, error: str) -> None:
         with self._lock:
+            if login.status is LoginStatus.CANCELLED:
+                return  # cancelled first; how the poll ended after that is not news
             login.status = LoginStatus.FAILED
             login.error = error
 
@@ -672,6 +751,7 @@ class PendingLogins:
         for login_id in [i for i, (login, _) in self._logins.items() if login.expires_at <= cutoff]:
             del self._logins[login_id]
             self._threads.pop(login_id, None)
+            self._cancels.pop(login_id, None)
 
 
 # --- the terminal ----------------------------------------------------------------------

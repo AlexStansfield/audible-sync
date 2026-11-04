@@ -14,4 +14,4 @@ http:
 settings:
   encodeUrl: true
 docs: |
-  `pending`, `confirmed` with the `account`, `expired`, or `failed` with the `error`. 404 once the login has been forgotten (15 minutes after it ended); start again.
+  `pending`, `confirmed` with the `account`, `expired`, `failed` with the `error`, or `cancelled`. 404 once the login has been forgotten (15 minutes after it ended); start again.

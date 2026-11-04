@@ -15,6 +15,7 @@ from src.audible_login import (
     MARKETPLACES,
     BrowserLogin,
     CodeLogin,
+    LoginCancelled,
     LoginExpired,
     LoginFailed,
     LoginMethod,
@@ -482,6 +483,21 @@ def test_poll_code_login_stops_on_a_refusal():
         poll_code_login(_code_login(), http=FakeAmazon(polls=[PENDING, REJECTED]).client(), sleep=sleep, now=now)
 
 
+def test_poll_code_login_stops_when_cancelled():
+    _, now, sleep = _clock()
+    cancel = threading.Event()
+    amazon = FakeAmazon()  # pending for ever
+
+    def sleep_then_cancel(seconds):
+        sleep(seconds)
+        cancel.set()
+
+    with pytest.raises(LoginCancelled):
+        poll_code_login(_code_login(), http=amazon.client(), sleep=sleep_then_cancel, now=now, cancel=cancel)
+
+    assert len(amazon.bodies("/auth/register")) == 1  # one poll, then the cancel was seen
+
+
 # --- the store ---------------------------------------------------------------------
 
 
@@ -731,6 +747,147 @@ def test_store_complete_refuses_a_code_login():
 
     with pytest.raises(KeyError):
         store.complete(login.id, _landing())
+
+
+# cancelling
+
+
+def _deregistered(monkeypatch):
+    seen = []
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: seen.append(self.access_token))
+    return seen
+
+
+def test_store_cancel_stops_a_pending_code_login(monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    gate = threading.Event()
+    amazon = FakeAmazon(gate=gate)  # pending for ever, each poll held until released
+    store, _ = _store(amazon=amazon)
+    finished = []
+    login = store.start_code("uk", _finish(finished))
+
+    cancelled = store.cancel(login.id)
+    gate.set()
+    store.join(login.id, timeout=5)
+
+    assert cancelled.status is LoginStatus.CANCELLED
+    assert store.get(login.id).status is LoginStatus.CANCELLED
+    assert len(amazon.bodies("/auth/register")) == 1  # the poll in flight, and no more
+    assert finished == []
+    assert deregistered == []
+
+
+def test_store_cancel_discards_a_device_amazon_registered_after_it(monkeypatch, caplog):
+    """The user entered the code just as the dialog closed: nothing will hold that device."""
+    caplog.set_level("INFO", logger="src.audible_login")
+    deregistered = _deregistered(monkeypatch)
+    gate = threading.Event()
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()], gate=gate))
+    finished = []
+    login = store.start_code("uk", _finish(finished))
+
+    store.cancel(login.id)
+    gate.set()
+    store.join(login.id, timeout=5)
+
+    assert store.get(login.id).status is LoginStatus.CANCELLED
+    assert finished == []
+    assert deregistered == ["Atna|access"]
+    assert "confirmed after it was cancelled" in caplog.text
+
+
+def test_store_cancel_reports_a_confirm_that_won_the_race():
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
+    finished = []
+    login = store.start_code("uk", _finish(finished))
+    store.join(login.id, timeout=5)
+
+    ended = store.cancel(login.id)
+
+    assert ended.status is LoginStatus.CONFIRMED
+    assert ended.account_id == 7
+    assert len(finished) == 1
+    assert store.get(login.id).status is LoginStatus.CONFIRMED
+
+
+def _held_finish():
+    """A `finish` that waits for `release`, setting `entered` once it is called."""
+    entered, release = threading.Event(), threading.Event()
+
+    def finish(auth):
+        entered.set()
+        assert release.wait(5)
+        return 9
+
+    return finish, entered, release
+
+
+def test_store_cancel_waits_for_an_account_being_stored():
+    finish, entered, release = _held_finish()
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
+    login = store.start_code("uk", finish)
+    assert entered.wait(5)
+    result = {}
+    canceller = threading.Thread(target=lambda: result.update(ended=store.cancel(login.id)))
+
+    canceller.start()
+    canceller.join(0.1)
+    assert canceller.is_alive()  # waiting for the account
+    release.set()
+    canceller.join(5)
+    store.join(login.id, timeout=5)
+
+    assert result["ended"].status is LoginStatus.CONFIRMED
+    assert result["ended"].account_id == 9
+
+
+def test_store_cancel_gives_up_waiting_and_reports_the_login_pending():
+    finish, entered, release = _held_finish()
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
+    login = store.start_code("uk", finish)
+    assert entered.wait(5)
+    try:
+        ended = store.cancel(login.id, wait=0.05)
+    finally:
+        release.set()
+    store.join(login.id, timeout=5)
+
+    assert ended.status is LoginStatus.PENDING
+    assert store.get(login.id).status is LoginStatus.CONFIRMED  # not cancelled underneath
+
+
+def test_store_cancel_wakes_the_poll_at_once():
+    """Without an injected sleep the poll waits on the cancel, not out the interval."""
+    store = PendingLogins(http=FakeAmazon().client())
+    login = store.start_code("uk", _finish([]))
+
+    store.cancel(login.id)
+    store.join(login.id, timeout=2)  # the interval is 5 s
+
+    assert not store._threads[login.id].is_alive()
+
+
+def test_store_cancel_closes_a_browser_login(monkeypatch):
+    monkeypatch.setattr(audible_login, "register", lambda **kw: pytest.fail("must not register"))
+    store, _ = _store()
+    login = store.start("uk", _finish([]))
+
+    assert store.cancel(login.id).status is LoginStatus.CANCELLED
+    with pytest.raises(KeyError):
+        store.complete(login.id, _landing())
+
+
+def test_store_cancel_leaves_an_ended_login_as_it_ended():
+    store, clock = _store(amazon=FakeAmazon(polls=[REJECTED]))
+    failed = store.start_code("uk", _finish([]))
+    store.join(failed.id, timeout=5)
+    expired = store.start("uk", _finish([]))
+    clock["now"] = NOW + timedelta(minutes=15)
+
+    assert store.cancel(failed.id).status is LoginStatus.FAILED
+    assert store.cancel(expired.id).status is LoginStatus.EXPIRED
+    assert store.get(expired.id).status is LoginStatus.EXPIRED
+    assert store.cancel("nope") is None
 
 
 # --- the terminal --------------------------------------------------------------------

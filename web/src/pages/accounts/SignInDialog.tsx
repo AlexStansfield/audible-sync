@@ -34,6 +34,7 @@ import {
   isForgotten,
   type LoginChoice,
   refreshAfterAccountChange,
+  useCancelLogin,
   useCompleteLogin,
   useLoginStatus,
   useMarketplaces,
@@ -51,6 +52,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
   });
   const marketplaces = useMarketplaces();
   const start = useStartLogin(purpose);
+  const cancel = useCancelLogin();
 
   // An account's own marketplace is fixed; the migration's placeholder has none, so any goes
   const fixed = purpose.kind === "relogin" && purpose.account.country_code ? purpose.account.country_code : null;
@@ -70,15 +72,31 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
     setStage({ step: "done", account });
   };
 
-  // A login started here may have become an account the dialog never heard of: a code
-  // confirmed after the last poll, or a pasted address finishing after the close
+  // A login still open at the service is cancelled, so a code entered after the close
+  // does not become an account; the cancel's answer says if one did just before
   const close = () => {
-    if (stage.step !== "setup") void refreshAfterAccountChange(client, { books: true });
+    if (stage.step === "code" || stage.step === "browser")
+      cancel.mutate({ loginId: stage.login.login_id, closing: true });
     onClose();
   };
 
+  // From a code to the browser: the code is cancelled first, so entering it as well
+  // cannot add the account twice. A code confirmed meanwhile is the account after all.
+  const toBrowser = (login: Login) => {
+    cancel.mutate(
+      { loginId: login.login_id, closing: false },
+      {
+        onSuccess: (ended) => (ended.status === "confirmed" ? finished(ended.account ?? null) : begin("browser")),
+      },
+    );
+  };
+
   const index = stepIndex(stage);
-  const startError = start.error ? `Could not start the sign-in: ${errorDetail(start.error)}` : null;
+  const startError = start.error
+    ? `Could not start the sign-in: ${errorDetail(start.error)}`
+    : cancel.error
+      ? `Could not stop the code sign-in: ${errorDetail(cancel.error)}`
+      : null;
 
   return (
     <Dialog open onClose={close} title={dialogTitle(purpose)} width={520} closeButton>
@@ -185,10 +203,11 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
         <CodeStep
           key={stage.login.login_id}
           login={stage.login}
-          starting={start.isPending}
+          starting={start.isPending || cancel.isPending}
+          switching={cancel.isPending}
           startError={startError}
           onNewCode={() => begin("code")}
-          onBrowser={() => begin("browser")}
+          onBrowser={() => toBrowser(stage.login)}
           onConfirmed={finished}
         />
       )}
@@ -264,6 +283,7 @@ function CheckCard({
 function CodeStep({
   login,
   starting,
+  switching,
   startError,
   onNewCode,
   onBrowser,
@@ -271,6 +291,8 @@ function CodeStep({
 }: {
   login: Login;
   starting: boolean;
+  // On the way to the browser sign-in: the code is being cancelled, so it reads waiting
+  switching: boolean;
   startError: string | null;
   onNewCode: () => void;
   onBrowser: () => void;
@@ -280,9 +302,10 @@ function CodeStep({
   const poll = useLoginStatus(login);
   const now = useNow();
   const current = poll.data ?? login;
-  // A 404: the service has forgotten the login, so the code is no use any more
-  const forgotten = isForgotten(poll.error);
-  const state: CodeState = forgotten ? "expired" : current.status;
+  // A 404: the service has forgotten the login, so the code is no use any more; nor is
+  // a cancelled one (only this dialog cancels, on its way somewhere else)
+  const forgotten = isForgotten(poll.error) || current.status === "cancelled";
+  const state: CodeState = switching ? "pending" : forgotten ? "expired" : current.status;
   const code = current.code ?? "";
   const address = current.verification_url ?? "";
 

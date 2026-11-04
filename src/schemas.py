@@ -211,14 +211,15 @@ class LoginStart(BaseModel):
 class LoginOut(BaseModel):
     """
     A login in flight or finished. `status` is `pending` until the user has done their
-    part, then `confirmed` with the `account`, or `expired` (start again) or `failed`
-    with the `error`. The `code` method carries `code` and `verification_url`; the
-    `browser` method carries `url`.
+    part, then `confirmed` with the `account`, or `expired` (start again), `failed`
+    with the `error`, or `cancelled` (`DELETE /api/accounts/login/{login_id}`). The
+    `code` method carries `code` and `verification_url`; the `browser` method carries
+    `url`.
     """
 
     login_id: str
     method: Literal["code", "browser"]
-    status: Literal["pending", "confirmed", "expired", "failed"]
+    status: Literal["pending", "confirmed", "expired", "failed", "cancelled"]
     # ISO 8601 UTC; after this the login cannot succeed
     expires_at: str
     code: str | None = None

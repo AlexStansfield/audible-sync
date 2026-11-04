@@ -29,9 +29,9 @@ export function useAccounts() {
 }
 
 /**
- * The polled status carries the accounts too. When its list moves - an account a code
- * login confirmed after its dialog closed, a sign-in that cleared Needs sign-in - the
- * list here is read again, within one status poll.
+ * The polled status carries the accounts too. When its list moves - an account added
+ * or signed in again from another tab, a sign-in that cleared Needs sign-in - the list
+ * here is read again, within one status poll.
  */
 export function useFollowStatus(): void {
   const client = useQueryClient();
@@ -157,6 +157,29 @@ export function useLoginStatus(login: Login | null) {
 /** A 404 from the login's poll: the service no longer knows it. */
 export function isForgotten(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404;
+}
+
+/**
+ * `DELETE /api/accounts/login/{id}`: stop a login the dialog is leaving, so a code
+ * entered afterwards does not become an account. The answer is how it ended: a code
+ * confirmed just before the cancel is `confirmed`, and its account stays - said in a
+ * toast when the dialog is closing. Either way the accounts are read again. Set
+ * up here rather than per call, so it finishes after the dialog has unmounted.
+ */
+export function useCancelLogin() {
+  const client = useQueryClient();
+  const toast = useToast();
+  return useMutation({
+    // `closing`: the dialog is going, so nothing else will say how the login ended
+    mutationFn: ({ loginId }: { loginId: string; closing: boolean }) =>
+      unwrap(api.DELETE("/api/accounts/login/{login_id}", { params: { path: { login_id: loginId } } })),
+    onSuccess: (ended, { closing }) => {
+      if (closing && ended.status === "confirmed") {
+        toast.success(`${ended.account?.name ?? "The account"} was signed in.`);
+      }
+    },
+    onSettled: () => refreshAfterAccountChange(client, { books: true }),
+  });
 }
 
 /** Step two of a browser sign-in: the pasted address. */
