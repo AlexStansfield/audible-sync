@@ -122,7 +122,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Web: sign-in and Your sign-in
 - [x] Web: Dashboard with the live run card
 - [x] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
-- [x] Web: Accounts with the code and browser sign-in flows (the live code sign-in from the UI: see below)
+- [x] Web: Accounts with the code and browser sign-in flows
 - [x] Backend: `DELETE /api/accounts/login/{login_id}` cancels a pending login (a code login's polling stops under the store's lock; the answer is the login as it ended, so a confirm that won the race is reported). The web app calls it when the sign-in dialog closes or switches from the code to the browser sign-in, so an abandoned code entered afterwards no longer becomes an account, and a code plus a browser sign-in no longer adds the account twice
 - [x] Web: Activity (runs, log)
 - [x] Web: Settings
@@ -136,5 +136,5 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Backend: `GET /api/queue` for the Dashboard's Up next card
 - [x] Web: the expandable run row in Activity (built with Activity, since `GET /api/sync/runs/{id}/books` exists)
 - [x] Close-out (2026-11-03): README and CLAUDE.md for the web app; the image built from the repository and run at the root and under a base path behind nginx (deep links, covers, the cookie's path, Send test to a real receiver); the web tests' helpers, hidden by `.gitignore`, committed
-- [ ] The code sign-in from the web app against Amazon, end to end (the CLI's and the API's are checked; the dialog's steps only with the login calls stubbed)
+- [x] The code sign-in from the web app against Amazon, end to end (Sign in again in the test container, 2026-11-02: the code confirmed, a new device registered, the old one deregistered, the account kept its id and library)
 
