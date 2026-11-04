@@ -76,10 +76,31 @@ export function run(overrides: Partial<SyncRun> = {}): SyncRun {
   };
 }
 
-export function counts(byStatus: Partial<Record<string, number>>, unmonitored = 0): S["BookCounts"] {
+/**
+ * A stats `BookCounts`. Every book is monitored and every unavailable one retryable
+ * unless `extra` says otherwise (`unmonitored` a number of the waiting books, or
+ * `monitored_by_status` in full; `retryable_unavailable`).
+ */
+export function counts(
+  byStatus: Partial<Record<string, number>>,
+  unmonitored = 0,
+  extra: Partial<Pick<S["BookCounts"], "monitored_by_status" | "retryable_unavailable">> = {},
+): S["BookCounts"] {
   const by_status = { waiting_download: 0, downloading: 0, downloaded: 0, unavailable: 0, failed: 0, ...byStatus };
   const total = Object.values(by_status).reduce((sum, n) => sum + (n ?? 0), 0);
-  return { by_status: by_status as Record<string, number>, total, monitored: total - unmonitored, unmonitored };
+  const monitored_by_status = extra.monitored_by_status ?? {
+    ...by_status,
+    waiting_download: by_status.waiting_download - unmonitored,
+  };
+  const monitored = Object.values(monitored_by_status).reduce((sum, n) => sum + n, 0);
+  return {
+    by_status: by_status as Record<string, number>,
+    monitored_by_status,
+    total,
+    monitored,
+    unmonitored: total - monitored,
+    retryable_unavailable: extra.retryable_unavailable ?? by_status.unavailable,
+  };
 }
 
 export function settings(overrides: Partial<S["SettingsOut"]> = {}): S["SettingsOut"] {

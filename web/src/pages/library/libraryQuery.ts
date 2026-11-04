@@ -141,3 +141,22 @@ export function rangeText(page: number, pageSize: number, total: number): string
   const last = Math.min(page * pageSize, total);
   return `${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}`;
 }
+
+/** What the status chips count: the books by status, and all of them. */
+export type ChipCounts = { total: number; byStatus: Record<string, number> };
+
+/**
+ * The status chips' counts for the `monitored` filter, from `GET /api/stats`' books:
+ * every book, the monitored ones (`monitored_by_status`), or the rest - so a chip says
+ * what choosing it lists. The search is not counted: the chips count the library.
+ */
+export function chipCounts(counts: components["schemas"]["BookCounts"], monitored: boolean | null): ChipCounts {
+  if (monitored === null) return { total: counts.total, byStatus: counts.by_status };
+  const byStatus = Object.fromEntries(
+    Object.entries(counts.by_status).map(([status, count]) => {
+      const wanted = counts.monitored_by_status[status] ?? 0;
+      return [status, monitored ? wanted : count - wanted];
+    }),
+  );
+  return { total: monitored ? counts.monitored : counts.unmonitored, byStatus };
+}

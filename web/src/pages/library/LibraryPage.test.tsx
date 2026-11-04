@@ -93,6 +93,32 @@ describe("the Library", () => {
     expect(query?.get("monitored")).toBe("true");
     expect(screen.getByRole("button", { name: /Waiting/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("checkbox", { name: "Monitored only" })).toBeChecked();
+    // The chips count the monitored books alone, as the listing does: 5 of the 6 waiting are not
+    const statuses = screen.getByRole("group", { name: "Status" });
+    expect(within(statuses).getByRole("button", { name: /Waiting\s*1$/ })).toBeInTheDocument();
+    expect(within(statuses).getByRole("button", { name: /All\s*45$/ })).toBeInTheDocument();
+  });
+
+  it("counts only the unmonitored books on the chips under Unmonitored only", async () => {
+    library();
+    renderApp("/library?monitored=false");
+
+    const statuses = await screen.findByRole("group", { name: "Status" });
+    await waitFor(() => expect(within(statuses).getByRole("button", { name: /All\s*5$/ })).toBeInTheDocument());
+    expect(within(statuses).getByRole("button", { name: /Waiting\s*5$/ })).toBeInTheDocument();
+    expect(within(statuses).getByRole("button", { name: /Downloaded\s*0$/ })).toBeInTheDocument();
+  });
+
+  it("offers Retry unavailable only for books it would queue", async () => {
+    const books = counts({ downloaded: 40, waiting_download: 6, unavailable: 2, failed: 2 }, 5, {
+      retryable_unavailable: 0,
+    });
+    library({ "GET /api/stats": ok({ ...STATS, books }) });
+    renderApp("/library");
+
+    const statuses = await screen.findByRole("group", { name: "Status" });
+    await waitFor(() => expect(within(statuses).getByRole("button", { name: /Unavailable\s*2$/ })).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Retry unavailable/ })).not.toBeInTheDocument();
   });
 
   it("puts a status, the unmonitored filter and the sort in the URL, back on page 1", async () => {

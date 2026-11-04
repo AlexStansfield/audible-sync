@@ -28,7 +28,10 @@ const STATS = {
       last_run: null,
     },
   ],
-  books: counts({ downloaded: 312, waiting_download: 21, unavailable: 16, failed: 2 }, 15),
+  // Of the 16 unavailable, 4 are licence refusals; the other 12 are titles Audible withdrew
+  books: counts({ downloaded: 312, waiting_download: 21, unavailable: 16, failed: 2 }, 15, {
+    retryable_unavailable: 4,
+  }),
   bytes_on_disk: 148_200_000_000,
   last_run: run(),
   next_run_at: "2026-11-02T18:00:00+00:00",
@@ -183,20 +186,35 @@ describe("the Dashboard", () => {
   });
 
   it("lists what needs attention and retries the unavailable books", async () => {
-    const api = fakeApi(dashboard({ "POST /api/books/retry-unavailable": ok({ requeued: 12 }) }));
+    const api = fakeApi(dashboard({ "POST /api/books/retry-unavailable": ok({ requeued: 4 }) }));
     renderApp("/");
 
     const card = await screen.findByRole("region", { name: "Needs attention" });
     expect(within(card).getByText("16 books unavailable")).toBeInTheDocument();
+    expect(
+      within(card).getByText(
+        "Audible refused the licence for 4, which can be retried; the 12 titles Audible withdrew from Plus come back on their own.",
+      ),
+    ).toBeInTheDocument();
     expect(await within(card).findByText(/Golden Son: ffmpeg exited with status 1/)).toBeInTheDocument();
     expect(within(card).getByRole("link", { name: "Review failed books" })).toHaveAttribute(
       "href",
       "/library?status=failed",
     );
 
-    await userEvent.click(within(card).getByRole("button", { name: "Retry unavailable" }));
-    expect(await screen.findByText("12 books queued again for the next run.")).toBeInTheDocument();
+    await userEvent.click(within(card).getByRole("button", { name: "Retry unavailable (4)" }));
+    expect(await screen.findByText("4 books queued again for the next run.")).toBeInTheDocument();
     expect(api.sent("POST /api/books/retry-unavailable")).toEqual([{}]);
+  });
+
+  it("leaves titles Audible withdrew out of Needs attention", async () => {
+    const books = counts({ downloaded: 312, waiting_download: 21, unavailable: 16 }, 15, { retryable_unavailable: 0 });
+    fakeApi(dashboard({ "GET /api/stats": ok({ ...STATS, books }) }));
+    renderApp("/");
+
+    expect(await screen.findByText("Parked by Audible")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Needs attention" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Retry unavailable/ })).not.toBeInTheDocument();
   });
 
   it("asks for a sign-in on an account that needs one", async () => {

@@ -1578,13 +1578,29 @@ def test_library_stats_counts_every_status_and_whether_wanted(db):
         "unavailable": 0,
         "failed": 0,
     }
+    assert stats["monitored_by_status"] == {
+        "waiting_download": 2,
+        "downloading": 0,
+        "downloaded": 1,
+        "unavailable": 0,
+        "failed": 0,
+    }
     assert (stats["monitored"], stats["unmonitored"], stats["total"]) == (3, 1, 4)
+    assert stats["retryable_unavailable"] == 0
 
     assert database.library_stats(account_id=other) == {
         "by_status": {"waiting_download": 1, "downloading": 0, "downloaded": 0, "unavailable": 0, "failed": 0},
+        "monitored_by_status": {
+            "waiting_download": 0,
+            "downloading": 0,
+            "downloaded": 0,
+            "unavailable": 0,
+            "failed": 0,
+        },
         "monitored": 0,
         "unmonitored": 1,
         "total": 1,
+        "retryable_unavailable": 0,
     }
 
 
@@ -1592,7 +1608,49 @@ def test_library_stats_on_an_empty_library(db):
     stats = database.library_stats()
 
     assert stats["total"] == 0
+    assert stats["retryable_unavailable"] == 0
     assert set(stats["by_status"]) == {s.value for s in BookStatus}
+    assert stats["monitored_by_status"] == dict.fromkeys(stats["by_status"], 0)
+
+
+def test_library_stats_counts_what_retry_unavailable_would_queue(db):
+    """Licence refusals, monitored or not; not the titles Audible withdrew."""
+    other = database.add_account("Other", "us", auth=None)
+    database.update_books(
+        ACCOUNT,
+        [make_book("B001"), make_book("B002"), make_book("B003"), make_book("B004", is_consumable=False)],
+    )
+    database.update_books(other, [make_book("B005")])
+    for asin in ("B001", "B002", "B003"):
+        database.claim_book_for_download(_id(asin))
+        database.mark_book_unavailable(_id(asin), "Denied")
+    _set("B002", monitored=0)
+    _set("B003", is_consumable=None)  # from before the column: fails open
+    book = database.get_book_by_asin("B005", account_id=other)
+    database.claim_book_for_download(book.id)
+    database.mark_book_unavailable(book.id, "Denied")
+
+    stats = database.library_stats(account_id=ACCOUNT)
+    assert stats["by_status"]["unavailable"] == 4
+    assert stats["monitored_by_status"]["unavailable"] == 3
+    assert stats["retryable_unavailable"] == 3
+    assert database.library_stats()["retryable_unavailable"] == 4
+    assert database.library_stats(account_id=other)["retryable_unavailable"] == 1
+    # The same predicate: the count is what the retry then queues
+    assert database.requeue_unavailable(ACCOUNT) == 3
+    assert database.library_stats(account_id=ACCOUNT)["retryable_unavailable"] == 0
+
+
+def test_library_stats_counts_a_status_it_does_not_know_in_the_totals_only(db):
+    database.update_books(ACCOUNT, [make_book("B001"), make_book("B002")])
+    _set("B002", status="archived")  # written by a newer version
+
+    stats = database.library_stats()
+
+    assert stats["total"] == 2
+    assert stats["monitored"] == 2
+    assert sum(stats["by_status"].values()) == 1
+    assert "archived" not in stats["monitored_by_status"]
 
 
 def test_downloaded_file_paths(db):

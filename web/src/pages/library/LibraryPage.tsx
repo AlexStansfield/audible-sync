@@ -21,6 +21,7 @@ import { BookGrid, type BooksProps, BookTable, GridSkeleton } from "./Books";
 import styles from "./Library.module.css";
 import {
   bulkFilter,
+  chipCounts,
   DEFAULT_QUERY,
   defaultOrder,
   type LibraryQuery,
@@ -109,7 +110,8 @@ export function LibraryPage() {
       : stats.data?.accounts.find((one) => one.account.id === query.accountId)?.books;
   const libraryTotal = stats.data?.books.total;
   const noBooks = libraryTotal === 0;
-  const unavailable = counts?.by_status.unavailable ?? 0;
+  // Only what the retry would queue: titles Audible withdrew come back with the sync
+  const retryable = counts?.retryable_unavailable ?? 0;
 
   const run = status.data?.current_run;
   const live = liveBook(run);
@@ -187,7 +189,7 @@ export function LibraryPage() {
         </div>
         {!noBooks && libraryTotal !== undefined && (
           <div className={styles.headerActions}>
-            <RetryUnavailableButton count={unavailable} accountId={query.accountId} />
+            <RetryUnavailableButton count={retryable} accountId={query.accountId} />
             <button
               type="button"
               className={`btn btn-secondary ${selecting ? styles.selectOn : ""}`}
@@ -364,13 +366,14 @@ function Filters({
   view: View;
   onView: (view: View) => void;
 }) {
+  const shown = counts && chipCounts(counts, query.monitored);
   const chips = [
-    { status: null, label: "All", colour: "var(--text)", count: counts?.total },
+    { status: null, label: "All", colour: "var(--text)", count: shown?.total },
     ...STATUSES.map((status) => ({
       status,
       label: BOOK_STATUS[status].label,
       colour: BOOK_STATUS[status].colour,
-      count: counts?.by_status[status],
+      count: shown?.byStatus[status],
     })),
   ];
   return (

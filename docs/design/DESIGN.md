@@ -127,7 +127,7 @@ Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with
 - **Totals** (`GET /api/stats`): In library, Downloaded (with bytes on disk), Waiting, Unavailable, Failed. Each tile opens the Library filtered to that status.
 - **Accounts:** one row per account with its marketplace, totals, bytes on disk, last run, and a stacked bar of its books by status.
 - **Recently downloaded:** six covers, newest first (`GET /api/books?status=downloaded&sort=downloaded_at`).
-- **Needs attention:** shown only when there is something to show. Unavailable books with **Retry unavailable** (`POST /api/books/retry-unavailable`, then a message with `requeued`); failed books linking to the Library filtered to failed; an account that needs a sign-in, linking to Accounts.
+- **Needs attention:** shown only when there is something to show. Unavailable books Audible refused a licence for (`retryable_unavailable` from `GET /api/stats`), with **Retry unavailable** (`POST /api/books/retry-unavailable`, then a message with `requeued`); titles Audible withdrew need nothing doing and are not listed; failed books linking to the Library filtered to failed; an account that needs a sign-in, linking to Accounts.
 - **Recent runs:** the last five (`GET /api/sync/runs?limit=5`), each linking to Activity.
 
 ### Library (`Library.dc.html`)
@@ -139,7 +139,7 @@ Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with
 - **Grid:** square covers (`GET /api/books/{id}/cover`, lazy loaded) with a status badge, a progress strip on the book downloading, and title and author under it. The bookmark button toggles monitoring (`PATCH /api/books/{id}` with `{"monitored": bool}`). Update it optimistically and roll back on an error.
 - **Table:** title with a small cover, author, series, account, status, added, and a monitored switch. It scrolls sideways on narrow screens.
 - **Pagination:** "1-24 of 354", previous and next, page numbers.
-- **Retry unavailable** in the header, with the count.
+- **Retry unavailable** in the header, with the count it would queue (`retryable_unavailable`), shown only when that is not zero. The status chips' counts follow Monitored/Unmonitored only (`monitored_by_status`).
 - **Empty states:** no books at all ("Add an Audible account to fetch your library", linking to Accounts); no results for the filters (with a clear-filters button).
 
 ### Book detail (`Book.dc.html`)

@@ -129,7 +129,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password
 - [x] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
 - [x] Web: Library bulk selection (grid and table), action bar, delete confirmation, result message
-- [ ] Backend: count the unavailable books Retry unavailable can requeue (licence refusals, not titles Audible withdrew) in `GET /api/stats`, so the Dashboard and the Library stop offering a retry that only says "Nothing to retry"; and monitored counts per status, so the Library's chips match a `monitored` filter
+- [x] Backend: count the unavailable books Retry unavailable can requeue (licence refusals, not titles Audible withdrew) in `GET /api/stats`, so the Dashboard and the Library stop offering a retry that only says "Nothing to retry"; and monitored counts per status, so the Library's chips match a `monitored` filter
 - [x] Backend: API token last four and regenerate; `GET /api/system` (versions, disk space, key source, database size)
 - [x] Web: Settings API access and System sections; Dashboard Up next card (Up next done with the Dashboard)
 - [x] Backend: per-book run records (`sync_run_books`, `GET /api/sync/runs/{id}/books`)

@@ -77,3 +77,18 @@ export function upNextHeader(scheduler: Scheduler, maxDownload: number | null, n
   const limit = maxDownload == null ? "everything waiting" : `up to ${plural(maxDownload, "book")} per account`;
   return `${when} · ${limit}`;
 }
+
+/**
+ * Needs attention's line under "N books unavailable": the licence refusals Retry
+ * unavailable can queue again (`retryable_unavailable`), and the titles Audible withdrew,
+ * which the sync brings back on its own.
+ */
+export function unavailableText(unavailable: number, retryable: number): string {
+  const withdrawn = unavailable - retryable;
+  if (withdrawn <= 0) return "Audible refused the licence. They can be retried.";
+  const rest =
+    withdrawn === 1
+      ? "the title Audible withdrew from Plus comes back on its own"
+      : `the ${withdrawn.toLocaleString()} titles Audible withdrew from Plus come back on their own`;
+  return `Audible refused the licence for ${retryable.toLocaleString()}, which can be retried; ${rest}.`;
+}

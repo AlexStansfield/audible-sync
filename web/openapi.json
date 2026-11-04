@@ -196,6 +196,17 @@
             "title": "Monitored",
             "type": "integer"
           },
+          "monitored_by_status": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Monitored By Status",
+            "type": "object"
+          },
+          "retryable_unavailable": {
+            "title": "Retryable Unavailable",
+            "type": "integer"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -207,9 +218,11 @@
         },
         "required": [
           "by_status",
+          "monitored_by_status",
           "monitored",
           "unmonitored",
-          "total"
+          "total",
+          "retryable_unavailable"
         ],
         "title": "BookCounts",
         "type": "object"
