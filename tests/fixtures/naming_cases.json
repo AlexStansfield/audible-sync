@@ -1,0 +1,1378 @@
+{
+  "_comment": "Shared by tests/test_naming.py and web/src/pages/settings/naming.test.ts: the browser's port of src/naming.py must file every book exactly as the service does. Expected values were computed by src/naming.py.",
+  "books": {
+    "series": {
+      "asin": "B01",
+      "title": "One Word Kill",
+      "authors": [
+        "Mark Lawrence"
+      ],
+      "narrators": [
+        "James Clamp"
+      ],
+      "series": [
+        {
+          "title": "Impossible Times",
+          "sequence": "1"
+        }
+      ],
+      "release_date": "2019-05-01",
+      "subtitle": "Impossible Times, Book 1"
+    },
+    "standalone": {
+      "asin": "B02",
+      "title": "Project Hail Mary",
+      "authors": [
+        "Andy Weir"
+      ],
+      "narrators": [
+        "Ray Porter"
+      ],
+      "series": [],
+      "release_date": "2021-05-04"
+    },
+    "omnibus": {
+      "asin": "B03",
+      "title": "Dune",
+      "authors": [
+        "Frank Herbert"
+      ],
+      "series": [
+        {
+          "title": "The Dune Sequence",
+          "sequence": "12",
+          "series_asin": "S2"
+        },
+        {
+          "title": "Dune",
+          "sequence": "1",
+          "series_asin": "S1"
+        }
+      ]
+    },
+    "tie": {
+      "asin": "B04",
+      "title": "The Amber Spyglass",
+      "authors": [
+        "Philip Pullman"
+      ],
+      "series": [
+        {
+          "title": "His Dark Materialsik",
+          "sequence": "3",
+          "series_asin": "S9"
+        },
+        {
+          "title": "His Dark Materials",
+          "sequence": "3",
+          "series_asin": "S8"
+        }
+      ]
+    },
+    "asin_tie": {
+      "asin": "B05",
+      "title": "Tied",
+      "authors": [
+        "A"
+      ],
+      "series": [
+        {
+          "title": "Same",
+          "sequence": "2",
+          "series_asin": "Z"
+        },
+        {
+          "title": "Same",
+          "sequence": "2",
+          "series_asin": "A"
+        }
+      ]
+    },
+    "no_sequence": {
+      "asin": "B06",
+      "title": "Ringworld",
+      "authors": [
+        "Larry Niven"
+      ],
+      "series": [
+        {
+          "title": "Known Space",
+          "sequence": null
+        },
+        {
+          "title": "Ringworld",
+          "sequence": "1"
+        }
+      ]
+    },
+    "odd_sequence": {
+      "asin": "B07",
+      "title": "Odd",
+      "authors": [
+        "B"
+      ],
+      "series": [
+        {
+          "title": "Words",
+          "sequence": "one"
+        },
+        {
+          "title": "Blank",
+          "sequence": ""
+        },
+        {
+          "title": "Decimal",
+          "sequence": " 2.5 "
+        }
+      ]
+    },
+    "untitled_series": {
+      "asin": "B08",
+      "title": "Untitled Series",
+      "authors": [
+        "C"
+      ],
+      "series": [
+        {
+          "title": null,
+          "sequence": "2"
+        }
+      ]
+    },
+    "sequence_only_no_number": {
+      "asin": "B09",
+      "title": "Seq",
+      "authors": [
+        "D"
+      ],
+      "series": [
+        {
+          "title": "S",
+          "sequence": null
+        }
+      ]
+    },
+    "no_author": {
+      "asin": "B10",
+      "title": "Anonymous",
+      "authors": [],
+      "series": []
+    },
+    "no_title": {
+      "asin": "B11",
+      "title": null,
+      "authors": [
+        "E"
+      ]
+    },
+    "colon_title": {
+      "asin": "B12",
+      "title": "Star Wars: Thrawn / Ascendancy",
+      "authors": [
+        "Timothy Zahn",
+        "Marc Thompson"
+      ],
+      "narrators": [
+        "Marc Thompson",
+        "Someone Else"
+      ],
+      "series": [
+        {
+          "title": "Thrawn: Ascendancy",
+          "sequence": "1.5"
+        }
+      ]
+    },
+    "dots_title": {
+      "asin": "B13",
+      "title": "...",
+      "authors": [
+        "..."
+      ]
+    },
+    "reserved": {
+      "asin": "B14",
+      "title": "CON",
+      "authors": [
+        "NUL"
+      ],
+      "series": [
+        {
+          "title": "aux",
+          "sequence": "1"
+        }
+      ]
+    }
+  },
+  "sanitize": [
+    {
+      "input": "Title: Subtitle",
+      "expected": "Title - Subtitle"
+    },
+    {
+      "input": "AC/DC\\Back",
+      "expected": "AC-DC-Back"
+    },
+    {
+      "input": "What? <Really> \"Yes\" | *No*",
+      "expected": "What Really Yes No"
+    },
+    {
+      "input": "  lots \t of\n space  ",
+      "expected": "lots of space"
+    },
+    {
+      "input": "a\u001cb",
+      "expected": "a b"
+    },
+    {
+      "input": "ab",
+      "expected": "a b"
+    },
+    {
+      "input": "a﻿b",
+      "expected": "a﻿b"
+    },
+    {
+      "input": "Trailing dots...",
+      "expected": "Trailing dots"
+    },
+    {
+      "input": "...",
+      "expected": "Unknown"
+    },
+    {
+      "input": "",
+      "expected": "Unknown"
+    },
+    {
+      "input": "CON",
+      "expected": "CON_"
+    },
+    {
+      "input": "con.txt",
+      "expected": "con.txt_"
+    },
+    {
+      "input": "COM1",
+      "expected": "COM1_"
+    },
+    {
+      "input": "COM10",
+      "expected": "COM10"
+    },
+    {
+      "input": "LPT9.part",
+      "expected": "LPT9.part_"
+    },
+    {
+      "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expected": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+      "input": "日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル",
+      "expected": "日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本語のタイトル日本"
+    },
+    {
+      "input": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+      "expected": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+    },
+    {
+      "input": "🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧",
+      "expected": "🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧🎧"
+    },
+    {
+      "input": "A  ?  B",
+      "expected": "A B"
+    },
+    {
+      "input": "nbsp here",
+      "expected": "nbsp here"
+    },
+    {
+      "input": "tab\tbetween",
+      "expected": "tab between"
+    },
+    {
+      "input": null,
+      "expected": "Unknown"
+    },
+    {
+      "input": "",
+      "fallback": "",
+      "expected": ""
+    }
+  ],
+  "paths": [
+    {
+      "book": "series",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Mark Lawrence",
+        "Impossible Times",
+        "1 - One Word Kill"
+      ],
+      "stem": "One Word Kill"
+    },
+    {
+      "book": "series",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Mark Lawrence",
+        "2019",
+        "One Word Kill"
+      ],
+      "stem": "One Word Kill - James Clamp"
+    },
+    {
+      "book": "series",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "Impossible Times",
+        "1"
+      ],
+      "stem": "Impossible Times, Book 1"
+    },
+    {
+      "book": "series",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Mark Lawrence",
+        "One Word Kill"
+      ],
+      "stem": "B01_One Word Kill"
+    },
+    {
+      "book": "series",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Impossible Times (2019)",
+        "One Word Kill"
+      ],
+      "stem": "One Word Kill James Clamp"
+    },
+    {
+      "book": "series",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "series",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "series",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "series",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B01"
+      ],
+      "stem": "B01"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Andy Weir",
+        "Project Hail Mary"
+      ],
+      "stem": "Project Hail Mary"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Andy Weir",
+        "2021",
+        "Project Hail Mary"
+      ],
+      "stem": "Project Hail Mary - Ray Porter"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "B02"
+      ],
+      "stem": "B02"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Andy Weir",
+        "Project Hail Mary"
+      ],
+      "stem": "B02_Project Hail Mary"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Project Hail Mary"
+      ],
+      "stem": "Project Hail Mary Ray Porter"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "standalone",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B02"
+      ],
+      "stem": "B02"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Frank Herbert",
+        "Dune",
+        "1 - Dune"
+      ],
+      "stem": "Dune"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Frank Herbert",
+        "Dune"
+      ],
+      "stem": "Dune -"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "Dune",
+        "1"
+      ],
+      "stem": "B03"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Frank Herbert",
+        "Dune"
+      ],
+      "stem": "B03_Dune"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Dune"
+      ],
+      "stem": "Dune"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "omnibus",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B03"
+      ],
+      "stem": "B03"
+    },
+    {
+      "book": "tie",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Philip Pullman",
+        "His Dark Materials",
+        "3 - The Amber Spyglass"
+      ],
+      "stem": "The Amber Spyglass"
+    },
+    {
+      "book": "tie",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Philip Pullman",
+        "The Amber Spyglass"
+      ],
+      "stem": "The Amber Spyglass -"
+    },
+    {
+      "book": "tie",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "His Dark Materials",
+        "3"
+      ],
+      "stem": "B04"
+    },
+    {
+      "book": "tie",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Philip Pullman",
+        "The Amber Spyglass"
+      ],
+      "stem": "B04_The Amber Spyglass"
+    },
+    {
+      "book": "tie",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "The Amber Spyglass"
+      ],
+      "stem": "The Amber Spyglass"
+    },
+    {
+      "book": "tie",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "tie",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "tie",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "tie",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B04"
+      ],
+      "stem": "B04"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "A",
+        "Same",
+        "2 - Tied"
+      ],
+      "stem": "Tied"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "A",
+        "Tied"
+      ],
+      "stem": "Tied -"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "Same",
+        "2"
+      ],
+      "stem": "B05"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "A",
+        "Tied"
+      ],
+      "stem": "B05_Tied"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Tied"
+      ],
+      "stem": "Tied"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "asin_tie",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B05"
+      ],
+      "stem": "B05"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Larry Niven",
+        "Ringworld",
+        "1 - Ringworld"
+      ],
+      "stem": "Ringworld"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Larry Niven",
+        "Ringworld"
+      ],
+      "stem": "Ringworld -"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "Ringworld",
+        "1"
+      ],
+      "stem": "B06"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Larry Niven",
+        "Ringworld"
+      ],
+      "stem": "B06_Ringworld"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Ringworld"
+      ],
+      "stem": "Ringworld"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "no_sequence",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B06"
+      ],
+      "stem": "B06"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "B",
+        "Decimal",
+        "2.5 - Odd"
+      ],
+      "stem": "Odd"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "B",
+        "Odd"
+      ],
+      "stem": "Odd -"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "Decimal",
+        "2.5"
+      ],
+      "stem": "B07"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "B",
+        "Odd"
+      ],
+      "stem": "B07_Odd"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Odd"
+      ],
+      "stem": "Odd"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "odd_sequence",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B07"
+      ],
+      "stem": "B07"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "C",
+        "Untitled Series"
+      ],
+      "stem": "Untitled Series"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "C",
+        "Untitled Series"
+      ],
+      "stem": "Untitled Series -"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "B08"
+      ],
+      "stem": "B08"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "C",
+        "Untitled Series"
+      ],
+      "stem": "B08_Untitled Series"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Untitled Series"
+      ],
+      "stem": "Untitled Series"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "untitled_series",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B08"
+      ],
+      "stem": "B08"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "D",
+        "S",
+        "Seq"
+      ],
+      "stem": "Seq"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "D",
+        "Seq"
+      ],
+      "stem": "Seq -"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "S"
+      ],
+      "stem": "B09"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "D",
+        "Seq"
+      ],
+      "stem": "B09_Seq"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Seq"
+      ],
+      "stem": "Seq"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "sequence_only_no_number",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B09"
+      ],
+      "stem": "B09"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Unknown Author",
+        "Anonymous"
+      ],
+      "stem": "Anonymous"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Unknown Author",
+        "Anonymous"
+      ],
+      "stem": "Anonymous -"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "B10"
+      ],
+      "stem": "B10"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Unknown Author",
+        "Anonymous"
+      ],
+      "stem": "B10_Anonymous"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Anonymous"
+      ],
+      "stem": "Anonymous"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "no_author",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B10"
+      ],
+      "stem": "B10"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "E",
+        "B11"
+      ],
+      "stem": "B11"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "E",
+        "B11"
+      ],
+      "stem": "B11 -"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "B11"
+      ],
+      "stem": "B11"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "E",
+        "B11"
+      ],
+      "stem": "B11_B11"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "B11"
+      ],
+      "stem": "B11"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "no_title",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B11"
+      ],
+      "stem": "B11"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Timothy Zahn",
+        "Thrawn - Ascendancy",
+        "1.5 - Star Wars - Thrawn - Ascendancy"
+      ],
+      "stem": "Star Wars - Thrawn - Ascendancy"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Timothy Zahn, Marc Thompson",
+        "Star Wars - Thrawn - Ascendancy"
+      ],
+      "stem": "Star Wars - Thrawn - Ascendancy - Marc Thompson"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "Thrawn - Ascendancy",
+        "1.5"
+      ],
+      "stem": "B12"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Timothy Zahn",
+        "Star Wars - Thrawn - Ascendancy"
+      ],
+      "stem": "B12_Star Wars - Thrawn - Ascendancy"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "Star Wars - Thrawn - Ascendancy"
+      ],
+      "stem": "Star Wars - Thrawn - Ascendancy Marc Thompson, Someone Else"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "colon_title",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B12"
+      ],
+      "stem": "B12"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "Unknown Author",
+        "B13"
+      ],
+      "stem": "B13"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "Unknown Author",
+        "B13"
+      ],
+      "stem": "B13 -"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "B13"
+      ],
+      "stem": "B13"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "Unknown Author",
+        "B13"
+      ],
+      "stem": "B13_B13"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "B13"
+      ],
+      "stem": "B13"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "dots_title",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B13"
+      ],
+      "stem": "B13"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{title}",
+      "segments": [
+        "NUL_",
+        "aux_",
+        "1 - CON_"
+      ],
+      "stem": "CON_"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "{authors}/{year}/{title}",
+      "filename_template": "{title} - {narrator}",
+      "segments": [
+        "NUL_",
+        "CON_"
+      ],
+      "stem": "CON_ -"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "[{series}]/[{sequence}]",
+      "filename_template": "[{subtitle}]",
+      "segments": [
+        "aux_",
+        "1"
+      ],
+      "stem": "B14"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "{author}//{title}/",
+      "filename_template": "{asin}_{title}",
+      "segments": [
+        "NUL_",
+        "CON_"
+      ],
+      "stem": "B14_CON_"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "[{series} ({year})/]{title}",
+      "filename_template": "{title} [{narrators}]",
+      "segments": [
+        "CON_"
+      ],
+      "stem": "CON_"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "{author}/{nope}",
+      "filename_template": "{title}",
+      "error": "Unknown placeholder '{nope}' in naming template '{author}/{nope}'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "{author}/{title}",
+      "error": "naming filename template '{author}/{title}' must not contain '/' or '\\'"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "{author}/[{series}/][{sequence} - ]{title}",
+      "filename_template": "[{unknown}]",
+      "error": "Unknown placeholder '{unknown}' in naming template '[{unknown}]'. Valid placeholders: {asin}, {author}, {authors}, {narrator}, {narrators}, {sequence}, {series}, {subtitle}, {title}, {year}"
+    },
+    {
+      "book": "reserved",
+      "folder_template": "",
+      "filename_template": "",
+      "segments": [
+        "B14"
+      ],
+      "stem": "B14"
+    }
+  ]
+}

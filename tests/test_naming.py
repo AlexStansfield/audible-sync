@@ -1,7 +1,9 @@
+import json
 from pathlib import Path
 
 import pytest
 
+from src.model import Book
 from src.naming import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_FOLDER_TEMPLATE,
@@ -208,3 +210,32 @@ def test_sequence_without_series_title_does_not_become_a_folder():
     folder, stem = book_output_paths(book, LIBRARY)
     assert folder == Path(LIBRARY) / "Frank Herbert" / "Dune"
     assert stem == "Dune"
+
+
+# The cases the web app's port of this module (web/src/pages/settings/naming.ts) runs too,
+# so the Settings preview cannot drift from what the service files
+NAMING_CASES = json.loads((Path(__file__).parent / "fixtures" / "naming_cases.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("case", NAMING_CASES["sanitize"], ids=lambda case: repr(case["input"])[:30])
+def test_shared_sanitize_cases(case):
+    fallback = case.get("fallback", "Unknown")
+    assert sanitize_filename(case["input"], fallback=fallback) == case["expected"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    NAMING_CASES["paths"],
+    ids=lambda case: f"{case['book']}:{case['folder_template']}:{case['filename_template']}",
+)
+def test_shared_path_cases(case):
+    book = Book(**NAMING_CASES["books"][case["book"]])
+    if "error" in case:
+        with pytest.raises(ValueError) as raised:
+            validate_templates(case["folder_template"], case["filename_template"])
+        assert str(raised.value) == case["error"]
+        return
+    validate_templates(case["folder_template"], case["filename_template"])
+    folder, stem = book_output_paths(book, LIBRARY, case["folder_template"], case["filename_template"])
+    assert folder == Path(LIBRARY).joinpath(*case["segments"])
+    assert stem == case["stem"]

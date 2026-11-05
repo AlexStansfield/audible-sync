@@ -21,6 +21,13 @@ export const keys = {
 /** What a finished run changes, refetched when one ends. */
 export const AFTER_RUN = [["stats"], ["books"], ["runs"], ["queue"], ["accounts"]] as const;
 
+/**
+ * `GET /api/settings` as one cache entry, `["settings"]`: Settings edits it, Book
+ * detail reads `max_attempts` from it. Spread into `useQuery`, with a `select` if need be.
+ */
+export const SETTINGS_KEY = ["settings"] as const;
+export const settingsQuery = { queryKey: SETTINGS_KEY, queryFn: () => unwrap(api.GET("/api/settings")) };
+
 export const RUNNING_INTERVAL = 2_000;
 /** Short enough that a run the schedule starts shows within seconds, not half a minute */
 export const IDLE_INTERVAL = 10_000;

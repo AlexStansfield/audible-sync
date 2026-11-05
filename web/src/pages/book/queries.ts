@@ -4,7 +4,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../../api/client";
-import { bookKey, refreshAfterBookChange } from "../../api/queries";
+import { bookKey, refreshAfterBookChange, settingsQuery } from "../../api/queries";
 import type { components } from "../../api/schema";
 import { useToast } from "../../components/Toasts";
 
@@ -15,8 +15,7 @@ export type BookActionName = "redownload" | "retry" | "delete-files" | "refresh"
 /** `max_attempts`, for "1 of 3". */
 export function useMaxAttempts() {
   return useQuery({
-    queryKey: ["settings"],
-    queryFn: () => unwrap(api.GET("/api/settings")),
+    ...settingsQuery,
     select: (settings) => settings.max_attempts,
   });
 }

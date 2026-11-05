@@ -196,7 +196,7 @@ describe("the layout", () => {
 
   it("signs out", async () => {
     const api = fakeApi(signedIn({ "POST /api/auth/logout": () => new Response(null, { status: 204 }) }));
-    const { router } = renderApp("/settings");
+    const { router } = renderApp("/profile");
     const nav = await screen.findByRole("navigation", { name: "Main" });
 
     api.routes["GET /api/auth/me"] = fail(401, "Not authenticated");
@@ -222,7 +222,7 @@ describe("the layout", () => {
 
   it("says why signing out failed, in words", async () => {
     fakeApi(signedIn({ "POST /api/auth/logout": fail(500, "database is locked") }));
-    const { router } = renderApp("/settings");
+    const { router } = renderApp("/profile");
     const nav = await screen.findByRole("navigation", { name: "Main" });
 
     await userEvent.click(within(nav).getByRole("button", { name: "Sign out" }));
@@ -230,12 +230,12 @@ describe("the layout", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Could not sign out");
     expect(alert).toHaveTextContent("database is locked");
-    expect(where(router)).toBe("/settings");
+    expect(where(router)).toBe("/profile");
   });
 
   it("reports a sign-out that gets no answer instead of failing silently", async () => {
     fakeApi(signedIn({ "POST /api/auth/logout": unreachable() }));
-    renderApp("/settings");
+    renderApp("/profile");
     const nav = await screen.findByRole("navigation", { name: "Main" });
 
     await userEvent.click(within(nav).getByRole("button", { name: "Sign out" }));
