@@ -118,8 +118,8 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Backend: serve the built web app from FastAPI with an `index.html` fallback
 - [x] Backend: serve under a base path behind a reverse proxy (`AUDIBLE_SYNC_BASE_PATH`), the prefix stripped or passed on
 - [x] Docker and CI: a Node build stage for `web/`; lint, type-check and build it in CI
-- [ ] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
-- [ ] Web: sign-in and Your sign-in
+- [x] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
+- [x] Web: sign-in and Your sign-in
 - [ ] Web: Dashboard with the live run card
 - [ ] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
 - [ ] Web: Accounts with the code and browser sign-in flows

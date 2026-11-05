@@ -1,4 +1,5 @@
 import logging
+import re
 import sqlite3
 import threading
 
@@ -15,6 +16,7 @@ from src.apitoken import ApiToken
 from src.audible_login import PendingLogins
 from src.logbuffer import RingBufferHandler
 from src.model import SyncOutcome
+from src.paths import REPO_ROOT
 from src.runstate import RunStage, RunState
 from src.settings import Settings
 from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
@@ -1978,6 +1980,26 @@ def test_a_rebuild_beside_the_running_service_is_served_without_a_restart(prefix
     page = prefixed.get(f"{BASE}/library").text
     assert "app-9z8y.js" in page
     assert '<base href="/audible-sync/">' in page
+
+
+def test_a_page_load_mid_rebuild_gets_the_last_good_page(prefixed, tmp_path):
+    # Vite empties dist/ before writing the new build
+    (tmp_path / "dist" / "index.html").unlink()
+
+    response = prefixed.get(f"{BASE}/library")
+
+    assert response.status_code == 200
+    assert '<base href="/audible-sync/">' in response.text
+
+
+def test_every_page_of_the_web_app_is_a_reserved_base_path():
+    # The web app's top-level routes, read from its route table, so a page added there
+    # cannot be accepted as a base path it would be confused with
+    routes = (REPO_ROOT / "web" / "src" / "app" / "routes.tsx").read_text(encoding="utf-8")
+    pages = {path.split("/")[0] for path in re.findall(r'path: "/?([^"*:]+)', routes)}
+
+    assert pages >= {"login", "library", "profile"}
+    assert pages <= api_module._RESERVED_SEGMENTS
 
 
 def test_a_symlinked_index_html_still_gets_its_base(db, tmp_path):

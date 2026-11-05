@@ -9,12 +9,18 @@
 import createClient, { type Middleware } from "openapi-fetch";
 import type { paths } from "./schema";
 
+/**
+ * The path the app is served under, from the page's base URL: `/audible-sync`, or ""
+ * at the root. The router's basename and the API's address both come from this.
+ */
+export function basePath(baseURI: string = document.baseURI): string {
+  // A base names a folder; anything after its last slash is a file name
+  return new URL(baseURI).pathname.replace(/[^/]*$/, "").replace(/\/$/, "");
+}
+
 /** The service's address: the page's base URL without its trailing slash. */
 export function apiBaseUrl(baseURI: string = document.baseURI): string {
-  const url = new URL(baseURI);
-  // A base names a folder; anything after its last slash is a file name
-  const folder = url.pathname.replace(/[^/]*$/, "");
-  return `${url.origin}${folder.replace(/\/$/, "")}`;
+  return `${new URL(baseURI).origin}${basePath(baseURI)}`;
 }
 
 /** The API answered with an error status; `detail` is its message, ready to show. */
@@ -137,13 +143,16 @@ export function makeClient(baseUrl: string, fetchImpl?: typeof fetch) {
 
 export const api = makeClient(apiBaseUrl());
 
-type Result<T> = { data: T; error?: never; response: Response } | { data?: never; error: unknown; response: Response };
+type Result = { data?: unknown; error?: unknown; response: Response };
+
+/** The success data of an openapi-fetch result, without the error branch's `undefined`. */
+export type DataOf<R extends Result> = Exclude<R["data"], undefined>;
 
 /**
  * The data of a call, or an `ApiError` carrying the API's `detail`: what a query or a
  * mutation function returns, so errors reach TanStack Query as rejections.
  */
-export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
+export async function unwrap<R extends Result>(call: Promise<R>): Promise<DataOf<R>> {
   const result = await call;
   const { response } = result;
   if (result.error !== undefined || !response.ok) {
@@ -156,5 +165,5 @@ export async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
       response.headers,
     );
   }
-  return result.data as T;
+  return result.data as DataOf<R>;
 }

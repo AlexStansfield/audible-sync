@@ -15,5 +15,7 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // Times are shown in the browser's zone: fixed, so the formatting tests are too
+    env: { TZ: "UTC" },
   },
 });

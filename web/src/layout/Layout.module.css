@@ -1,0 +1,328 @@
+/* The shell from the mockups (Main.dc.html, Profile.dc.html): a 232px sidebar and the
+   page; at 720px and narrower a 56px top bar and the sidebar as a drawer. */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+}
+
+.sidebar,
+.drawerNav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 14px;
+  background: var(--nav);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  flex: none;
+  width: 232px;
+  height: 100vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  padding: 28px 36px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* --- the sidebar's content ------------------------------------------------------ */
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 22px;
+}
+
+.logo {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brandText {
+  display: flex;
+  flex-direction: column;
+}
+
+.brandName {
+  font-weight: 700;
+  font-size: 15px;
+}
+
+.version {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.close {
+  margin-left: auto;
+}
+
+.links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.link {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--text-2);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.link:hover {
+  color: var(--text);
+  background: color-mix(in srgb, var(--raised) 60%, transparent);
+}
+
+.link[aria-current="page"] {
+  background: var(--raised);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.alertDot {
+  margin-left: auto;
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--bad);
+}
+
+.foot {
+  margin-top: auto;
+  padding: 14px 12px 4px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.stateDot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.userLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.userLink:hover {
+  color: var(--text);
+}
+
+.username {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.avatar {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.userLink[aria-current="page"] .avatar {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The generated password is still in use */
+.avatarDot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--nav);
+}
+
+.signOut {
+  flex: none;
+  min-height: 32px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.signOut:hover {
+  color: var(--text);
+}
+
+/* --- the phone's top bar and drawer ------------------------------------------- */
+
+.topbar {
+  display: none;
+}
+
+.drawer {
+  display: none;
+}
+
+.drawer[open] {
+  display: block;
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: min(300px, 86vw);
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--nav);
+  color: var(--text);
+  box-shadow: 0 0 48px rgba(0, 0, 0, 0.4);
+}
+
+.drawer::backdrop {
+  background: rgba(5, 6, 8, 0.6);
+}
+
+.drawerNav {
+  min-height: 100%;
+}
+
+.drawerNav .brand {
+  padding: 4px 4px 18px 10px;
+}
+
+.logoSmall {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.topTitle {
+  font-weight: 700;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topAvatar {
+  margin-left: auto;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--raised);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.topAvatar:hover {
+  color: var(--text);
+}
+
+@media (max-width: 720px) {
+  .shell {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    display: none;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 56px;
+    padding: 0 12px 0 4px;
+    background: var(--nav);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .main {
+    padding: 20px 16px 40px;
+  }
+}

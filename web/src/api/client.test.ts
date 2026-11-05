@@ -3,6 +3,7 @@ import {
   ApiError,
   apiBaseUrl,
   apiPath,
+  basePath,
   detailOf,
   makeClient,
   NetworkError,
@@ -25,6 +26,16 @@ describe("apiBaseUrl", () => {
     ["http://nas:8080/audible-sync/?q=1#x", "http://nas:8080/audible-sync"],
   ])("%s gives %s", (base, expected) => {
     expect(apiBaseUrl(base)).toBe(expected);
+  });
+});
+
+describe("basePath", () => {
+  it.each([
+    ["http://nas:8080/", ""],
+    ["http://my.domain/audible-sync/", "/audible-sync"],
+    ["http://my.domain/apps/audible-sync/index.html", "/apps/audible-sync"],
+  ])("%s gives %j", (base, expected) => {
+    expect(basePath(base)).toBe(expected);
   });
 });
 
