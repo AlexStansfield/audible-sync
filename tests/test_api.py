@@ -1857,7 +1857,8 @@ def prefixed(db, tmp_path):
     """The app under /audible-sync, with a build whose index.html carries Vite's <base href="/">."""
     dist = tmp_path / "dist"
     (dist / "assets").mkdir(parents=True)
-    (dist / "index.html").write_text('<!doctype html><head><base href="/"></head><title>Audible Sync</title>')
+    # Spelled as Vite writes it out of web/index.html
+    (dist / "index.html").write_text('<!doctype html><head><base href="/" /></head><title>Audible Sync</title>')
     (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
     app = create_app(
         scheduler=FakeScheduler(),
@@ -1883,7 +1884,7 @@ def test_the_page_tells_the_web_app_its_base(prefixed, prefix, page):
 
     assert response.status_code == 200
     assert '<base href="/audible-sync/">' in response.text
-    assert '<base href="/">' not in response.text
+    assert '<base href="/"' not in response.text
     assert response.headers["cache-control"] == "no-cache"
 
 
@@ -1953,3 +1954,46 @@ def test_the_base_path_is_normalised(value, expected):
 def test_a_base_path_that_is_not_plain_url_segments_is_refused(value):
     with pytest.raises(ValueError, match="base path"):
         normalise_base_path(value)
+
+
+@pytest.mark.parametrize("value", ["/api", "/API/x", "/assets", "/docs", "/openapi.json", "/library", "/settings/sub"])
+def test_a_base_path_starting_with_one_of_the_apps_own_paths_is_refused(value):
+    # Behind a proxy that strips the prefix, /api/health under a base of /api would be
+    # read as already carrying it and routed as /health
+    with pytest.raises(ValueError, match="one of the app's own paths"):
+        normalise_base_path(value)
+
+
+@pytest.mark.parametrize("value", ["/apps/api", "/audible-sync/library", "/api-sync", "/my-docs"])
+def test_the_apps_own_paths_further_down_a_base_path_are_fine(value):
+    assert normalise_base_path(value) == value
+
+
+def test_a_rebuild_beside_the_running_service_is_served_without_a_restart(prefixed, tmp_path):
+    index = tmp_path / "dist" / "index.html"
+    assert "app-1a2b.js" not in prefixed.get(f"{BASE}/").text
+
+    index.write_text('<head><base href="/" /></head><script src="assets/app-9z8y.js"></script>')
+
+    page = prefixed.get(f"{BASE}/library").text
+    assert "app-9z8y.js" in page
+    assert '<base href="/audible-sync/">' in page
+
+
+def test_a_symlinked_index_html_still_gets_its_base(db, tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.build.html").write_text('<head><base href="/" /></head>')
+    (dist / "index.html").symlink_to("index.build.html")
+    app = create_app(
+        scheduler=FakeScheduler(),
+        state=RunState(),
+        api_token=ApiToken(TOKEN, "stored"),
+        web_dir=dist,
+        base_path=BASE,
+    )
+
+    response = TestClient(app).get(f"{BASE}/index.html")
+
+    assert '<base href="/audible-sync/">' in response.text
+    assert response.headers["cache-control"] == "no-cache"

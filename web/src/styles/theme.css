@@ -1,0 +1,105 @@
+/*
+ * The design's theme (docs/design/DESIGN.md, "Theme values"): one set of variables,
+ * switched by data-theme on <html>, which index.html sets before the first paint.
+ */
+
+:root,
+[data-theme="dark"] {
+  --bg: #0e1014;
+  --nav: #12141a;
+  --panel: #161920;
+  --raised: #1d212a;
+  --line: #272c36;
+  --line-strong: #3a404c;
+  --code: #0b0d10;
+  --text: #e7e9ee;
+  --text-2: #b6bdca;
+  --muted: #9ba3b4;
+  --faint: #6f7889;
+  --accent: #f2a541;
+  --accent-text: #f2a541;
+  --accent-hover: #ffc477;
+  --ok: #4ccf8f;
+  --info: #6fb1ff;
+  --bad: #ff7a7a;
+  --bad-text: #ff9a9a;
+  --violet: #b79cff;
+  --bad-line: #6b3434;
+  --warn-line: #6b5228;
+  --pill: rgba(14, 16, 20, 0.82);
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: #f4f5f7;
+  --nav: #ffffff;
+  --panel: #ffffff;
+  --raised: #eef0f3;
+  --line: #e2e5ea;
+  --line-strong: #c6ccd5;
+  --code: #f4f5f7;
+  --text: #15181e;
+  --text-2: #3b4250;
+  --muted: #5b6372;
+  --faint: #8b929e;
+  --accent: #f2a541;
+  --accent-text: #9a5300;
+  --accent-hover: #7a4100;
+  --ok: #14794a;
+  --info: #1c5fbf;
+  --bad: #c22f2f;
+  --bad-text: #b02424;
+  --violet: #6541c4;
+  --bad-line: #efb4b4;
+  --warn-line: #eccf96;
+  --pill: rgba(255, 255, 255, 0.94);
+  color-scheme: light;
+}
+
+:root {
+  /* The same in both themes */
+  --on-accent: #1a1206;
+  --danger: #e55b5b;
+  --backdrop: rgba(5, 6, 8, 0.72);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius-card: 12px;
+  --radius-control: 8px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent-text);
+}
+
+a:hover {
+  color: var(--accent-hover);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--mono);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

@@ -120,7 +120,7 @@ docker compose logs audible-sync | grep "API token"
 
 Lost it? Set `AUDIBLE_SYNC_API_TOKEN` to a token of your choosing and restart; it takes precedence over the stored one.
 
-The web app (coming in the next milestone) has its own sign-in: one user, created on the first start as `admin` with a generated password that is printed in the log that once, the same way:
+The web app has its own sign-in: one user, created on the first start as `admin` with a generated password that is printed in the log that once, the same way:
 
 ```
 docker compose logs audible-sync | grep "Web app sign-in"
@@ -143,6 +143,18 @@ For a single sync-and-exit instead of the service:
 ```
 docker compose run --rm audible-sync uv run --no-sync python -m src.main
 ```
+
+### Developing the web app
+
+The web app lives in `web/` (Vite, React, TypeScript; Node 22.12 or newer). Run the service as below, then in another terminal:
+
+```
+cd web
+npm install
+npm run dev        # http://localhost:5173, proxying /api to the service on :8080
+```
+
+`AUDIBLE_SYNC_API=http://host:port npm run dev` points the proxy elsewhere. The checks CI runs are `npm run lint`, `npm run typecheck`, `npm test` and `npm run build`; `npm run format` fixes the formatting. After changing `src/schemas.py` or a route, run `npm run gen:api` to regenerate `web/openapi.json` and the client's types in `web/src/api/schema.d.ts` (it needs `uv`); CI fails while they are stale. `npm run build` writes `web/dist`, which the service serves when it finds it.
 
 ### Running the App with Python (No Docker)
 
@@ -231,7 +243,7 @@ The service reads these environment variables:
 
 ### Behind a reverse proxy, under a path
 
-To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`.
+To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`. The path cannot start with one of the app's own (`/api`, `/assets`, `/docs`, `/library`, `/settings` and the other pages); the service refuses to start with one.
 
 nginx, stripping the prefix (the trailing `/` on both lines matters):
 
