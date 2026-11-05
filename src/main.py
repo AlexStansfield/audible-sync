@@ -300,13 +300,27 @@ def login_command(
         discard_device(auth)
         raise SystemExit(f"Logged in, but the account could not be stored: {error}") from None
     if existing is not None:
-        print(f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept.")
+        print(
+            f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept."
+            + _paused_note(existing)
+        )
         return
     if stored.replaced:
-        print(f"Logged in. Account {stored.account_id} already held this login: new credentials, same library.")
+        account = get_account(stored.account_id)
+        ignored = (
+            " The name and download choice given only apply to a new account." if name or not monitor_existing else ""
+        )
+        print(
+            f"Logged in. Account {stored.account_id} ({account.name}) already held this login: "
+            f"new credentials, same library.{ignored}{_paused_note(account)}"
+        )
         return
     logger.info("Added account %d for Audible %s", stored.account_id, marketplace)
     print(f"Logged in. Account {stored.account_id} added; the next run will sync it.")
+
+
+def _paused_note(account: Account) -> str:
+    return " It is paused, so runs skip it until it is turned back on." if not account.enabled else ""
 
 
 def reset_password_command(*, reset_username: bool = False) -> None:

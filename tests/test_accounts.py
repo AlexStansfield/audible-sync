@@ -10,6 +10,7 @@ import src.database as database
 from src import accounts
 from src.accounts import (
     AccountGone,
+    AnotherCustomer,
     LoginAlreadyHeld,
     authenticator_for,
     display_name,
@@ -177,7 +178,7 @@ def test_replace_account_auth_refuses_an_account_deleted_while_the_login_ran(db,
 
 def test_replace_account_auth_refuses_when_the_account_goes_before_the_write(db, monkeypatch):
     account_id = database.add_account("Alex (UK)", "uk", auth=None)
-    monkeypatch.setattr(accounts, "save_account_auth", lambda account_id, auth: False)
+    monkeypatch.setattr(accounts, "save_account_auth", lambda account_id, auth, **kw: False)
 
     with pytest.raises(AccountGone):
         replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
@@ -296,7 +297,7 @@ def test_store_login_gives_the_account_holding_the_login_new_credentials(db, mon
 
 
 def _save_fails(monkeypatch):
-    def locked(account_id, auth):
+    def locked(account_id, auth, **kw):
         raise sqlite3.OperationalError("database is locked")
 
     monkeypatch.setattr(accounts, "save_account_auth", locked)
@@ -387,13 +388,60 @@ def test_replace_account_auth_lets_a_duplicate_sign_in_on_its_own_row(db, monkey
     assert database.get_account(second).auth["access_token"] == "Atna|new"
 
 
-def test_replace_account_auth_can_move_an_account_to_a_login_nobody_holds(db, monkeypatch):
+def test_replace_account_auth_refuses_another_customer_and_leaves_the_device_working(db, monkeypatch):
+    """Its library is that customer's: the wrong login would ask for its books and never fetch its own."""
+    deregistered = _deregistered(monkeypatch)
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_name="Alex")
+
+    with pytest.raises(AnotherCustomer, match="different Amazon login from the one Alex belongs to"):
+        replace_account_auth(database.get_account(account_id), _login(user_id="someone-else"))
+
+    account = database.get_account(account_id)
+    assert account.auth == AUTH_BLOB
+    assert account.customer_name == "Alex"
+    assert deregistered == []
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [None, {**AUTH_BLOB, "customer_info": {"name": "Alex"}}, {**AUTH_BLOB, "customer_info": None}],
+    ids=["no credentials", "no customer id", "no customer info"],
+)
+def test_replace_account_auth_takes_a_login_when_the_account_does_not_say_whose_it_is(db, monkeypatch, stored):
+    _deregistered(monkeypatch)
+    account_id = database.add_account("Alex", "uk", auth=stored)
+
+    replace_account_auth(database.get_account(account_id), _login(user_id="someone"))
+
+    assert database.get_account(account_id).auth["customer_info"]["user_id"] == "someone"
+
+
+def test_replace_account_auth_takes_a_login_that_does_not_say_whose_it_is(db, monkeypatch):
     _deregistered(monkeypatch)
     account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
 
-    replace_account_auth(database.get_account(account_id), _login(user_id="someone-else"))
+    replace_account_auth(
+        database.get_account(account_id), Authenticator.from_dict({**AUTH_BLOB, "customer_info": {"name": "Alex"}})
+    )
 
-    assert database.get_account(account_id).auth["customer_info"]["user_id"] == "someone-else"
+    assert database.get_account(account_id).auth["customer_info"] == {"name": "Alex"}
+
+
+def test_a_failed_store_leaves_the_placeholder_able_to_take_any_marketplace(db, monkeypatch):
+    """A retry in the library's own marketplace must not be refused for one that was never kept."""
+    placeholder = database.add_account("Audible", "", auth=None)
+
+    def locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(database, "_encode_auth", locked)
+
+    with pytest.raises(sqlite3.OperationalError):
+        replace_account_auth(database.get_account(placeholder), _login())
+
+    account = database.get_account(placeholder)
+    assert account.country_code == ""
+    assert account.needs_login is True
 
 
 def test_store_login_can_leave_the_previous_device_registered(db, monkeypatch):

@@ -20,6 +20,7 @@ from src.model import SyncOutcome
 from src.paths import REPO_ROOT
 from src.runstate import RunStage, RunState
 from src.settings import Settings
+from tests.test_accounts import AUTH_BLOB
 from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
 
 TOKEN = "s3cret-test-token"
@@ -845,6 +846,52 @@ def test_sign_in_again_with_a_login_another_account_holds_fails_and_discards_the
     assert database.get_account(holder["id"]).needs_login is False
 
 
+def test_sign_in_again_as_another_customer_fails_and_keeps_the_account_working(api, monkeypatch):
+    deregistered = []
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: deregistered.append(self.access_token))
+    account_id = database.add_account(
+        "Main", "uk", auth={**AUTH_BLOB, "access_token": "Atna|mine", "customer_info": {"user_id": "someone-else"}}
+    )
+
+    api.amazon.polls = [registered_response()]
+    body = _confirmed(api, _start(api, account_id=account_id)["login_id"])
+
+    assert body["status"] == "failed"
+    assert "different Amazon login from the one Main belongs to" in body["error"]
+    assert "log in again" not in body["error"]
+    assert database.get_account(account_id).auth["access_token"] == "Atna|mine"
+    assert deregistered == ["Atna|access"]  # the new device, and not the working one
+
+
+def test_browser_sign_in_for_an_account_removed_meanwhile_does_not_blame_amazon(api, monkeypatch):
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
+    _fake_complete(monkeypatch)
+    account_id = database.add_account("Main", "uk", auth=dict(AUTH_BLOB))
+    login_id = _start(api, method="browser", account_id=account_id)["login_id"]
+    database.delete_account(account_id)
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 409
+    assert "was removed" in response.json()["detail"]
+    assert "Amazon rejected" not in response.json()["detail"]
+
+
+def test_browser_sign_in_that_cannot_be_stored_does_not_ask_to_paste_again(api, monkeypatch):
+    """The login is over and its device gone by then, so a 400 would invite a paste that can only 404."""
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
+    _fake_complete(monkeypatch)
+    placeholder = database.add_account("Audible", "", auth=None)
+    login_id = _start(api, method="browser", account_id=placeholder)["login_id"]
+    database.update_account(placeholder, country_code="us")  # another sign-in got there first
+
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 409
+    assert "US account" in response.json()["detail"]
+    assert api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "failed"
+
+
 def test_browser_sign_in_with_a_login_another_account_holds_is_a_409(api, monkeypatch):
     monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
     _fake_complete(monkeypatch)
@@ -1017,8 +1064,6 @@ LANDING = "https://www.amazon.co.uk/ap/maplanding?openid.oa2.authorization_code=
 
 
 def _fake_complete(monkeypatch, *, raises=None):
-
-    from tests.test_accounts import AUTH_BLOB
 
     calls = []
 

@@ -1106,6 +1106,18 @@ def test_count_unreadable_secrets_counts_what_another_key_wrote(db):
     assert database.count_unreadable_secrets() == written
 
 
+def test_save_account_auth_stores_what_the_login_says_with_the_credentials(db):
+    account_id = database.add_account("Pending", "", auth=None, customer_name="Old")
+
+    database.save_account_auth(account_id, {"access_token": "Atna|x"}, country_code="uk")
+    account = database.get_account(account_id)
+    assert (account.country_code, account.customer_name) == ("uk", "Old")  # what is not given is left alone
+
+    database.save_account_auth(account_id, {"access_token": "Atna|y"}, customer_name="New")
+    account = database.get_account(account_id)
+    assert (account.country_code, account.customer_name) == ("uk", "New")
+
+
 def test_save_account_auth_reports_whether_the_account_was_there(db):
     account_id = database.add_account("Alex (UK)", "uk", auth=None)
 

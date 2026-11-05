@@ -27,7 +27,6 @@ from src.database import (
     replace_account_auth_if_unchanged,
     requeue_unavailable,
     save_account_auth,
-    update_account,
 )
 from src.model import Account, StoredLogin
 
@@ -133,6 +132,10 @@ class LoginAlreadyHeld(LookupError):
     """Another account already holds this Audible login."""
 
 
+class AnotherCustomer(LookupError):
+    """A login for an account was made as a different Amazon customer from the one it belongs to."""
+
+
 def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> None:
     """
     Give an existing account new credentials, keeping its id and so its library.
@@ -151,6 +154,10 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
             owns the new device and should deregister it (`audible_login.discard_device`)
         LoginAlreadyHeld: if another account holds this Audible login: one login, one
             account, or both would download and file every book. Likewise the caller's
+        AnotherCustomer: if the account's credentials say it belongs to a different Amazon
+            customer. Its library is that customer's: its books would be asked for under
+            the wrong login, and its cursor would never fetch the new one's. The working
+            device is left alone. Likewise the caller's
         ValueError: if `auth` is another marketplace's login. An account's library
             is one marketplace's: credentials for another would leave its books asking
             the wrong store for licences, and its cursor skipping the other's catalogue.
@@ -179,8 +186,17 @@ def _store_auth(account: Account, auth: Authenticator) -> Account:
     if current is None:
         raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
     check_marketplace(current, _country_of(auth))
-    update_account(current.id, country_code=_country_of(auth), customer_name=customer_name_of(auth))
-    if not save_account_auth(current.id, auth_to_dict(auth)):
+    stored_customer = _user_id((current.auth or {}).get("customer_info"))
+    new_customer = _user_id(auth.customer_info)
+    if stored_customer and new_customer and stored_customer != new_customer:
+        raise AnotherCustomer(
+            f"This is a different Amazon login from the one {current.name} belongs to. "
+            "Sign in as that customer, or use Add account to add this login as a new account"
+        )
+    stored = save_account_auth(
+        current.id, auth_to_dict(auth), country_code=_country_of(auth), customer_name=customer_name_of(auth)
+    )
+    if not stored:
         raise AccountGone(f"Account {current.id} ({current.name}) was removed while the login was in progress")
     logger.info("Replaced the credentials of %r", current)
     # The books the old device was refused licences for get another go with the new
@@ -248,8 +264,8 @@ def store_login(
     `monitor_existing` are not used, since they describe an account being created. A match
     removed meanwhile means a new account.
 
-    Raises:
-        ValueError: as `replace_account_auth`; the caller owns the new device
+    Raises nothing of its own; a database error means nothing was stored, and the caller
+    owns the new device.
     """
     with _store_lock:
         holders = _holders(auth)

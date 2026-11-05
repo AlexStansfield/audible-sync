@@ -35,14 +35,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src import crypto, database, library, system, webauth
 from src.accounts import (
-    LoginAlreadyHeld,
     authenticator_for,
     check_marketplace,
     replace_account_auth,
     store_login,
 )
 from src.apitoken import ApiToken, TokenFromEnv
-from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
+from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, LoginNotStored, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
     book_ids_matching,
@@ -611,8 +610,9 @@ def create_app(
 
         404 for a login that is unknown, expired or already finished (start again), 400
         for an address that carries no authorization code (the login stays open for the
-        right one), 409 when another account holds this Audible login, 502 when Amazon
-        rejects the code.
+        right one), 409 when Amazon accepted but the login could not be stored - another
+        account holds it, the account has gone - which ends it, 502 when Amazon rejects
+        the code.
         """
         try:
             login = logins.complete(login_id, body.response_url)
@@ -620,7 +620,8 @@ def create_app(
             raise HTTPException(status_code=404, detail="No such login, or it has expired; start again") from None
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from None
-        except LoginAlreadyHeld as error:
+        except LoginNotStored as error:
+            logger.warning("The login %s could not be stored", login_id, exc_info=True)
             raise HTTPException(status_code=409, detail=str(error)) from None
         except Exception as error:
             logger.warning("Amazon rejected the login %s", login_id, exc_info=True)

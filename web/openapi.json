@@ -2345,7 +2345,7 @@
         "summary": "Login Status"
       },
       "post": {
-        "description": "Step two of a browser login: the pasted address becomes the account.\n\n404 for a login that is unknown, expired or already finished (start again), 400\nfor an address that carries no authorization code (the login stays open for the\nright one), 409 when another account holds this Audible login, 502 when Amazon\nrejects the code.",
+        "description": "Step two of a browser login: the pasted address becomes the account.\n\n404 for a login that is unknown, expired or already finished (start again), 400\nfor an address that carries no authorization code (the login stays open for the\nright one), 409 when Amazon accepted but the login could not be stored - another\naccount holds it, the account has gone - which ends it, 502 when Amazon rejects\nthe code.",
         "operationId": "complete_account_login_api_accounts_login__login_id__post",
         "parameters": [
           {

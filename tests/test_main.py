@@ -541,12 +541,30 @@ def test_login_command_says_when_an_account_already_held_the_login(monkeypatch, 
     _patch_prepare(monkeypatch, [])
     monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
     monkeypatch.setattr(main_module, "store_login", lambda auth, **kw: StoredLogin(4, replaced=True))
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
 
     main(["login", "--marketplace", "uk"])
 
     output = capsys.readouterr().out
-    assert "Account 4 already held this login" in output
+    assert "Account 4 (Main) already held this login" in output
     assert "added" not in output
+    assert "only apply to a new account" not in output
+    assert "paused" not in output
+
+
+def test_login_command_says_what_it_did_not_use_and_that_the_account_is_paused(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "store_login", lambda auth, **kw: StoredLogin(4, replaced=True))
+    monkeypatch.setattr(
+        main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main", enabled=False)
+    )
+
+    main(["login", "--marketplace", "uk", "--name", "Partner"])
+
+    output = capsys.readouterr().out
+    assert "only apply to a new account" in output
+    assert "It is paused, so runs skip it" in output
 
 
 def test_login_command_reports_a_failed_login(monkeypatch):
@@ -618,6 +636,19 @@ def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch,
 
     assert replaced == [(3, "auth")]
     assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+
+
+def test_login_command_with_an_account_says_it_is_paused(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(
+        main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main", enabled=False)
+    )
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: None)
+
+    main(["login", "--marketplace", "uk", "--account", "3"])
+
+    assert "It is paused, so runs skip it" in capsys.readouterr().out
 
 
 def test_login_command_deregisters_the_device_when_the_account_cannot_be_stored(monkeypatch):

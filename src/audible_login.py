@@ -156,6 +156,10 @@ class LoginExpired(LoginFailed):
     """The code was not confirmed before it expired."""
 
 
+class LoginNotStored(Exception):
+    """Amazon confirmed a login but it could not be kept; the message says why."""
+
+
 class LoginCancelled(LoginFailed):
     """The login was cancelled while the code was still being polled for."""
 
@@ -618,6 +622,8 @@ class PendingLogins:
                 finished, or not a browser login
             ValueError: for an address that carries no code; the login is left pending,
                 so the right address can still be pasted
+            LoginNotStored: when Amazon accepted but the account could not be stored; the
+                login is failed and the new device deregistered
             Exception: from `register`, when Amazon rejects the code; the login is failed
         """
         with self._lock:
@@ -734,12 +740,11 @@ class PendingLogins:
         except Exception as error:
             # Amazon has registered a device that nothing will ever hold or deregister
             discarded = discard_device(auth)
-            self._fail(
-                login,
-                f"the login was confirmed but the account could not be stored: {error}"
-                + ("; the new device was deregistered, log in again" if discarded else ""),
+            reason = f"the login was confirmed but the account could not be stored: {error}" + (
+                "; the new device was deregistered" if discarded else ""
             )
-            raise
+            self._fail(login, reason)
+            raise LoginNotStored(reason) from error
         with self._lock:
             login.status = LoginStatus.CONFIRMED
             login.account_id = stored.account_id
