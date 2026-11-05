@@ -110,6 +110,7 @@ audible-sync/
 │   ├── test_sync.py          # Incremental cursor, its fallbacks, the availability refresh pass
 │   ├── test_progress.py      # NullProgress and the tqdm adapter's lifecycle
 │   └── fixtures/silence.m4b  # 900-byte silent AAC M4B for tag-writing tests
+├── docs/                     # User docs: installation, accounts, configuration, api; images/ for the README
 ├── docs/design/              # Milestone 4 web app design: DESIGN.md (the spec) and screens/ (the mockups)
 ├── opencollection/           # The API as a request collection (OpenCollection YAML) for Bruno and the like; not in the image
 ├── secrets/                  # secret.key, generated on the first start (gitignored, its own mount)
@@ -118,7 +119,8 @@ audible-sync/
 ├── Dockerfile
 ├── pyproject.toml / uv.lock  # Direct dependencies, dev group, ruff and pytest config
 ├── requirements.txt          # Generated: uv export --no-dev --no-hashes --no-emit-project -o requirements.txt
-├── README.md
+├── README.md                 # What it is and a quick start; the detail is in docs/
+├── CONTRIBUTING.md
 └── todo.md                   # Milestone roadmap
 ```
 
@@ -679,7 +681,7 @@ docker compose run --rm -it audible-sync bash
 - `Dockerfile`: a `node:24-slim` stage `web` runs `npm ci` and `npm run build` in `web/`, and only its `dist` is copied to `/app/web/dist` in the final stage (no Node in the image); then `python:3.12-slim-trixie`, installs uv and ffmpeg, `uv sync --locked --no-dev`, `EXPOSE 8080`, an unauthenticated `HEALTHCHECK` on `/api/health`, `CMD uv run python -m src.service`
 - `compose.yml`: publishes `8080`, passes `AUDIBLE_SYNC_API_TOKEN` and `AUDIBLE_SYNC_SECRET_KEY` through from the environment (empty means "generate one"), `AUDIBLE_SYNC_SECURE_COOKIE` (for a reverse proxy serving https) and `AUDIBLE_SYNC_BASE_PATH` (for one serving it under a path), mounts `./data`, `./secrets` (the key file, to be backed up separately from `./data`), `./audiobooks`, optional `./config`; `stop_grace_period: 2m` to match `service.STOP_TIMEOUT`
 - Run with `docker compose up -d`; `restart: unless-stopped` is right for the service. A one-shot run is `docker compose run --rm audible-sync uv run --no-sync python -m src.main`
-- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/`, `secrets/`, `opencollection/`, `web/dist/` and every `node_modules`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored as `/test/`, anchored to the root: unanchored, the rule also hid `web/src/test/`, the web tests' helpers, which were then never committed): a compose file with `build: ..` and its own `config/` mount.
+- `.dockerignore` excludes `data/`, `audiobooks/` (gigabytes), `venv/`, `test/`, `secrets/`, `opencollection/`, `docs/`, `web/dist/` and every `node_modules`, so a local `docker compose build` from the repo root sends only the code. A local test setup lives in `test/` (gitignored as `/test/`, anchored to the root: unanchored, the rule also hid `web/src/test/`, the web tests' helpers, which were then never committed): a compose file with `build: ..` and its own `config/` mount.
 - Image: `ghcr.io/alexstansfield/audible-sync:latest` and `:vX.Y.Z`, published on `v*` tags
 
 ## Web app

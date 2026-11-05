@@ -40,8 +40,10 @@ audiobooks/
 venv/
 test/
 
-# The API collection is for a desktop client, not the image
+# The API collection and the documentation are for people, not the image
 opencollection/
+docs/
+CONTRIBUTING.md
 secrets/
 
 # A local web build; the image builds its own in the web stage
