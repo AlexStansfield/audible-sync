@@ -4,8 +4,10 @@
  * defaults filled in and anything unreadable dropped; `serialise` writes back only what
  * differs from the defaults, so the plain Library is plain `/library`.
  */
+
 import type { components, operations } from "../../api/schema";
 import type { BookStatus } from "../../lib/format";
+import { positiveId } from "../../lib/ids";
 
 /** `GET /api/books`' `sort` (the API's `Literal`, kept in step with `BOOK_SORT_COLUMNS`) */
 export type Sort = NonNullable<NonNullable<operations["get_books_api_books_get"]["parameters"]["query"]>["sort"]>;
@@ -61,12 +63,6 @@ export function defaultOrder(sort: Sort): Order {
   return SORTS.find((option) => option.value === sort)?.order ?? "desc";
 }
 
-function positiveInt(value: string | null): number | null {
-  if (value === null || !/^\d+$/.test(value)) return null;
-  const number = Number(value);
-  return Number.isSafeInteger(number) && number >= 1 ? number : null;
-}
-
 export function parse(params: URLSearchParams): LibraryQuery {
   const status = params.get("status");
   const sort = SORTS.find((option) => option.value === params.get("sort"))?.value ?? DEFAULT_QUERY.sort;
@@ -74,12 +70,12 @@ export function parse(params: URLSearchParams): LibraryQuery {
   const monitored = params.get("monitored");
   return {
     q: (params.get("q") ?? "").slice(0, MAX_SEARCH).trim(),
-    accountId: positiveInt(params.get("account")),
+    accountId: positiveId(params.get("account")),
     status: STATUSES.includes(status as BookStatus) ? (status as BookStatus) : null,
     monitored: monitored === "true" ? true : monitored === "false" ? false : null,
     sort,
     order: order === "asc" || order === "desc" ? order : defaultOrder(sort),
-    page: positiveInt(params.get("page")) ?? 1,
+    page: positiveId(params.get("page")) ?? 1,
   };
 }
 

@@ -21,6 +21,7 @@ describe("runDetail", () => {
     [run({ books_added: 0, books_downloaded: 5, books_failed: 1, outcome: "partial" }), "5 downloaded · 1 failed"],
     [run({ books_added: 0, books_downloaded: 0 }), "No new purchases"],
     [run({ outcome: "cancelled", books_downloaded: 3 }), "Stopped after 3 books"],
+    [run({ outcome: "cancelled", books_downloaded: 0, books_failed: 0 }), "Stopped before finishing a book"],
     [run({ outcome: "aborted", error: "5 licence refusals in a row" }), "5 licence refusals in a row"],
     [
       run({ outcome: "partial", books_added: 0, books_downloaded: 0, error: "No space left on device" }),

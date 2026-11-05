@@ -124,7 +124,8 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
 - [x] Web: Accounts with the code and browser sign-in flows (the live code sign-in from the UI still to be checked against Amazon)
 - [ ] Backend: `DELETE /api/accounts/login/{login_id}` to cancel a pending login (stop a code login's polling thread under the store's lock; answer with the login as it ended, so a confirm that won the race is reported). The web app would call it when the sign-in dialog closes or switches from the code to the browser sign-in; today an abandoned code that the user had already entered still becomes an account, and entering it and then finishing a browser sign-in too adds the account twice
-- [ ] Web: Activity (runs, log) and Settings
+- [x] Web: Activity (runs, log)
+- [ ] Web: Settings
 - [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password
 - [x] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
 - [x] Web: Library bulk selection (grid and table), action bar, delete confirmation, result message
@@ -133,5 +134,5 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [ ] Web: Settings API access and System sections; Dashboard Up next card (Up next done with the Dashboard)
 - [x] Backend: per-book run records (`sync_run_books`, `GET /api/sync/runs/{id}/books`)
 - [x] Backend: `GET /api/queue` for the Dashboard's Up next card
-- [ ] Web (later): the expandable run row in Activity
+- [x] Web: the expandable run row in Activity (built with Activity, since `GET /api/sync/runs/{id}/books` exists)
 

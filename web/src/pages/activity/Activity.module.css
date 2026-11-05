@@ -1,0 +1,395 @@
+/* Activity (Activity.dc.html) */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.account {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.account select {
+  width: auto;
+  min-height: 40px;
+  padding: 0 10px;
+  background: var(--panel);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.cardTitle {
+  margin: 0;
+  padding: 16px 20px 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.empty {
+  margin: 0;
+  padding: 8px 20px 20px;
+  color: var(--muted);
+}
+
+/* --- the run history ---------------------------------------------------------------- */
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 960px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: 10px 8px;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.table th:first-child {
+  padding-left: 20px;
+}
+
+.table td {
+  padding: 11px 8px;
+  border-top: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.table .runCell {
+  padding: 4px 8px 4px 12px;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table td:last-child,
+.table th:last-child {
+  padding-right: 20px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.toggle:hover {
+  background: var(--raised);
+  color: var(--text);
+}
+
+.toggle svg {
+  transition: transform 0.15s ease;
+}
+
+.toggle .turned {
+  transform: rotate(90deg);
+}
+
+.secondary {
+  color: var(--text-2);
+}
+
+.duration {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.table .bad {
+  color: var(--bad-text);
+}
+
+.note {
+  max-width: 300px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.openRow td {
+  background: color-mix(in srgb, var(--raised) 50%, transparent);
+}
+
+.table .booksRow td {
+  padding: 14px 20px 18px 48px;
+  border-top: 0;
+  background: var(--bg);
+}
+
+.groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.groupTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.none {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.books {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.book {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.cover {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: 3px;
+  background: var(--raised);
+}
+
+.bookText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bookTitle,
+.bookNote {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bookTitle {
+  font-weight: 600;
+}
+
+.bookNote {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+a.book:hover .bookTitle {
+  color: var(--accent-text);
+}
+
+.unrecorded {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.foot button {
+  margin-left: auto;
+}
+
+.footError {
+  margin: 0 20px 14px;
+}
+
+/* --- the service log ---------------------------------------------------------------- */
+
+.logHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+}
+
+.logTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.levels {
+  margin: 0 0 0 auto;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+
+.levels button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.levels button[aria-pressed="true"] {
+  background: var(--line);
+  color: var(--text);
+}
+
+.log {
+  max-height: 480px;
+  overflow: auto;
+  padding: 12px 20px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+  background: var(--code);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.75;
+}
+
+.line {
+  display: flex;
+  gap: 14px;
+}
+
+.time {
+  flex: none;
+  color: var(--muted);
+}
+
+.level {
+  width: 56px;
+  flex: none;
+  font-weight: 500;
+}
+
+.logger {
+  width: 120px;
+  flex: none;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A traceback keeps its lines and wraps the long ones */
+.message {
+  min-width: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.logError {
+  padding: 0 20px 20px;
+}
+
+@media (max-width: 720px) {
+  .account {
+    margin-left: 0;
+  }
+
+  .levels {
+    margin-left: 0;
+  }
+
+  /* An open run's books: one group under another, held to the visible width while
+     the table around them scrolls sideways */
+  .table .booksRow td {
+    padding: 14px 16px 16px;
+  }
+
+  .groups {
+    position: sticky;
+    left: 16px;
+    width: calc(100vw - 80px);
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  /* The logger name gives way to the message on a phone */
+  .logger {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle svg {
+    transition: none;
+  }
+}
