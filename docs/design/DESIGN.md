@@ -1,5 +1,7 @@
 # Web app design (Milestone 4)
 
+> Where this document or a mockup in `screens/` disagrees with the code, the code wins: the mockups show the design as first planned, and are not kept up to date with every change.
+
 The design hand-off for the web app on top of the API. It describes **what to build**: the screens, what each one reads and writes, how it behaves, and the backend work the UI depends on. The look is in [`screens/`](screens/).
 
 ## The screen files
