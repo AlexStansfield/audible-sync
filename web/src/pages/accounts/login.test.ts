@@ -26,6 +26,7 @@ function login(overrides: Partial<Login> = {}): Login {
     method: "code",
     status: "pending",
     replaced: false,
+    requeued: 0,
     expires_at: "2026-11-02T12:10:00+00:00",
     code: "KQ7XM",
     verification_url: "https://www.amazon.co.uk/code",
@@ -66,22 +67,32 @@ describe("the sign-in dialog's rules", () => {
 
   it("words the done screen for a new account and for a sign-in again", () => {
     const de = account({ name: "Alex (DE)" });
-    expect(doneText({ kind: "add" }, { account: de, replaced: false }).title).toBe("Alex (DE) is connected");
-    expect(doneText({ kind: "add" }, { account: de, replaced: true })).toEqual({
+    expect(doneText({ kind: "add" }, { account: de, replaced: false, requeued: 0 }).title).toBe(
+      "Alex (DE) is connected",
+    );
+    expect(doneText({ kind: "add" }, { account: de, replaced: true, requeued: 2 })).toEqual({
       title: "Alex (DE) is signed in again",
-      text: "This Audible login already had this account. The library and history are unchanged. Refused books are queued for the next run.",
+      text: "This Audible login already had this account. The library and history are unchanged. 2 refused books are queued for the next run.",
     });
     const paused =
       "The library and history are unchanged. The account is paused, so runs skip it until you turn Sync back on.";
     const off = account({ enabled: false });
-    expect(doneText({ kind: "add" }, { account: off, replaced: true }).text).toBe(
+    expect(doneText({ kind: "add" }, { account: off, replaced: true, requeued: 2 }).text).toBe(
       `This Audible login already had this account. ${paused}`,
     );
-    expect(doneText({ kind: "relogin", account: off }, { account: null, replaced: true }).text).toBe(paused);
-    expect(doneText({ kind: "relogin", account: account() }, { account: null, replaced: true })).toEqual({
+    expect(doneText({ kind: "relogin", account: off }, { account: null, replaced: true, requeued: 0 }).text).toBe(
+      paused,
+    );
+    expect(doneText({ kind: "relogin", account: account() }, { account: null, replaced: true, requeued: 1 })).toEqual({
       title: "Alex (UK) is signed in again",
-      text: "The library and history are unchanged. Refused books are queued for the next run.",
+      text: "The library and history are unchanged. 1 refused book is queued for the next run.",
     });
+  });
+
+  it("says nothing about refused books when the sign-in queued none", () => {
+    expect(doneText({ kind: "relogin", account: account() }, { account: null, replaced: true, requeued: 0 }).text).toBe(
+      "The library and history are unchanged.",
+    );
   });
 });
 

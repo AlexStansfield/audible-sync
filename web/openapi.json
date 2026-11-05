@@ -898,6 +898,11 @@
             "title": "Replaced",
             "type": "boolean"
           },
+          "requeued": {
+            "default": 0,
+            "title": "Requeued",
+            "type": "integer"
+          },
           "status": {
             "enum": [
               "pending",

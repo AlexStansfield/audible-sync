@@ -7,10 +7,14 @@ from typing import Any, NamedTuple
 
 
 class StoredLogin(NamedTuple):
-    """What a confirmed login became: the account, and whether it was one that already existed."""
+    """
+    What a confirmed login became: the account, whether it was one that already existed,
+    and how many of its parked books the new device put back in the queue.
+    """
 
     account_id: int
     replaced: bool = False
+    requeued: int = 0
 
 
 class BookStatus(StrEnum):

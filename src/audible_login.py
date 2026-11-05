@@ -180,6 +180,8 @@ class Login:
     account_id: int | None = None
     # Whether that account already existed, and only got new credentials
     replaced: bool = False
+    # How many of its parked books the new credentials put back in the queue
+    requeued: int = 0
     # Why it failed, once it has
     error: str | None = None
 
@@ -749,6 +751,7 @@ class PendingLogins:
             login.status = LoginStatus.CONFIRMED
             login.account_id = stored.account_id
             login.replaced = stored.replaced
+            login.requeued = stored.requeued
 
     def _as_read(self, login: BrowserLogin | CodeLogin) -> BrowserLogin | CodeLogin:
         """

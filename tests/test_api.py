@@ -16,7 +16,7 @@ from src.api import create_app, read_version
 from src.apitoken import ApiToken
 from src.audible_login import PendingLogins
 from src.logbuffer import RingBufferHandler
-from src.model import SyncOutcome
+from src.model import StoredLogin, SyncOutcome
 from src.paths import REPO_ROOT
 from src.runstate import RunStage, RunState
 from src.settings import Settings
@@ -811,6 +811,37 @@ def test_login_with_a_code_becomes_the_account_once_confirmed(api):
     assert [a.id for a in database.get_accounts()] == [account["id"]]
 
 
+def _recording_replace(replaced):
+    """A stand-in for `replace_account_auth` that notes its call and stores the credentials."""
+
+    def replace(account, auth, *, deregister_previous):
+        replaced.append((account.id, deregister_previous))
+        database.save_account_auth(account.id, auth.to_dict())
+        return StoredLogin(account.id, replaced=True)
+
+    return replace
+
+
+@pytest.mark.parametrize("through", ["store_login", "account_id"])
+def test_a_login_says_how_many_parked_books_it_queued(api, monkeypatch, through):
+    """A withdrawn title stays parked, so the count is what the sign-in screen can truthfully say."""
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
+    api.amazon.polls = [registered_response()]
+    first = _confirmed(api, _start(api)["login_id"])
+    account_id = first["account"]["id"]
+    assert first["requeued"] == 0
+    (refused, _) = _shelve(account_id, make_book("B001"), make_book("B002", is_consumable=False))
+    database.claim_book_for_download(refused.id)
+    database.mark_book_unavailable(refused.id, "Denied")
+
+    api.amazon.polls = [registered_response()]
+    start = {"account_id": account_id} if through == "account_id" else {}
+    assert _confirmed(api, _start(api, **start)["login_id"])["requeued"] == 1
+
+    api.amazon.polls = [registered_response()]
+    assert _confirmed(api, _start(api, **start)["login_id"])["requeued"] == 0
+
+
 def test_login_for_an_account_that_holds_it_replaces_its_credentials(api, monkeypatch):
     monkeypatch.setattr(Authenticator, "deregister_device", lambda self: None)
     api.amazon.polls = [registered_response()]
@@ -1023,9 +1054,7 @@ def test_login_with_a_code_can_replace_an_existing_accounts_credentials(api, mon
     monkeypatch.setattr(
         api_module,
         "replace_account_auth",
-        lambda account, auth, *, deregister_previous: (
-            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
-        ),
+        _recording_replace(replaced),
     )
 
     started = _start(api, account_id=account_id, deregister_previous=False)
@@ -1184,9 +1213,7 @@ def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeyp
     monkeypatch.setattr(
         api_module,
         "replace_account_auth",
-        lambda account, auth, *, deregister_previous: (
-            replaced.append((account.id, deregister_previous)) or database.save_account_auth(account.id, auth.to_dict())
-        ),
+        _recording_replace(replaced),
     )
     login_id = _start(api, method="browser", account_id=account_id)["login_id"]
 

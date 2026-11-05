@@ -92,12 +92,20 @@ export function defaultMarketplace(marketplaces: readonly Marketplace[], languag
   return marketplaces[0]?.country_code ?? "";
 }
 
-type DoneLogin = Pick<Login, "account" | "replaced">;
+type DoneLogin = Pick<Login, "account" | "replaced" | "requeued">;
 
 /** Whether the account a sign-in landed on is paused: signing in does not undo that. */
 export function isPaused(purpose: Purpose, login: DoneLogin): boolean {
   const account = login.account ?? (purpose.kind === "relogin" ? purpose.account : null);
   return account?.enabled === false;
+}
+
+/** Only what the sign-in really queued: a title Audible withdrew stays parked, so often nothing. */
+function requeuedText(requeued: number): string {
+  if (requeued === 0) return "";
+  return requeued === 1
+    ? " 1 refused book is queued for the next run."
+    : ` ${requeued.toLocaleString()} refused books are queued for the next run.`;
 }
 
 /**
@@ -108,7 +116,7 @@ export function doneText(purpose: Purpose, login: DoneLogin): { title: string; t
   const name = login.account?.name ?? (purpose.kind === "relogin" ? purpose.account.name : "The account");
   const unchanged = isPaused(purpose, login)
     ? "The library and history are unchanged. The account is paused, so runs skip it until you turn Sync back on."
-    : "The library and history are unchanged. Refused books are queued for the next run.";
+    : `The library and history are unchanged.${requeuedText(login.requeued)}`;
   if (purpose.kind === "relogin") return { title: `${name} is signed in again`, text: unchanged };
   return login.replaced
     ? { title: `${name} is signed in again`, text: `This Audible login already had this account. ${unchanged}` }
