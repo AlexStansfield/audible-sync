@@ -9,7 +9,7 @@ export function requeuedText(requeued: number): string {
   if (requeued === 0) {
     return "Nothing to retry: the books left are titles Audible withdrew, which come back on their own.";
   }
-  return `${plural(requeued, "book")} queued again for the next run.`;
+  return `${plural(requeued, "book")} ${requeued === 1 ? "is" : "are"} waiting to download again.`;
 }
 
 /**
