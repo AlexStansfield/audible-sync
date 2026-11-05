@@ -57,6 +57,7 @@ function codeLogin(overrides: Partial<Login> = {}): Login {
     method: "code",
     status: "pending",
     replaced: false,
+    requeued: 0,
     expires_at: new Date(NOW + 600_000).toISOString(),
     code: "KQ7XM",
     verification_url: "https://www.amazon.co.uk/code",
@@ -740,6 +741,8 @@ describe("Accounts", () => {
         return body.method === "browser"
           ? json(202, {
               login_id: "web",
+              replaced: false,
+              requeued: 0,
               method: "browser",
               status: "pending",
               expires_at: codeLogin().expires_at,
@@ -757,6 +760,8 @@ describe("Accounts", () => {
           ? json(400, { detail: "That address carries no authorization code" })
           : json(201, {
               login_id: "web",
+              replaced: false,
+              requeued: 0,
               method: "browser",
               status: "confirmed",
               expires_at: codeLogin().expires_at,

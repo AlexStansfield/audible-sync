@@ -529,8 +529,7 @@ def create_app(
 
         def finish(auth: Authenticator) -> StoredLogin:
             if existing is not None:
-                replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
-                return StoredLogin(existing.id, replaced=True)
+                return replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
             return store_login(
                 auth,
                 name=body.name,
@@ -552,6 +551,7 @@ def create_app(
             url=login.url if isinstance(login, BrowserLogin) else None,
             account=AccountOut.model_validate(account) if account is not None else None,
             replaced=login.replaced,
+            requeued=login.requeued,
             error=login.error,
         )
 

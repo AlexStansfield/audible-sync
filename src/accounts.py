@@ -136,7 +136,7 @@ class AnotherCustomer(LookupError):
     """A login for an account was made as a different Amazon customer from the one it belongs to."""
 
 
-def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> None:
+def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> StoredLogin:
     """
     Give an existing account new credentials, keeping its id and so its library.
 
@@ -169,16 +169,18 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
             raise LoginAlreadyHeld(
                 f"{holders[0].name} already holds this Audible login. Sign in on that account, or remove it first"
             )
-        previous = _store_auth(account, auth)
+        previous, requeued = _store_auth(account, auth)
     if deregister_previous:
         _deregister_previous(previous)
+    return StoredLogin(previous.id, replaced=True, requeued=requeued)
 
 
-def _store_auth(account: Account, auth: Authenticator) -> Account:
+def _store_auth(account: Account, auth: Authenticator) -> tuple[Account, int]:
     """
-    Store new credentials for an account and return the account as it was, whose device
-    is now held by nothing. The caller deregisters that, outside `_store_lock`: Amazon
-    may be slow, and every other login would wait.
+    Store new credentials for an account. Returns the account as it was, whose device is
+    now held by nothing, and how many parked books were queued again. The caller
+    deregisters that device, outside `_store_lock`: Amazon may be slow, and every other
+    login would wait.
     """
     # The account as it is now: a login takes minutes, and the one it was started for may
     # have been removed or given other credentials meanwhile
@@ -206,10 +208,10 @@ def _store_auth(account: Account, auth: Authenticator) -> Account:
         requeued = requeue_unavailable(current.id)
     except Exception:
         logger.exception("Could not queue the parked books of %r again; Retry unavailable will", current)
-    else:
-        if requeued:
-            logger.info("Queued %d parked book(s) of %r again for the new device", requeued, current)
-    return current
+        return current, 0
+    if requeued:
+        logger.info("Queued %d parked book(s) of %r again for the new device", requeued, current)
+    return current, requeued
 
 
 def _deregister_previous(previous: Account) -> None:
@@ -270,13 +272,14 @@ def store_login(
     with _store_lock:
         holders = _holders(auth)
         previous = None
+        requeued = 0
         if holders:
             try:
-                previous = _store_auth(holders[0], auth)
+                previous, requeued = _store_auth(holders[0], auth)
             except AccountGone:
                 logger.info("%r was removed as a login for it arrived; adding a new account", holders[0])
         if previous is None:
             return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
     if deregister_previous:
         _deregister_previous(previous)
-    return StoredLogin(previous.id, replaced=True)
+    return StoredLogin(previous.id, replaced=True, requeued=requeued)

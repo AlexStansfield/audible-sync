@@ -92,7 +92,7 @@ export function defaultMarketplace(marketplaces: readonly Marketplace[], languag
   return marketplaces[0]?.country_code ?? "";
 }
 
-type DoneLogin = Pick<Login, "account" | "replaced">;
+type DoneLogin = Pick<Login, "account" | "replaced" | "requeued">;
 
 /** Whether the account a sign-in landed on is paused: signing in does not undo that. */
 export function isPaused(purpose: Purpose, login: DoneLogin): boolean {
@@ -101,14 +101,24 @@ export function isPaused(purpose: Purpose, login: DoneLogin): boolean {
 }
 
 /**
+ * Only what the sign-in really moved: a title Audible withdrew stays parked, so often
+ * nothing. Says where the books are, not when: `max_download` may not reach them next run.
+ */
+function requeuedText(requeued: number): string {
+  if (requeued === 0) return "";
+  return requeued === 1
+    ? " 1 refused book is waiting to download again."
+    : ` ${requeued.toLocaleString()} refused books are waiting to download again.`;
+}
+
+/**
  * The account a done screen names, and what it says next. Adding a login an account
  * already holds signs that account in again (`replaced`), which says why no new one came.
  */
 export function doneText(purpose: Purpose, login: DoneLogin): { title: string; text: string } {
   const name = login.account?.name ?? (purpose.kind === "relogin" ? purpose.account.name : "The account");
-  const unchanged = isPaused(purpose, login)
-    ? "The library and history are unchanged. The account is paused, so runs skip it until you turn Sync back on."
-    : "The library and history are unchanged. Refused books are queued for the next run.";
+  const paused = isPaused(purpose, login) ? " The account is paused, so runs skip it until you turn Sync back on." : "";
+  const unchanged = `The library and history are unchanged.${requeuedText(login.requeued)}${paused}`;
   if (purpose.kind === "relogin") return { title: `${name} is signed in again`, text: unchanged };
   return login.replaced
     ? { title: `${name} is signed in again`, text: `This Audible login already had this account. ${unchanged}` }

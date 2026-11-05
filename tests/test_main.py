@@ -629,13 +629,37 @@ def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch,
     monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
     monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
     replaced = []
-    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: replaced.append((account.id, auth)))
+    monkeypatch.setattr(
+        main_module,
+        "replace_account_auth",
+        lambda account, auth: replaced.append((account.id, auth)) or StoredLogin(account.id, replaced=True),
+    )
     monkeypatch.setattr(main_module, "store_login", lambda *a, **kw: pytest.fail("must not add"))
 
     main(["login", "--marketplace", "uk", "--account", "3"])
 
     assert replaced == [(3, "auth")]
-    assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "Account 3 (Main) has new credentials" in output
+    assert "refused" not in output
+
+
+@pytest.mark.parametrize(
+    ("requeued", "said"),
+    [(1, "1 refused book is waiting to download again."), (2, "2 refused books are waiting to download again.")],
+)
+@pytest.mark.parametrize("args", [[], ["--account", "3"]])
+def test_login_command_says_how_many_refused_books_it_queued(monkeypatch, capsys, args, requeued, said):
+    _patch_prepare(monkeypatch, [])
+    stored = StoredLogin(3, replaced=True, requeued=requeued)
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: stored)
+    monkeypatch.setattr(main_module, "store_login", lambda auth, **kw: stored)
+
+    main(["login", "--marketplace", "uk", *args])
+
+    assert said in capsys.readouterr().out
 
 
 def test_login_command_with_an_account_says_it_is_paused(monkeypatch, capsys):
@@ -644,7 +668,7 @@ def test_login_command_with_an_account_says_it_is_paused(monkeypatch, capsys):
     monkeypatch.setattr(
         main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main", enabled=False)
     )
-    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: None)
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: StoredLogin(3, replaced=True))
 
     main(["login", "--marketplace", "uk", "--account", "3"])
 

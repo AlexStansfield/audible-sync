@@ -17,7 +17,7 @@ from src.accounts import (
     persist_auth_if_changed,
     replace_account_auth,
 )
-from src.model import Account, BookStatus
+from src.model import Account, BookStatus, StoredLogin
 from tests.conftest import make_account, make_book
 
 # What `Authenticator.to_dict()` looks like for a UK login; enough for from_dict
@@ -154,8 +154,9 @@ def test_replace_account_auth_queues_the_books_the_old_device_was_refused(db, mo
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: _Deregistering())
 
     with caplog.at_level(logging.INFO):
-        replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
+        stored = replace_account_auth(database.get_account(account_id), Authenticator.from_dict(dict(AUTH_BLOB)))
 
+    assert stored == StoredLogin(account_id, replaced=True, requeued=1)
     assert database.get_book_by_asin("B001", account_id=account_id).status is BookStatus.WAITING_DOWNLOAD
     # A title Audible withdrew is the sync's to restore; another account's books are not this device's
     assert database.get_book_by_asin("B002", account_id=account_id).status is BookStatus.UNAVAILABLE
@@ -286,7 +287,7 @@ def test_store_login_gives_the_account_holding_the_login_new_credentials(db, mon
 
     second = accounts.store_login(_login(access_token="Atna|new"), name="Other", monitor_existing=True)
 
-    assert second == (first.account_id, True)
+    assert second == StoredLogin(first.account_id, replaced=True)
     assert [a.id for a in database.get_accounts()] == [first.account_id]
     account = database.get_account(first.account_id)
     assert account.auth["access_token"] == "Atna|new"
@@ -344,7 +345,7 @@ def test_a_failed_requeue_does_not_read_as_the_login_not_stored(db, monkeypatch,
 
     monkeypatch.setattr(accounts, "requeue_unavailable", locked)
 
-    assert accounts.store_login(_login(access_token="Atna|new")) == (account_id, True)
+    assert accounts.store_login(_login(access_token="Atna|new")) == StoredLogin(account_id, replaced=True, requeued=0)
     assert database.get_account(account_id).auth["access_token"] == "Atna|new"
     assert "Could not queue the parked books" in caplog.text
 
@@ -471,7 +472,7 @@ def test_store_login_matches_the_marketplace_whatever_its_case(db, monkeypatch):
     _deregistered(monkeypatch)
     account_id = database.add_account("Alex", "UK", auth=dict(AUTH_BLOB))
 
-    assert accounts.store_login(_login()) == (account_id, True)
+    assert accounts.store_login(_login()) == StoredLogin(account_id, replaced=True)
 
 
 @pytest.mark.parametrize("customer_info", [{}, {"name": "Alex"}, None])

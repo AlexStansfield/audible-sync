@@ -230,6 +230,8 @@ class LoginOut(BaseModel):
     account: AccountOut | None = None
     # Confirmed into an account that already existed, which only got new credentials
     replaced: bool = False
+    # How many of that account's parked books the new device put back in the queue
+    requeued: int = 0
     error: str | None = None
 
 

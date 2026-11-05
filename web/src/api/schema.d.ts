@@ -1015,6 +1015,11 @@ export interface components {
              */
             replaced: boolean;
             /**
+             * Requeued
+             * @default 0
+             */
+            requeued: number;
+            /**
              * Status
              * @enum {string}
              */

@@ -508,10 +508,10 @@ def _store(*, amazon=None, at=NOW):
     return store, clock
 
 
-def _finish(record, account_id=7, *, replaced=False):
+def _finish(record, account_id=7, *, replaced=False, requeued=0):
     def finish(auth):
         record.append(auth)
-        return StoredLogin(account_id, replaced=replaced)
+        return StoredLogin(account_id, replaced=replaced, requeued=requeued)
 
     return finish
 
@@ -538,10 +538,12 @@ def test_store_runs_a_code_login_to_a_confirmed_account():
 def test_store_records_a_login_that_replaced_an_account():
     store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
 
-    login = store.start_code("uk", _finish([], replaced=True))
+    login = store.start_code("uk", _finish([], replaced=True, requeued=3))
     store.join(login.id, timeout=5)
 
-    assert store.get(login.id).replaced is True
+    done = store.get(login.id)
+    assert done.replaced is True
+    assert done.requeued == 3
 
 
 def test_store_reports_a_code_login_as_pending_while_amazon_waits_for_the_user():

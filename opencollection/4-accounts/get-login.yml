@@ -14,4 +14,4 @@ http:
 settings:
   encodeUrl: true
 docs: |
-  `pending`, `confirmed` with the `account` (`replaced` when it already existed and only got new credentials), `expired`, `failed` with the `error`, or `cancelled`. 404 once the login has been forgotten (15 minutes after it ended); start again.
+  `pending`, `confirmed` with the `account` (`replaced` when it already existed and only got new credentials, `requeued` for how many of its parked books that queued), `expired`, `failed` with the `error`, or `cancelled`. 404 once the login has been forgotten (15 minutes after it ended); start again.
