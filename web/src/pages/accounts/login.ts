@@ -100,12 +100,15 @@ export function isPaused(purpose: Purpose, login: DoneLogin): boolean {
   return account?.enabled === false;
 }
 
-/** Only what the sign-in really queued: a title Audible withdrew stays parked, so often nothing. */
+/**
+ * Only what the sign-in really moved: a title Audible withdrew stays parked, so often
+ * nothing. Says where the books are, not when: `max_download` may not reach them next run.
+ */
 function requeuedText(requeued: number): string {
   if (requeued === 0) return "";
   return requeued === 1
-    ? " 1 refused book is queued for the next run."
-    : ` ${requeued.toLocaleString()} refused books are queued for the next run.`;
+    ? " 1 refused book is waiting to download again."
+    : ` ${requeued.toLocaleString()} refused books are waiting to download again.`;
 }
 
 /**
@@ -114,9 +117,8 @@ function requeuedText(requeued: number): string {
  */
 export function doneText(purpose: Purpose, login: DoneLogin): { title: string; text: string } {
   const name = login.account?.name ?? (purpose.kind === "relogin" ? purpose.account.name : "The account");
-  const unchanged = isPaused(purpose, login)
-    ? "The library and history are unchanged. The account is paused, so runs skip it until you turn Sync back on."
-    : `The library and history are unchanged.${requeuedText(login.requeued)}`;
+  const paused = isPaused(purpose, login) ? " The account is paused, so runs skip it until you turn Sync back on." : "";
+  const unchanged = `The library and history are unchanged.${requeuedText(login.requeued)}${paused}`;
   if (purpose.kind === "relogin") return { title: `${name} is signed in again`, text: unchanged };
   return login.replaced
     ? { title: `${name} is signed in again`, text: `This Audible login already had this account. ${unchanged}` }

@@ -25,7 +25,7 @@ from src.database import (
     start_sync_run,
 )
 from src.downloader import DownloadStats, download_books
-from src.model import Account, SyncOutcome
+from src.model import Account, StoredLogin, SyncOutcome
 from src.notify import notify_run_finished
 from src.progress import Progress, TqdmProgress
 from src.runstate import RunStage, RunState
@@ -291,7 +291,7 @@ def login_command(
         raise SystemExit(f"Login failed: {error}") from None
     try:
         if existing is not None:
-            replace_account_auth(existing, auth)
+            stored = replace_account_auth(existing, auth)
         else:
             stored = store_login(auth, name=name, monitor_existing=monitor_existing)
     except Exception as error:
@@ -302,6 +302,7 @@ def login_command(
     if existing is not None:
         print(
             f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept."
+            + _requeued_note(stored)
             + _paused_note(existing)
         )
         return
@@ -312,11 +313,19 @@ def login_command(
         )
         print(
             f"Logged in. Account {stored.account_id} ({account.name}) already held this login: "
-            f"new credentials, same library.{ignored}{_paused_note(account)}"
+            f"new credentials, same library.{ignored}{_requeued_note(stored)}{_paused_note(account)}"
         )
         return
     logger.info("Added account %d for Audible %s", stored.account_id, marketplace)
     print(f"Logged in. Account {stored.account_id} added; the next run will sync it.")
+
+
+def _requeued_note(stored: StoredLogin) -> str:
+    if not stored.requeued:
+        return ""
+    if stored.requeued == 1:
+        return " 1 refused book is waiting to download again."
+    return f" {stored.requeued} refused books are waiting to download again."
 
 
 def _paused_note(account: Account) -> str:

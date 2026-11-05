@@ -72,20 +72,23 @@ describe("the sign-in dialog's rules", () => {
     );
     expect(doneText({ kind: "add" }, { account: de, replaced: true, requeued: 2 })).toEqual({
       title: "Alex (DE) is signed in again",
-      text: "This Audible login already had this account. The library and history are unchanged. 2 refused books are queued for the next run.",
+      text: "This Audible login already had this account. The library and history are unchanged. 2 refused books are waiting to download again.",
     });
     const paused =
       "The library and history are unchanged. The account is paused, so runs skip it until you turn Sync back on.";
     const off = account({ enabled: false });
-    expect(doneText({ kind: "add" }, { account: off, replaced: true, requeued: 2 }).text).toBe(
+    expect(doneText({ kind: "add" }, { account: off, replaced: true, requeued: 0 }).text).toBe(
       `This Audible login already had this account. ${paused}`,
+    );
+    expect(doneText({ kind: "relogin", account: off }, { account: null, replaced: true, requeued: 2 }).text).toBe(
+      "The library and history are unchanged. 2 refused books are waiting to download again. The account is paused, so runs skip it until you turn Sync back on.",
     );
     expect(doneText({ kind: "relogin", account: off }, { account: null, replaced: true, requeued: 0 }).text).toBe(
       paused,
     );
     expect(doneText({ kind: "relogin", account: account() }, { account: null, replaced: true, requeued: 1 })).toEqual({
       title: "Alex (UK) is signed in again",
-      text: "The library and history are unchanged. 1 refused book is queued for the next run.",
+      text: "The library and history are unchanged. 1 refused book is waiting to download again.",
     });
   });
 
