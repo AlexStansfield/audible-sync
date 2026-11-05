@@ -444,9 +444,14 @@ class WebhookTest(BaseModel):
 
 class BookCounts(BaseModel):
     by_status: dict[str, int]
+    # The same, monitored books only: what `GET /api/books?monitored=true` counts
+    monitored_by_status: dict[str, int]
     monitored: int
     unmonitored: int
     total: int
+    # The unavailable books `POST /api/books/retry-unavailable` would queue again: the
+    # licence refusals, not the titles Audible withdrew (the sync brings those back)
+    retryable_unavailable: int
 
 
 class AccountStats(BaseModel):

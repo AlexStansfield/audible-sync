@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { bulkFilter, DEFAULT_QUERY, listParams, pageList, parse, rangeText, serialise } from "./libraryQuery";
+import { counts } from "../../test/fixtures";
+import {
+  bulkFilter,
+  chipCounts,
+  DEFAULT_QUERY,
+  listParams,
+  pageList,
+  parse,
+  rangeText,
+  serialise,
+} from "./libraryQuery";
 import { liveBook } from "./live";
 import { EMPTY, isSelected, pageSelected, selectedCount, selectionReducer } from "./selection";
 import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "./text";
@@ -220,5 +230,26 @@ describe("the book a run is downloading", () => {
   it("is nothing between books and runs", () => {
     expect(liveBook(null)).toBeNull();
     expect(liveBook({ ...snapshot(null), book: null })).toBeNull();
+  });
+});
+
+describe("chipCounts", () => {
+  const books = counts({ downloaded: 10, waiting_download: 6, failed: 2 }, 0, {
+    monitored_by_status: { waiting_download: 4, downloading: 0, downloaded: 9, unavailable: 0, failed: 2 },
+  });
+
+  it("counts every book without the monitored filter", () => {
+    expect(chipCounts(books, null)).toEqual({ total: 18, byStatus: books.by_status });
+  });
+
+  it("counts the monitored books, or the rest", () => {
+    expect(chipCounts(books, true)).toEqual({
+      total: 15,
+      byStatus: { waiting_download: 4, downloading: 0, downloaded: 9, unavailable: 0, failed: 2 },
+    });
+    expect(chipCounts(books, false)).toEqual({
+      total: 3,
+      byStatus: { waiting_download: 2, downloading: 0, downloaded: 1, unavailable: 0, failed: 0 },
+    });
   });
 });

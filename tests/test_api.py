@@ -1508,6 +1508,27 @@ def test_stats(api, tmp_path, monkeypatch):
     assert "auth" not in mine["account"]
 
 
+def test_stats_count_the_retryable_unavailable_books_and_the_monitored_by_status(api):
+    account_id = _account()
+    refused, withdrawn, unwanted = _shelve(
+        account_id, make_book("B001"), make_book("B002", is_consumable=False), make_book("B003")
+    )
+    for book in (refused, withdrawn, unwanted):
+        database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied")
+    database.set_monitored(unwanted.id, False)
+
+    body = api.get("/api/stats", headers=AUTH).json()
+
+    assert body["books"]["by_status"]["unavailable"] == 3
+    assert body["books"]["monitored_by_status"]["unavailable"] == 2
+    assert body["books"]["retryable_unavailable"] == 2  # the withdrawn title is the sync's
+    assert body["accounts"][0]["books"]["retryable_unavailable"] == 2
+    retried = api.post("/api/books/retry-unavailable", headers=AUTH, json={"account_id": account_id}).json()
+    assert retried["requeued"] == 2
+    assert api.get("/api/stats", headers=AUTH).json()["books"]["retryable_unavailable"] == 0
+
+
 def test_stats_on_an_empty_database(api):
     body = api.get("/api/stats", headers=AUTH).json()
 

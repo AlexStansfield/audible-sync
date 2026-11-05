@@ -852,6 +852,10 @@ def reset_for_download(book_id: int, *, monitored: bool) -> bool:
     return cursor.rowcount == 1
 
 
+# The parked books `requeue_unavailable` queues again: `library_stats` counts the same
+_RETRYABLE_UNAVAILABLE = "status = 'unavailable' AND is_consumable IS NOT 0"
+
+
 def requeue_unavailable(account_id: int | None = None) -> int:
     """
     Queue every parked book Audible still reports consumable again, and return how many.
@@ -871,8 +875,8 @@ def requeue_unavailable(account_id: int | None = None) -> int:
     unmonitored book is still not wanted, and `reset_for_download` is for changing that
     one book at a time. One account's books, or everyone's.
     """
-    where = "status = ? AND is_consumable IS NOT 0"
-    params: list = [BookStatus.UNAVAILABLE]
+    where = _RETRYABLE_UNAVAILABLE
+    params: list = []
     if account_id is not None:
         where += " AND account_id = ?"
         params.append(account_id)
@@ -977,21 +981,41 @@ def library_stats(*, account_id: int | None = None) -> dict:
     """
     Counts for a dashboard: books by status, wanted or not, and the total.
 
-    Every `BookStatus` appears in `by_status`, zero when empty, so a UI has a stable
-    shape to draw from.
+    Every `BookStatus` appears in `by_status` and `monitored_by_status` (the monitored
+    books alone, what the listing's `monitored=true` filter counts), zero when empty, so
+    a UI has a stable shape to draw from. `retryable_unavailable` is how many parked
+    books `requeue_unavailable` would queue again - the licence refusals, not the titles
+    Audible withdrew. A row whose status this build does not know counts towards the
+    totals only.
     """
     clause = "" if account_id is None else " WHERE account_id = ?"
     params: tuple = () if account_id is None else (account_id,)
+    by_status = {status.value: 0 for status in BookStatus}
+    monitored_by_status = dict(by_status)
+    total = wanted = 0
     with closing(_get_connection()) as conn:
-        by_status = {status.value: 0 for status in BookStatus}
-        for status, count in conn.execute(f"SELECT status, COUNT(*) FROM library{clause} GROUP BY status", params):
+        rows = conn.execute(
+            f"SELECT status, COUNT(*), COALESCE(SUM(monitored = 1), 0) FROM library{clause} GROUP BY status", params
+        )
+        for status, count, monitored in rows:
+            total += count
+            wanted += monitored
             if status in by_status:
                 by_status[status] = count
-        monitored = conn.execute(f"SELECT COUNT(*) FROM library{clause}", params).fetchone()[0]
-        wanted = conn.execute(
-            f"SELECT COUNT(*) FROM library{clause}{' AND' if clause else ' WHERE'} monitored = 1", params
+                monitored_by_status[status] = monitored
+        retryable = conn.execute(
+            f"SELECT COUNT(*) FROM library WHERE {_RETRYABLE_UNAVAILABLE}"
+            + ("" if account_id is None else " AND account_id = ?"),
+            params,
         ).fetchone()[0]
-    return {"by_status": by_status, "monitored": wanted, "unmonitored": monitored - wanted, "total": monitored}
+    return {
+        "by_status": by_status,
+        "monitored_by_status": monitored_by_status,
+        "monitored": wanted,
+        "unmonitored": total - wanted,
+        "total": total,
+        "retryable_unavailable": retryable,
+    }
 
 
 def downloaded_file_paths(*, account_id: int | None = None) -> list[str]:

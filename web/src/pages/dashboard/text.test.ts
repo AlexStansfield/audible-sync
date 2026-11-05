@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { status } from "../../test/fakeApi";
 import { run } from "../../test/fixtures";
-import { bookOfRun, isInterrupted, nextRunText, runDetail, subtitle, upNextHeader } from "./text";
+import { bookOfRun, isInterrupted, nextRunText, runDetail, subtitle, unavailableText, upNextHeader } from "./text";
 
 const scheduler = status().scheduler;
 const NOW = new Date("2026-11-02T14:20:00Z");
@@ -75,5 +75,17 @@ describe("nextRunText", () => {
     expect(nextRunText("2026-11-02T20:00:00Z", NOW)).toBe("in 5h 40m");
     expect(nextRunText("2026-11-02T14:20:00Z", NOW)).toBe("due now");
     expect(nextRunText("2026-11-02T14:18:00Z", NOW)).toBe("due now");
+  });
+});
+
+describe("unavailableText", () => {
+  it("says which unavailable books can be retried and which come back on their own", () => {
+    expect(unavailableText(3, 3)).toBe("Audible refused the licence. They can be retried.");
+    expect(unavailableText(16, 4)).toBe(
+      "Audible refused the licence for 4, which can be retried; the 12 titles Audible withdrew from Plus come back on their own.",
+    );
+    expect(unavailableText(2, 1)).toBe(
+      "Audible refused the licence for 1, which can be retried; the title Audible withdrew from Plus comes back on its own.",
+    );
   });
 });

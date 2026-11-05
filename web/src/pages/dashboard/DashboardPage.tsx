@@ -26,7 +26,16 @@ import {
   useStats,
   useUpNext,
 } from "./queries";
-import { bookOfRun, isInterrupted, nextRunText, runDetail, stageLabel, subtitle, upNextHeader } from "./text";
+import {
+  bookOfRun,
+  isInterrupted,
+  nextRunText,
+  runDetail,
+  stageLabel,
+  subtitle,
+  unavailableText,
+  upNextHeader,
+} from "./text";
 
 type Account = components["schemas"]["AccountOut"];
 type Stats = components["schemas"]["Stats"];
@@ -451,12 +460,14 @@ function UpNextCard({ status }: { status: Status }) {
 function AttentionCard({ accounts }: { accounts: Account[] }) {
   const stats = useStats();
   const unavailable = stats.data?.books.by_status.unavailable ?? 0;
+  // Titles Audible withdrew need nothing doing: the sync brings them back
+  const retryable = stats.data?.books.retryable_unavailable ?? 0;
   const failed = stats.data?.books.by_status.failed ?? 0;
   const latest = useLatestFailure(failed > 0);
   const signIn = accounts.filter((account) => account.needs_login);
   const retry = useRetryUnavailable();
 
-  if (!unavailable && !failed && !signIn.length) return null;
+  if (!retryable && !failed && !signIn.length) return null;
   return (
     <section aria-labelledby="att-h" className={`card ${styles.section}`}>
       <h2 id="att-h" className="card-title">
@@ -474,21 +485,19 @@ function AttentionCard({ accounts }: { accounts: Account[] }) {
           </div>
         </div>
       ))}
-      {unavailable > 0 && (
+      {retryable > 0 && (
         <div className={styles.attention}>
           <Icon name="clock" className={styles.violetIcon} />
           <div className={styles.attentionBody}>
             <span className={styles.strong}>{plural(unavailable, "book")} unavailable</span>
-            <span className={styles.muted}>
-              Audible refused the licence or withdrew the Plus title. Licence refusals can be retried.
-            </span>
+            <span className={styles.muted}>{unavailableText(unavailable, retryable)}</span>
             <button
               type="button"
               className="btn btn-secondary btn-small"
               disabled={retry.isPending}
               onClick={() => retry.mutate(undefined)}
             >
-              Retry unavailable
+              Retry unavailable ({retryable.toLocaleString()})
             </button>
           </div>
         </div>

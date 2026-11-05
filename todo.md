@@ -122,19 +122,20 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Web: sign-in and Your sign-in
 - [x] Web: Dashboard with the live run card
 - [x] Web: Library (grid, table, filters, monitor toggle) and Book detail (actions, delete confirmation)
-- [x] Web: Accounts with the code and browser sign-in flows (the live code sign-in from the UI: see below)
+- [x] Web: Accounts with the code and browser sign-in flows
 - [x] Backend: `DELETE /api/accounts/login/{login_id}` cancels a pending login (a code login's polling stops under the store's lock; the answer is the login as it ended, so a confirm that won the race is reported). The web app calls it when the sign-in dialog goes, by any way, or switches from the code to the browser sign-in, so a code abandoned there and entered afterwards no longer becomes an account, and a code plus a browser sign-in no longer adds the account twice. A closed tab or an ended session cannot cancel, so its code stays live until it expires
 - [x] Web: Activity (runs, log)
 - [x] Web: Settings
 - [x] Design round 2: first-run dashboard, empty and no-result library, Accounts dialogs (rename, remove, sign in again, code expired, sign-in failed), book downloading and unmonitored, phone layout, common patterns, 404, service unreachable, forgot password
 - [x] Backend: `POST /api/books/bulk` (monitor, unmonitor, retry, delete files by ids or by filter; updated and skipped counts)
 - [x] Web: Library bulk selection (grid and table), action bar, delete confirmation, result message
-- [ ] Backend: count the unavailable books Retry unavailable can requeue (licence refusals, not titles Audible withdrew) in `GET /api/stats`, so the Dashboard and the Library stop offering a retry that only says "Nothing to retry"; and monitored counts per status, so the Library's chips match a `monitored` filter
+- [x] Backend: count the unavailable books Retry unavailable can requeue (licence refusals, not titles Audible withdrew) in `GET /api/stats`, so the Dashboard and the Library stop offering a retry that only says "Nothing to retry"; and monitored counts per status, so the Library's chips match a `monitored` filter
 - [x] Backend: API token last four and regenerate; `GET /api/system` (versions, disk space, key source, database size)
 - [x] Web: Settings API access and System sections; Dashboard Up next card (Up next done with the Dashboard)
 - [x] Backend: per-book run records (`sync_run_books`, `GET /api/sync/runs/{id}/books`)
 - [x] Backend: `GET /api/queue` for the Dashboard's Up next card
 - [x] Web: the expandable run row in Activity (built with Activity, since `GET /api/sync/runs/{id}/books` exists)
 - [x] Close-out (2026-11-03): README and CLAUDE.md for the web app; the image built from the repository and run at the root and under a base path behind nginx (deep links, covers, the cookie's path, Send test to a real receiver); the web tests' helpers, hidden by `.gitignore`, committed
-- [ ] The code sign-in from the web app against Amazon, end to end (the CLI's and the API's are checked; the dialog's steps only with the login calls stubbed)
+- [x] The code sign-in from the web app against Amazon, end to end (Sign in again in the test container, 2026-11-02: the code confirmed, a new device registered, the old one deregistered, the account kept its id and library)
+- [ ] Backend: one account per Audible login. Nothing stops a second account row for the same customer and marketplace (two tabs, or a closed tab whose code is entered later), and each then downloads and files the same books. `add_account_from_authenticator` could match on `customer_info.user_id` plus the marketplace; to decide: replace that account's credentials, keeping its library, or refuse with a message. The cancel only closes the routes through one dialog
 

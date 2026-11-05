@@ -770,6 +770,12 @@ export interface components {
             };
             /** Monitored */
             monitored: number;
+            /** Monitored By Status */
+            monitored_by_status: {
+                [key: string]: number;
+            };
+            /** Retryable Unavailable */
+            retryable_unavailable: number;
             /** Total */
             total: number;
             /** Unmonitored */
