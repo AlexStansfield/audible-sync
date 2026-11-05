@@ -19,6 +19,9 @@ services:
       # true behind a reverse proxy serving https, so the web app's session cookie is
       # marked Secure even though the service itself only sees http
       - AUDIBLE_SYNC_SECURE_COOKIE=${AUDIBLE_SYNC_SECURE_COOKIE:-}
+      # The path a reverse proxy serves the app under, e.g. /audible-sync for
+      # https://my.domain/audible-sync/. The proxy may strip the prefix or pass it on.
+      - AUDIBLE_SYNC_BASE_PATH=${AUDIBLE_SYNC_BASE_PATH:-}
     volumes:
       - ./data:/app/data
       - ./secrets:/app/secrets

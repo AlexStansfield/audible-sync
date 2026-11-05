@@ -116,6 +116,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Backend: a server-side way to reset a forgotten password
 - [x] Backend: add the book's row `id` to `current_run.book` in `GET /api/status` (`RunState.set_book`, `BookRef`). Today it carries only `asin` and `title`. The Dashboard run card needs the id for the cover. Book detail needs it to know the run is on this book, because the same ASIN can exist in two accounts
 - [x] Backend: serve the built web app from FastAPI with an `index.html` fallback
+- [x] Backend: serve under a base path behind a reverse proxy (`AUDIBLE_SYNC_BASE_PATH`), the prefix stripped or passed on
 - [ ] Docker and CI: a Node build stage for `web/`; lint, type-check and build it in CI
 - [ ] Web: scaffold `web/` (Vite, React, TypeScript), theme variables, layout and routing, API client and types from `/openapi.json`
 - [ ] Web: sign-in and Your sign-in

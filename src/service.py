@@ -17,6 +17,8 @@ Environment:
     AUDIBLE_SYNC_DEBUG         `true` forces DEBUG logging whatever the settings say
     AUDIBLE_SYNC_WEB_DIR       The built web app to serve; default `web/dist`. Nothing is
                                served outside /api when it holds no index.html
+    AUDIBLE_SYNC_BASE_PATH     The path a reverse proxy serves the app under, e.g.
+                               `/audible-sync`; the proxy may strip it or pass it on
     AUDIBLE_SYNC_SECURE_COOKIE `true` always marks the web app's session cookie Secure;
                                set it behind a reverse proxy that serves https, where
                                the service itself only ever sees http
@@ -37,7 +39,7 @@ from pathlib import Path
 import uvicorn
 
 from src import crypto, webauth
-from src.api import create_app
+from src.api import create_app, normalise_base_path
 from src.apitoken import resolve_api_token
 from src.crypto import load_secret_key
 from src.database import encrypt_stored_secrets, init_db
@@ -78,6 +80,7 @@ class ServiceConfig:
     debug: bool = False
     secure_cookie: bool = False
     web_dir: Path = DEFAULT_WEB_DIR
+    base_path: str = ""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> "ServiceConfig":
@@ -91,7 +94,15 @@ class ServiceConfig:
             debug=_flag(env, "AUDIBLE_SYNC_DEBUG"),
             secure_cookie=_flag(env, "AUDIBLE_SYNC_SECURE_COOKIE"),
             web_dir=resolve_path(env["AUDIBLE_SYNC_WEB_DIR"]) if env.get("AUDIBLE_SYNC_WEB_DIR") else DEFAULT_WEB_DIR,
+            base_path=_base_path(env),
         )
+
+
+def _base_path(env: Mapping[str, str]) -> str:
+    try:
+        return normalise_base_path(env.get("AUDIBLE_SYNC_BASE_PATH", ""))
+    except ValueError as error:
+        raise ValueError(f"AUDIBLE_SYNC_BASE_PATH: {error}") from None
 
 
 def _flag(env: Mapping[str, str], name: str) -> bool:
@@ -156,6 +167,8 @@ def build(config: ServiceConfig):
         logger.info("Serving the web app from %s", config.web_dir)
     else:
         logger.info("No web app build in %s; serving the API only", config.web_dir)
+    if config.base_path:
+        logger.info("Serving under %s/", config.base_path)
 
     state = RunState()
     scheduler = Scheduler(load_settings=Settings.from_db, run=_run, state=state, stop_timeout=STOP_TIMEOUT)
@@ -167,6 +180,7 @@ def build(config: ServiceConfig):
         log_buffer=log_buffer,
         secure_cookie=config.secure_cookie,
         web_dir=config.web_dir,
+        base_path=config.base_path,
     )
 
 
