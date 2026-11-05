@@ -15,11 +15,11 @@ import { useToast } from "../../components/Toasts";
 import { useNow } from "../../lib/useNow";
 import styles from "./Accounts.module.css";
 import {
-  type Account,
   type CodeState,
   defaultMarketplace,
   dialogTitle,
   doneText,
+  isPaused,
   type Login,
   type Marketplace,
   marketplaceLabel,
@@ -87,11 +87,11 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
     );
   };
 
-  const finished = (account: Account | null) => {
+  const finished = (login: Login) => {
     open.current = null;
     // A new account brings a library; a sign-in again queues the refused books
     void refreshAfterAccountChange(client, { books: true });
-    setStage({ step: "done", account });
+    setStage({ step: "done", login });
   };
 
   // From a code to the browser: the code is cancelled first, so entering it as well
@@ -102,7 +102,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
       { loginId: login.login_id, closing: false },
       {
         onSuccess: (ended) => {
-          if (ended.status === "confirmed") finished(ended.account ?? null);
+          if (ended.status === "confirmed") finished(ended);
           else if (ended.status === "pending") setStoring(true);
           else begin("browser");
         },
@@ -245,7 +245,7 @@ export function SignInDialog({ purpose, onClose }: { purpose: Purpose; onClose: 
         />
       )}
 
-      {stage.step === "done" && <DoneStep purpose={purpose} account={stage.account} onClose={onClose} />}
+      {stage.step === "done" && <DoneStep purpose={purpose} login={stage.login} onClose={onClose} />}
     </Dialog>
   );
 }
@@ -317,7 +317,7 @@ function CodeStep({
   startError: string | null;
   onNewCode: () => void;
   onBrowser: () => void;
-  onConfirmed: (account: Account | null) => void;
+  onConfirmed: (login: Login) => void;
 }) {
   const toast = useToast();
   const poll = useLoginStatus(login);
@@ -335,8 +335,8 @@ function CodeStep({
   useEffect(() => {
     if (state !== "confirmed" || reported.current) return;
     reported.current = true;
-    onConfirmed(current.account ?? null);
-  }, [state, current.account, onConfirmed]);
+    onConfirmed(current);
+  }, [state, current, onConfirmed]);
 
   const copy = navigator.clipboard
     ? () =>
@@ -466,24 +466,22 @@ function BrowserStep({
   starting: boolean;
   startError: string | null;
   onRestart: () => void;
-  onDone: (account: Account | null) => void;
+  onDone: (login: Login) => void;
 }) {
   const [address, setAddress] = useState("");
   const complete = useCompleteLogin();
   const error = complete.error instanceof ApiError ? complete.error : null;
   // 400: no code in that address - the login stays open for the right one
   const pasteAgain = error?.status === 400 ? error.detail : null;
-  // 404 (expired, finished) or 502 (Amazon rejected it): this login is over
-  const over = error && (error.status === 404 || error.status === 502) ? error.detail : null;
+  // 404 (expired, finished), 409 (another account holds this login) or 502 (Amazon
+  // rejected it): this login is over
+  const over = error && [404, 409, 502].includes(error.status) ? error.detail : null;
   // Anything else (no answer, a 5xx on the way) says nothing about the login: try again
   const retry = complete.error && !pasteAgain && !over ? errorDetail(complete.error) : null;
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    complete.mutate(
-      { loginId: login.login_id, responseUrl: address.trim() },
-      { onSuccess: (finished) => onDone(finished.account ?? null) },
-    );
+    complete.mutate({ loginId: login.login_id, responseUrl: address.trim() }, { onSuccess: onDone });
   };
 
   return (
@@ -554,9 +552,11 @@ function BrowserStep({
   );
 }
 
-function DoneStep({ purpose, account, onClose }: { purpose: Purpose; account: Account | null; onClose: () => void }) {
+function DoneStep({ purpose, login, onClose }: { purpose: Purpose; login: Login; onClose: () => void }) {
   const { start } = useSyncActions();
-  const { title, text } = doneText(purpose, account);
+  const { title, text } = doneText(purpose, login);
+  // A run skips a paused account, so Sync now would do nothing for this one
+  const paused = isPaused(purpose, login);
   return (
     <div className={styles.done}>
       <span className={styles.doneMark}>
@@ -570,14 +570,16 @@ function DoneStep({ purpose, account, onClose }: { purpose: Purpose; account: Ac
         <button type="button" className="btn btn-secondary" onClick={onClose}>
           Done
         </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={start.isPending}
-          onClick={() => start.mutate(undefined, { onSettled: onClose })}
-        >
-          Sync now
-        </button>
+        {!paused && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={start.isPending}
+            onClick={() => start.mutate(undefined, { onSettled: onClose })}
+          >
+            Sync now
+          </button>
+        )}
       </div>
     </div>
   );

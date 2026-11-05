@@ -893,6 +893,11 @@
             "title": "Method",
             "type": "string"
           },
+          "replaced": {
+            "default": false,
+            "title": "Replaced",
+            "type": "boolean"
+          },
           "status": {
             "enum": [
               "pending",
@@ -938,7 +943,7 @@
       },
       "LoginStart": {
         "additionalProperties": false,
-        "description": "Start signing in to a marketplace. The account the login will produce is described\nhere, since with the default `code` method nothing else is posted: `name` and\n`monitor_existing` (whether the library the account already holds is queued for\ndownload or inserted unmonitored so the user picks) for a new account, or\n`account_id` to give an existing account the new credentials instead, keeping its\nlibrary - the way back when a registration stops working - with\n`deregister_previous` removing its old device from Amazon first, best effort.\n\n`method` is `code` (show a code, the user enters it at Amazon on any device, the\nservice polls until confirmed) or `browser` (the user signs in at `url` in a browser\nand posts the \"page not found\" address it lands on to step two).",
+        "description": "Start signing in to a marketplace. The account the login will produce is described\nhere, since with the default `code` method nothing else is posted: `name` and\n`monitor_existing` (whether the library the account already holds is queued for\ndownload or inserted unmonitored so the user picks) for a new account, or\n`account_id` to give an existing account the new credentials instead, keeping its\nlibrary - the way back when a registration stops working - with\n`deregister_previous` removing its old device from Amazon first, best effort. Without\nan `account_id`, a login an account already holds (the same customer and marketplace)\nis treated the same way, and `name` and `monitor_existing` are not used.\n\n`method` is `code` (show a code, the user enters it at Amazon on any device, the\nservice polls until confirmed) or `browser` (the user signs in at `url` in a browser\nand posts the \"page not found\" address it lands on to step two).",
         "properties": {
           "account_id": {
             "anyOf": [
@@ -2340,7 +2345,7 @@
         "summary": "Login Status"
       },
       "post": {
-        "description": "Step two of a browser login: the pasted address becomes the account.\n\n404 for a login that is unknown, expired or already finished (start again), 400\nfor an address that carries no authorization code (the login stays open for the\nright one), 502 when Amazon rejects the code.",
+        "description": "Step two of a browser login: the pasted address becomes the account.\n\n404 for a login that is unknown, expired or already finished (start again), 400\nfor an address that carries no authorization code (the login stays open for the\nright one), 409 when Amazon accepted but the login could not be stored - another\naccount holds it, the account has gone - which ends it, 502 when Amazon rejects\nthe code.",
         "operationId": "complete_account_login_api_accounts_login__login_id__post",
         "parameters": [
           {

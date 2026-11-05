@@ -1367,16 +1367,21 @@ def update_account(
         conn.commit()
 
 
-def save_account_auth(account_id: int, auth: dict | None) -> bool:
+def save_account_auth(
+    account_id: int, auth: dict | None, *, country_code: str | None = None, customer_name: str | None = None
+) -> bool:
     """
     Store the credentials, or clear them (None) so the account reads as needing a login.
+    `country_code` and `customer_name`, when given, go in the same statement: what a login
+    says about the account must not be kept when its credentials are not.
 
     Returns whether the account was there to store them on.
     """
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            "UPDATE accounts SET auth = ? WHERE id = ?",
-            (_encode_auth(auth), account_id),
+            "UPDATE accounts SET auth = ?, country_code = COALESCE(?, country_code), "
+            "customer_name = COALESCE(?, customer_name) WHERE id = ?",
+            (_encode_auth(auth), country_code, customer_name, account_id),
         )
         conn.commit()
         return cursor.rowcount == 1

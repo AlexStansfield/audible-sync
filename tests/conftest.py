@@ -1,4 +1,5 @@
 import itertools
+import socket
 from dataclasses import replace
 
 import pytest
@@ -24,6 +25,23 @@ def secret_key(monkeypatch, tmp_path):
     crypto.configure(key)
     yield key
     crypto.configure(None)
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """
+    No test reaches the network. Failing at the end as well as refusing the lookup, since
+    best-effort code around Amazon (`deregister_device`) would swallow the refusal alone.
+    """
+    attempts = []
+
+    def refuse(host, *args, **kwargs):
+        attempts.append(host)
+        raise OSError(f"tests must not reach the network: {host}")
+
+    monkeypatch.setattr(socket, "getaddrinfo", refuse)
+    yield
+    assert attempts == [], f"this test tried to reach the network: {attempts}"
 
 
 # Every test book gets a distinct row id, the way one read from the database would

@@ -5,10 +5,11 @@ import threading
 import pytest
 
 from src import main as main_module
+from src.accounts import LoginAlreadyHeld
 from src.audible_login import LoginFailed
 from src.downloader import DownloadStats
 from src.main import configure_logging, main, run_pipeline
-from src.model import Account, SyncOutcome
+from src.model import Account, StoredLogin, SyncOutcome
 from src.runstate import RunStage, RunState
 from src.sync import SyncResult
 from tests.conftest import make_account, make_settings
@@ -449,9 +450,9 @@ def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):
 
     def fake_add(auth, *, name, monitor_existing):
         added.append((auth, name, monitor_existing))
-        return 3
+        return StoredLogin(3)
 
-    monkeypatch.setattr(main_module, "add_account_from_authenticator", fake_add)
+    monkeypatch.setattr(main_module, "store_login", fake_add)
     monkeypatch.setattr(main_module, "run_pipeline", lambda *a, **kw: pytest.fail("login must not sync"))
 
     main(["login", "--marketplace", "uk", "--name", "Main", "--no-download-existing"])
@@ -515,8 +516,8 @@ def test_login_command_defaults(monkeypatch):
     added = []
     monkeypatch.setattr(
         main_module,
-        "add_account_from_authenticator",
-        lambda auth, *, name, monitor_existing: added.append((name, monitor_existing)) or 1,
+        "store_login",
+        lambda auth, *, name, monitor_existing: added.append((name, monitor_existing)) or StoredLogin(1),
     )
 
     main(["login", "--marketplace", "us"])
@@ -529,11 +530,41 @@ def test_login_command_with_browser_uses_the_browser_flow(monkeypatch):
     monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: pytest.fail("asked for the browser"))
     monkeypatch.setattr(main_module, "login_interactively", lambda marketplace: f"browser-auth-{marketplace}")
     added = []
-    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda auth, **kw: added.append(auth) or 1)
+    monkeypatch.setattr(main_module, "store_login", lambda auth, **kw: added.append(auth) or StoredLogin(1))
 
     main(["login", "--marketplace", "us", "--browser"])
 
     assert added == ["browser-auth-us"]
+
+
+def test_login_command_says_when_an_account_already_held_the_login(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "store_login", lambda auth, **kw: StoredLogin(4, replaced=True))
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+
+    main(["login", "--marketplace", "uk"])
+
+    output = capsys.readouterr().out
+    assert "Account 4 (Main) already held this login" in output
+    assert "added" not in output
+    assert "only apply to a new account" not in output
+    assert "paused" not in output
+
+
+def test_login_command_says_what_it_did_not_use_and_that_the_account_is_paused(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "store_login", lambda auth, **kw: StoredLogin(4, replaced=True))
+    monkeypatch.setattr(
+        main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main", enabled=False)
+    )
+
+    main(["login", "--marketplace", "uk", "--name", "Partner"])
+
+    output = capsys.readouterr().out
+    assert "only apply to a new account" in output
+    assert "It is paused, so runs skip it" in output
 
 
 def test_login_command_reports_a_failed_login(monkeypatch):
@@ -543,7 +574,7 @@ def test_login_command_reports_a_failed_login(monkeypatch):
         raise LoginFailed("the code expired before it was confirmed; start again")
 
     monkeypatch.setattr(main_module, "login_with_code", expired)
-    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda *a, **kw: pytest.fail("must not add"))
+    monkeypatch.setattr(main_module, "store_login", lambda *a, **kw: pytest.fail("must not add"))
 
     with pytest.raises(SystemExit, match="Login failed: the code expired"):
         main(["login", "--marketplace", "uk"])
@@ -599,12 +630,25 @@ def test_login_command_can_replace_an_existing_accounts_credentials(monkeypatch,
     monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
     replaced = []
     monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: replaced.append((account.id, auth)))
-    monkeypatch.setattr(main_module, "add_account_from_authenticator", lambda *a, **kw: pytest.fail("must not add"))
+    monkeypatch.setattr(main_module, "store_login", lambda *a, **kw: pytest.fail("must not add"))
 
     main(["login", "--marketplace", "uk", "--account", "3"])
 
     assert replaced == [(3, "auth")]
     assert "Account 3 (Main) has new credentials" in capsys.readouterr().out
+
+
+def test_login_command_with_an_account_says_it_is_paused(monkeypatch, capsys):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(
+        main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main", enabled=False)
+    )
+    monkeypatch.setattr(main_module, "replace_account_auth", lambda account, auth: None)
+
+    main(["login", "--marketplace", "uk", "--account", "3"])
+
+    assert "It is paused, so runs skip it" in capsys.readouterr().out
 
 
 def test_login_command_deregisters_the_device_when_the_account_cannot_be_stored(monkeypatch):
@@ -616,10 +660,28 @@ def test_login_command_deregisters_the_device_when_the_account_cannot_be_stored(
     def locked(auth, **kw):
         raise sqlite3.OperationalError("database is locked")
 
-    monkeypatch.setattr(main_module, "add_account_from_authenticator", locked)
+    monkeypatch.setattr(main_module, "store_login", locked)
 
     with pytest.raises(SystemExit, match="could not be stored: database is locked"):
         main(["login", "--marketplace", "uk"])
+
+    assert discarded == ["auth"]
+
+
+def test_login_command_refuses_a_login_another_account_holds_and_discards_the_device(monkeypatch):
+    _patch_prepare(monkeypatch, [])
+    monkeypatch.setattr(main_module, "login_with_code", lambda marketplace: "auth")
+    monkeypatch.setattr(main_module, "get_account", lambda account_id: make_account(id=account_id, name="Main"))
+    discarded = []
+    monkeypatch.setattr(main_module, "discard_device", lambda auth: discarded.append(auth) or True)
+
+    def held(account, auth):
+        raise LoginAlreadyHeld("Other already holds this Audible login")
+
+    monkeypatch.setattr(main_module, "replace_account_auth", held)
+
+    with pytest.raises(SystemExit, match="Other already holds this Audible login"):
+        main(["login", "--marketplace", "uk", "--account", "1"])
 
     assert discarded == ["auth"]
 

@@ -43,6 +43,8 @@ from audible.localization import LOCALE_TEMPLATES, Locale
 from audible.login import build_oauth_url, create_code_verifier
 from audible.register import register
 
+from src.model import StoredLogin
+
 logger = logging.getLogger(__name__)
 
 # How long a started browser login stays completable, and how long a finished or expired
@@ -51,8 +53,8 @@ LOGIN_TTL = timedelta(minutes=15)
 # How long a cancel waits for a login that is being turned into an account, in seconds
 CANCEL_WAIT = 30.0
 
-# Turns an `Authenticator` into an account and returns the account id; the API's business
-Finish = Callable[[Authenticator], int]
+# Turns an `Authenticator` into an account and says which; the API's business
+Finish = Callable[[Authenticator], StoredLogin]
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +156,10 @@ class LoginExpired(LoginFailed):
     """The code was not confirmed before it expired."""
 
 
+class LoginNotStored(Exception):
+    """Amazon confirmed a login but it could not be kept; the message says why."""
+
+
 class LoginCancelled(LoginFailed):
     """The login was cancelled while the code was still being polled for."""
 
@@ -172,6 +178,8 @@ class Login:
     status: LoginStatus = LoginStatus.PENDING
     # The account the login produced, once confirmed
     account_id: int | None = None
+    # Whether that account already existed, and only got new credentials
+    replaced: bool = False
     # Why it failed, once it has
     error: str | None = None
 
@@ -538,7 +546,7 @@ class PendingLogins:
     In memory on purpose: a login is a minute's interaction, a restart in the middle of
     one just means starting again, and nothing secret is persisted. Every login carries
     the `finish` callback given when it was started, which turns the `Authenticator`
-    into an account; a confirmed login records the account id it returned. A finished
+    into an account; a confirmed login records the account it was stored as. A finished
     or expired login stays readable for `ttl` so a client polling it sees how it ended.
     A pending login can be cancelled; a code login's polling then stops, and a
     registration Amazon answered after the cancel is deregistered rather than kept.
@@ -614,6 +622,8 @@ class PendingLogins:
                 finished, or not a browser login
             ValueError: for an address that carries no code; the login is left pending,
                 so the right address can still be pasted
+            LoginNotStored: when Amazon accepted but the account could not be stored; the
+                login is failed and the new device deregistered
             Exception: from `register`, when Amazon rejects the code; the login is failed
         """
         with self._lock:
@@ -726,19 +736,19 @@ class PendingLogins:
 
     def _finish(self, login: BrowserLogin | CodeLogin, finish: Finish, auth: Authenticator) -> None:
         try:
-            account_id = finish(auth)
+            stored = finish(auth)
         except Exception as error:
             # Amazon has registered a device that nothing will ever hold or deregister
             discarded = discard_device(auth)
-            self._fail(
-                login,
-                f"the login was confirmed but the account could not be stored: {error}"
-                + ("; the new device was deregistered, log in again" if discarded else ""),
+            reason = f"the login was confirmed but the account could not be stored: {error}" + (
+                "; the new device was deregistered" if discarded else ""
             )
-            raise
+            self._fail(login, reason)
+            raise LoginNotStored(reason) from error
         with self._lock:
             login.status = LoginStatus.CONFIRMED
-            login.account_id = account_id
+            login.account_id = stored.account_id
+            login.replaced = stored.replaced
 
     def _as_read(self, login: BrowserLogin | CodeLogin) -> BrowserLogin | CodeLogin:
         """

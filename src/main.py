@@ -4,11 +4,11 @@ import threading
 
 from src import crypto, webauth
 from src.accounts import (
-    add_account_from_authenticator,
     authenticator_for,
     check_marketplace,
     persist_auth_if_changed,
     replace_account_auth,
+    store_login,
 )
 from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, LoginFailed, discard_device, login_interactively, login_with_code
@@ -272,7 +272,8 @@ def login_command(
     """
     Add an account by signing in to Amazon - a code entered on any device, or with
     `browser` a sign-in in the browser and the address pasted back - or with
-    `account_id` give an existing account new credentials and keep its library.
+    `account_id` give an existing account new credentials and keep its library. A login
+    an account already holds gives that account new credentials too.
     """
     _prepare()
     existing = None
@@ -292,17 +293,34 @@ def login_command(
         if existing is not None:
             replace_account_auth(existing, auth)
         else:
-            account_id = add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing)
+            stored = store_login(auth, name=name, monitor_existing=monitor_existing)
     except Exception as error:
         logger.exception("Could not store the login")
         # Otherwise the device Amazon just registered stays on the account with nothing holding it
         discard_device(auth)
         raise SystemExit(f"Logged in, but the account could not be stored: {error}") from None
     if existing is not None:
-        print(f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept.")
+        print(
+            f"Logged in. Account {existing.id} ({existing.name}) has new credentials; its library is kept."
+            + _paused_note(existing)
+        )
         return
-    logger.info("Added account %d for Audible %s", account_id, marketplace)
-    print(f"Logged in. Account {account_id} added; the next run will sync it.")
+    if stored.replaced:
+        account = get_account(stored.account_id)
+        ignored = (
+            " The name and download choice given only apply to a new account." if name or not monitor_existing else ""
+        )
+        print(
+            f"Logged in. Account {stored.account_id} ({account.name}) already held this login: "
+            f"new credentials, same library.{ignored}{_paused_note(account)}"
+        )
+        return
+    logger.info("Added account %d for Audible %s", stored.account_id, marketplace)
+    print(f"Logged in. Account {stored.account_id} added; the next run will sync it.")
+
+
+def _paused_note(account: Account) -> str:
+    return " It is paused, so runs skip it until it is turned back on." if not account.enabled else ""
 
 
 def reset_password_command(*, reset_username: bool = False) -> None:

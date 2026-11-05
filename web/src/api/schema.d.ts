@@ -68,7 +68,9 @@ export interface paths {
          *
          *     404 for a login that is unknown, expired or already finished (start again), 400
          *     for an address that carries no authorization code (the login stays open for the
-         *     right one), 502 when Amazon rejects the code.
+         *     right one), 409 when Amazon accepted but the login could not be stored - another
+         *     account holds it, the account has gone - which ends it, 502 when Amazon rejects
+         *     the code.
          */
         post: operations["complete_account_login_api_accounts_login__login_id__post"];
         /**
@@ -1008,6 +1010,11 @@ export interface components {
              */
             method: "code" | "browser";
             /**
+             * Replaced
+             * @default false
+             */
+            replaced: boolean;
+            /**
              * Status
              * @enum {string}
              */
@@ -1025,7 +1032,9 @@ export interface components {
          *     download or inserted unmonitored so the user picks) for a new account, or
          *     `account_id` to give an existing account the new credentials instead, keeping its
          *     library - the way back when a registration stops working - with
-         *     `deregister_previous` removing its old device from Amazon first, best effort.
+         *     `deregister_previous` removing its old device from Amazon first, best effort. Without
+         *     an `account_id`, a login an account already holds (the same customer and marketplace)
+         *     is treated the same way, and `name` and `monitor_existing` are not used.
          *
          *     `method` is `code` (show a code, the user enters it at Amazon on any device, the
          *     service polls until confirmed) or `browser` (the user signs in at `url` in a browser

@@ -33,6 +33,7 @@ from src.audible_login import (
     start_login,
     try_register,
 )
+from src.model import StoredLogin
 from tests.test_accounts import AUTH_BLOB
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)
@@ -507,10 +508,10 @@ def _store(*, amazon=None, at=NOW):
     return store, clock
 
 
-def _finish(record, account_id=7):
+def _finish(record, account_id=7, *, replaced=False):
     def finish(auth):
         record.append(auth)
-        return account_id
+        return StoredLogin(account_id, replaced=replaced)
 
     return finish
 
@@ -532,6 +533,15 @@ def test_store_runs_a_code_login_to_a_confirmed_account():
     assert done.code == "ABCDE"
     assert len(finished) == 1 and finished[0].access_token == "Atna|access"
     assert len(amazon.bodies("/auth/register")) == 2
+
+
+def test_store_records_a_login_that_replaced_an_account():
+    store, _ = _store(amazon=FakeAmazon(polls=[registered_response()]))
+
+    login = store.start_code("uk", _finish([], replaced=True))
+    store.join(login.id, timeout=5)
+
+    assert store.get(login.id).replaced is True
 
 
 def test_store_reports_a_code_login_as_pending_while_amazon_waits_for_the_user():
@@ -817,7 +827,7 @@ def _held_finish():
     def finish(auth):
         entered.set()
         assert release.wait(5)
-        return 9
+        return StoredLogin(9)
 
     return finish, entered, release
 

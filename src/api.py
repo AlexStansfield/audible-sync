@@ -35,13 +35,13 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from src import crypto, database, library, system, webauth
 from src.accounts import (
-    add_account_from_authenticator,
     authenticator_for,
     check_marketplace,
     replace_account_auth,
+    store_login,
 )
 from src.apitoken import ApiToken, TokenFromEnv
-from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, PendingLogins
+from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, LoginNotStored, PendingLogins
 from src.database import (
     BOOK_SORT_COLUMNS,
     book_ids_matching,
@@ -62,7 +62,7 @@ from src.database import (
     update_account,
 )
 from src.logbuffer import RingBufferHandler
-from src.model import Account, BookStatus, RunBookOutcome
+from src.model import Account, BookStatus, RunBookOutcome, StoredLogin
 from src.notify import send_webhook
 from src.paths import REPO_ROOT
 from src.runstate import RunState
@@ -524,14 +524,19 @@ def create_app(
     def list_marketplaces() -> list[MarketplaceOut]:
         return list(MARKETPLACES)
 
-    def _finisher(body: LoginStart, existing: Account | None) -> Callable[[Authenticator], int]:
-        """What a confirmed login does with its credentials: a new account, or new credentials for one."""
+    def _finisher(body: LoginStart, existing: Account | None) -> Callable[[Authenticator], StoredLogin]:
+        """What a confirmed login does with its credentials: new ones for an account, or a new account."""
 
-        def finish(auth: Authenticator) -> int:
+        def finish(auth: Authenticator) -> StoredLogin:
             if existing is not None:
                 replace_account_auth(existing, auth, deregister_previous=body.deregister_previous)
-                return existing.id
-            return add_account_from_authenticator(auth, name=body.name, monitor_existing=body.monitor_existing)
+                return StoredLogin(existing.id, replaced=True)
+            return store_login(
+                auth,
+                name=body.name,
+                monitor_existing=body.monitor_existing,
+                deregister_previous=body.deregister_previous,
+            )
 
         return finish
 
@@ -546,6 +551,7 @@ def create_app(
             verification_url=login.verification_url if isinstance(login, CodeLogin) else None,
             url=login.url if isinstance(login, BrowserLogin) else None,
             account=AccountOut.model_validate(account) if account is not None else None,
+            replaced=login.replaced,
             error=login.error,
         )
 
@@ -604,7 +610,9 @@ def create_app(
 
         404 for a login that is unknown, expired or already finished (start again), 400
         for an address that carries no authorization code (the login stays open for the
-        right one), 502 when Amazon rejects the code.
+        right one), 409 when Amazon accepted but the login could not be stored - another
+        account holds it, the account has gone - which ends it, 502 when Amazon rejects
+        the code.
         """
         try:
             login = logins.complete(login_id, body.response_url)
@@ -612,6 +620,9 @@ def create_app(
             raise HTTPException(status_code=404, detail="No such login, or it has expired; start again") from None
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from None
+        except LoginNotStored as error:
+            logger.warning("The login %s could not be stored", login_id, exc_info=True)
+            raise HTTPException(status_code=409, detail=str(error)) from None
         except Exception as error:
             logger.warning("Amazon rejected the login %s", login_id, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Amazon rejected the login: {error}") from None
