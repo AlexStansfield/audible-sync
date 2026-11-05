@@ -2,7 +2,7 @@
 
 A python app that will fetch your library from audible, download the books and convert them to DRM free M4B or Ogg Opus files.
 
-It runs as a background service: on a schedule (every six hours by default) it syncs the latest purchases from your audible library to the app database and downloads whatever is waiting. An HTTP API reports what it is doing, starts or cancels a run, shows the run history and changes the settings; the web UI that sits on top of it is the next milestone. A one-shot command line run is still there for scripting.
+It runs as a background service: on a schedule (every six hours by default) it syncs the latest purchases from your audible library to the app database and downloads whatever is waiting. A web app shows what it is doing - the book being downloaded, your library, the run history and the service log - and is where you add accounts, pick which books to download and change the settings. Underneath is an HTTP API for scripts, and a one-shot command line run is still there too.
 
 It records the download status of each book so will only fetch the missing books. A book that keeps failing is retried up to `max-attempts` times and then left alone, with the reason recorded, rather than re-downloaded on every run forever.
 
@@ -16,9 +16,11 @@ The purpose of this app is to allow the user more control over how they consumer
 
 ## Initial Setup
 
-Add your Audible account by signing in to Amazon with a code, the way the Audible apps do. The app never sees your Amazon password: it asks Amazon for a five-letter code and shows it to you, you open `https://www.amazon.co.uk/code` (your marketplace's) on any device - a phone is fine - sign in if asked, and enter the code; the app notices within a few seconds and stores the credentials in the database. The code is good for ten minutes.
+Start the service (see [Running](#running)), open `http://localhost:8080` and sign in with the password the service printed on its first start. Then **Accounts → Add account**.
 
-From the command line:
+You add an Audible account by signing in to Amazon with a code, the way the Audible apps do. The app never sees your Amazon password: it asks Amazon for a five-letter code and shows it to you, you open `https://www.amazon.co.uk/code` (your marketplace's) on any device - a phone is fine - sign in if asked, and enter the code; the app notices within a few seconds and stores the credentials in the database. The code is good for ten minutes.
+
+Without the web app, from the command line:
 
 ```
 python -m src.main login --marketplace uk
@@ -26,7 +28,7 @@ python -m src.main login --marketplace uk
 
 Or through the API (see below): `POST /api/accounts/login` gives the code, `GET /api/accounts/login/{login_id}` reports `confirmed` once you have entered it. `GET /api/marketplaces` lists the marketplaces (`uk`, `us`, `de`, `fr`, `ca`, `it`, `au`, `in`, `jp`, `es`, `br`).
 
-If your Audible account predates Amazon sign-in and the code is refused, add `--browser` (or `"method": "browser"`): you sign in to Amazon in your own browser at the address the app prints, land on a **"page not found"** page whose address carries a one-time code, and paste that address back (`POST /api/accounts/login/{login_id}`).
+If your Audible account predates Amazon sign-in and the code is refused, use the web app's **browser sign-in** link under the code, or add `--browser` (or `"method": "browser"`): you sign in to Amazon in your own browser at the address the app prints, land on a **"page not found"** page whose address carries a one-time code, and paste that address back (`POST /api/accounts/login/{login_id}`).
 
 The same person can have several accounts - one per Audible marketplace, e.g. a UK and a US library - each with its own credentials, library, sync cursor and run history. When an account is added you choose whether the books it already owns are queued for download (`monitor_existing`, the default) or left unmonitored so you pick them later; `--no-download-existing` on the command line. Purchases after that follow the `auto-monitor-new` setting.
 
@@ -126,7 +128,7 @@ The web app has its own sign-in: one user, created on the first start as `admin`
 docker compose logs audible-sync | grep "Web app sign-in"
 ```
 
-Sign in with it and choose your own. Forgotten the password? Reset it on the server; the new one is printed and every browser is signed out:
+Open `http://localhost:8080`, sign in with it, and choose your own with **Change password** on the Dashboard. Forgotten the password? Reset it on the server; the new one is printed and every browser is signed out:
 
 ```
 docker compose exec audible-sync uv run --no-sync python -m src.main reset-password
@@ -204,7 +206,15 @@ sudo apt install ffmpeg
 2. Extract the downloaded files.
 3. Add the bin/ folder inside the extracted directory to your system's PATH.
 
-#### ✅ 5. Run
+#### ✅ 5. Build the web app (optional)
+
+Without it the service serves the API alone. With Node 22.12 or newer:
+
+```
+cd web && npm ci && npm run build && cd ..
+```
+
+#### ✅ 6. Run
 
 The service:
 
@@ -317,8 +327,4 @@ A ready-made request collection lives in [`opencollection/`](opencollection/), o
 
 ## Todo
 
-There is plenty left to do, my ultimate goal is to have a web based service that can automatically sync, download and convert your books. 
-
-Done so far: re-encoding to Ogg Opus to reduce size, PDF, cover art, chapters and metadata. Next up is turning it into a service with a web UI.
-
-The current todo list can be found [here](todo.md).
+Done: library sync, download and decryption to M4B or Ogg Opus with PDF, cover art, chapters and metadata; a background service with an API; several Audible accounts; and a web app to run it all from. What is left is in [`todo.md`](todo.md).
