@@ -8,7 +8,10 @@ import { Icon } from "./Icon";
  * Decorative: the title beside it names the book.
  */
 export function Cover({ bookId, size, className }: { bookId: number; size?: number; className?: string }) {
-  const [failed, setFailed] = useState(false);
+  // Which book's cover failed, not just whether one did: the same Cover shown for the
+  // next book (the run card) must try that book's
+  const [failedId, setFailedId] = useState<number | null>(null);
+  const failed = failedId === bookId;
   const style = size ? { width: size, height: size } : undefined;
   if (failed) {
     return (
@@ -25,7 +28,7 @@ export function Cover({ bookId, size, className }: { bookId: number; size?: numb
       decoding="async"
       className={`${styles.cover} ${className ?? ""}`}
       style={style}
-      onError={() => setFailed(true)}
+      onError={() => setFailedId(bookId)}
     />
   );
 }

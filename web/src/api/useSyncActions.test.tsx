@@ -40,6 +40,16 @@ describe("useSyncActions", () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ["status"] }));
   });
 
+  it("says it is cancelling, promising nothing about the book in hand", async () => {
+    fakeApi({ "POST /api/sync/cancel": ok({ status: "cancelling" }) });
+    const { result } = setup();
+
+    await act(() => result.current.cancel.mutateAsync());
+
+    // A book being decrypted is finished first, so the toast does not say it goes back
+    expect(await screen.findByRole("status")).toHaveTextContent(/^Cancelling the run\.$/);
+  });
+
   it("cancels, or says there was nothing to cancel", async () => {
     fakeApi({ "POST /api/sync/cancel": fail(409, "No sync is running") });
     const { result } = setup();

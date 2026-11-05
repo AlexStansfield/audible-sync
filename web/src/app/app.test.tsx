@@ -10,6 +10,14 @@ import { renderApp } from "../test/render";
 import { basenameFrom } from "./routes";
 import { retryDelay, useReachability } from "./useReachability";
 
+/**
+ * Waits until the sign-in page has asked whether this browser is still signed in, so a
+ * test can then switch the fake to "signed in" without that check seeing it first.
+ */
+async function signInChecked(api: ReturnType<typeof fakeApi>, times: number) {
+  await waitFor(() => expect(api.calls.filter((call) => call.path === "/api/auth/me").length).toBe(times));
+}
+
 const where = (router: ReturnType<typeof renderApp>["router"]) =>
   router.state.location.pathname + router.state.location.search;
 
@@ -20,6 +28,8 @@ describe("signing in", () => {
 
     await screen.findByRole("heading", { name: "Sign in to Audible Sync" });
     expect(where(router)).toBe("/login?next=%2Flibrary%3Fstatus%3Dfailed");
+    // The guard's check, then the sign-in page's own
+    await signInChecked(api, 2);
 
     Object.assign(api.routes, signedIn(), { "POST /api/auth/login": ok(ME) });
     await userEvent.type(screen.getByLabelText("Username"), "admin");
@@ -94,6 +104,7 @@ describe("signing in", () => {
   it("ignores a next that leaves the app", async () => {
     const api = fakeApi({ "GET /api/auth/me": fail(401, "Not authenticated") });
     const { router } = renderApp("/login?next=%2F%2Fevil.example");
+    await signInChecked(api, 1);
 
     Object.assign(api.routes, signedIn(), { "POST /api/auth/login": ok(ME) });
     await userEvent.type(await screen.findByLabelText("Username"), "admin");

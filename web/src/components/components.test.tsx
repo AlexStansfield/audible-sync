@@ -4,6 +4,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, NetworkError } from "../api/client";
 import { StatusChip } from "./Chip";
+import { Cover } from "./Cover";
 import { ConfirmDialog } from "./Dialog";
 import { ErrorCard } from "./ErrorCard";
 import { ProgressBar } from "./ProgressBar";
@@ -166,5 +167,16 @@ describe("StatusChip", () => {
   it("uses the one word for each status", () => {
     render(<StatusChip status="waiting_download" />);
     expect(screen.getByText("Waiting")).toBeInTheDocument();
+  });
+});
+
+describe("Cover", () => {
+  it("tries the next book's cover after one failed", () => {
+    const { container, rerender } = render(<Cover bookId={1} size={84} />);
+    fireEvent.error(container.querySelector("img") as HTMLImageElement);
+    expect(container.querySelector("img")).toBeNull();
+
+    rerender(<Cover bookId={2} size={84} />);
+    expect(container.querySelector("img")).toHaveAttribute("src", "api/books/2/cover");
   });
 });

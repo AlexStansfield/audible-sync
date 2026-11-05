@@ -80,6 +80,33 @@ export function formatTime(iso: string, now: Date = new Date(), locale?: string)
   return date.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** A clock time today (`20:00`), else the fuller `formatTime`. */
+export function formatClock(iso: string, now: Date = new Date(), locale?: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  if (startOfDay(date) === startOfDay(now)) {
+    return date.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+  }
+  return formatTime(iso, now, locale);
+}
+
+/** A short date: `1 Nov` this year, `1 Nov 2024` before. */
+export function formatDay(iso: string, now: Date = new Date(), locale?: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString(locale, { day: "numeric", month: "short", year: sameYear ? undefined : "numeric" });
+}
+
+/** A schedule's interval: `every 6 hours`, `every hour`, `every 90 minutes`. */
+export function formatInterval(minutes: number): string {
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return hours === 1 ? "every hour" : `every ${hours} hours`;
+  }
+  return `every ${minutes} minutes`;
+}
+
 /** A date alone: `3 Oct 2025`. */
 export function formatDate(iso: string, locale?: string): string {
   const date = new Date(iso);

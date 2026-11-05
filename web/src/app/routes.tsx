@@ -9,6 +9,7 @@ import { LoginPage } from "../auth/LoginPage";
 import { RequireAuth } from "../auth/RequireAuth";
 import { Layout, type RouteHandle } from "../layout/Layout";
 import { ComingSoon } from "../pages/ComingSoon";
+import { DashboardPage } from "../pages/dashboard/DashboardPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ProfilePage } from "../pages/ProfilePage";
 
@@ -23,7 +24,7 @@ export const routes: RouteObject[] = [
       </RequireAuth>
     ),
     children: [
-      { index: true, element: <ComingSoon title="Dashboard" />, handle: page("Dashboard") },
+      { index: true, element: <DashboardPage />, handle: page("Dashboard") },
       { path: "library", element: <ComingSoon title="Library" />, handle: page("Library") },
       { path: "library/:id", element: <ComingSoon title="Book" />, handle: page("Library") },
       { path: "activity", element: <ComingSoon title="Activity" />, handle: page("Activity") },

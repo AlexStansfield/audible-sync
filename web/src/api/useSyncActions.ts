@@ -26,7 +26,7 @@ export function useSyncActions() {
 
   const cancel = useMutation({
     mutationFn: () => unwrap(api.POST("/api/sync/cancel")),
-    onSuccess: () => toast.success("Cancelling the run. The book in hand goes back to the queue."),
+    onSuccess: () => toast.success("Cancelling the run."),
     onError: (error) =>
       toast.error(
         error instanceof ApiError && error.status === 409 ? "No run to cancel" : "Could not cancel the run",
