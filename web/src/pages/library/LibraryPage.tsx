@@ -8,6 +8,7 @@ import { type CSSProperties, useEffect, useReducer, useRef, useState } from "rea
 import { Link, useSearchParams } from "react-router";
 import { useRefreshDuringRun, useStatus } from "../../api/queries";
 import type { components } from "../../api/schema";
+import { usePendingIds } from "../../api/usePendingIds";
 import { useRetryUnavailable } from "../../api/useRetryUnavailable";
 import { ConfirmDialog } from "../../components/Dialog";
 import { ErrorCard } from "../../components/ErrorCard";
@@ -36,7 +37,7 @@ import {
   VIEW_KEY,
 } from "./libraryQuery";
 import { liveBook } from "./live";
-import { useBulkAction, useLibrary, useMonitorBook, usePendingMonitors } from "./queries";
+import { MONITOR_KEY, useBulkAction, useLibrary, useMonitorBook } from "./queries";
 import { EMPTY, isSelected, pageSelected, selectedCount, selectionReducer } from "./selection";
 import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "./text";
 
@@ -64,7 +65,7 @@ export function LibraryPage() {
   const stats = useStats();
   const list = useLibrary(query);
   const monitor = useMonitorBook(query);
-  const pendingMonitors = usePendingMonitors();
+  const pendingMonitors = usePendingIds(MONITOR_KEY);
   const bulk = useBulkAction();
   const toast = useToast();
   const top = useRef<HTMLHeadingElement>(null);

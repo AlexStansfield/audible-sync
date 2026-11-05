@@ -4,6 +4,7 @@
  */
 import { type ReactNode, useEffect, useId, useRef } from "react";
 import styles from "./Dialog.module.css";
+import { Icon } from "./Icon";
 
 export function Dialog({
   open,
@@ -12,6 +13,7 @@ export function Dialog({
   children,
   actions,
   width = 480,
+  closeButton = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -20,6 +22,8 @@ export function Dialog({
   /** The buttons along the foot, right-aligned */
   actions?: ReactNode;
   width?: number;
+  /** A Close (×) button beside the title, for a dialog with no Cancel of its own */
+  closeButton?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -50,9 +54,16 @@ export function Dialog({
     >
       {open && (
         <div className={styles.body}>
-          <h2 id={titleId} className={styles.title}>
-            {title}
-          </h2>
+          <div className={styles.head}>
+            <h2 id={titleId} className={styles.title}>
+              {title}
+            </h2>
+            {closeButton && (
+              <button type="button" className={`icon-btn ${styles.close}`} aria-label="Close" onClick={onClose}>
+                <Icon name="close" size={18} strokeWidth={2.2} />
+              </button>
+            )}
+          </div>
           {children}
           {actions && <div className={styles.actions}>{actions}</div>}
         </div>

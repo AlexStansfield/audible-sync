@@ -2,7 +2,7 @@
  * What the Library reads and changes. Keys start with `books` (or `stats`), so the end
  * of a run refetches them (`AFTER_RUN`).
  */
-import { keepPreviousData, useMutation, useMutationState, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../../api/client";
 import { refreshAfterBookChange } from "../../api/queries";
 import type { components } from "../../api/schema";
@@ -57,18 +57,6 @@ export function useMonitorBook(query: LibraryQuery) {
       void refreshAfterBookChange(client);
     },
   });
-}
-
-/**
- * The books with a monitoring change in flight. Their controls wait for it: a second
- * change would save the first one's optimistic value as the one to roll back to.
- */
-export function usePendingMonitors(): ReadonlySet<number> {
-  const ids = useMutationState({
-    filters: { mutationKey: MONITOR_KEY, status: "pending" },
-    select: (mutation) => (mutation.state.variables as { id: number } | undefined)?.id,
-  });
-  return new Set(ids.filter((id): id is number => id !== undefined));
 }
 
 /** `POST /api/books/bulk`; the caller words the result. */

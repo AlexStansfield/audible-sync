@@ -131,6 +131,13 @@ const PATHS = {
     </>
   ),
   bookmark: <path d="M6 3h12v18l-6-4-6 4z" />,
+  more: (
+    <>
+      <circle cx="5" cy="12" r="1.8" />
+      <circle cx="12" cy="12" r="1.8" />
+      <circle cx="19" cy="12" r="1.8" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;
