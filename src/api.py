@@ -584,6 +584,19 @@ def create_app(
             raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
         return _login_out(login)
 
+    @router.delete("/accounts/login/{login_id}", response_model=LoginOut)
+    def cancel_account_login(login_id: str) -> LoginOut:
+        """
+        Cancel a login and answer with how it ended: `cancelled` when it was pending (a
+        code login stops polling Amazon; a browser login can no longer be completed), or
+        unchanged when it had already ended, so a code confirmed just before the cancel
+        reads `confirmed` and its account stays. 404 once the login has been forgotten.
+        """
+        login = logins.cancel(login_id)
+        if login is None:
+            raise HTTPException(status_code=404, detail="No such login, or it has expired; start again")
+        return _login_out(login)
+
     @router.post("/accounts/login/{login_id}", response_model=LoginOut, status_code=201)
     def complete_account_login(login_id: str, body: LoginComplete) -> LoginOut:
         """

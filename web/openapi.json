@@ -830,7 +830,7 @@
         "type": "object"
       },
       "LoginOut": {
-        "description": "A login in flight or finished. `status` is `pending` until the user has done their\npart, then `confirmed` with the `account`, or `expired` (start again) or `failed`\nwith the `error`. The `code` method carries `code` and `verification_url`; the\n`browser` method carries `url`.",
+        "description": "A login in flight or finished. `status` is `pending` until the user has done their\npart, then `confirmed` with the `account`, or `expired` (start again), `failed`\nwith the `error`, or `cancelled` (`DELETE /api/accounts/login/{login_id}`). The\n`code` method carries `code` and `verification_url`; the `browser` method carries\n`url`.",
         "properties": {
           "account": {
             "anyOf": [
@@ -885,7 +885,8 @@
               "pending",
               "confirmed",
               "expired",
-              "failed"
+              "failed",
+              "cancelled"
             ],
             "title": "Status",
             "type": "string"
@@ -2239,6 +2240,49 @@
       }
     },
     "/api/accounts/login/{login_id}": {
+      "delete": {
+        "description": "Cancel a login and answer with how it ended: `cancelled` when it was pending (a\ncode login stops polling Amazon; a browser login can no longer be completed), or\nunchanged when it had already ended, so a code confirmed just before the cancel\nreads `confirmed` and its account stays. 404 once the login has been forgotten.",
+        "operationId": "cancel_account_login_api_accounts_login__login_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "login_id",
+            "required": true,
+            "schema": {
+              "title": "Login Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Account Login"
+      },
       "get": {
         "description": "How a login is going; 404 once it has been forgotten (a while after it ended).",
         "operationId": "login_status_api_accounts_login__login_id__get",

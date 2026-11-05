@@ -1,7 +1,7 @@
 info:
   name: Delete an account
   type: http
-  seq: 10
+  seq: 11
 http:
   method: DELETE
   url: "{{baseUrl}}/api/accounts/:id?deregister=false"

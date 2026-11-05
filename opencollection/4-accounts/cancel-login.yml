@@ -1,0 +1,17 @@
+info:
+  name: Cancel a login
+  type: http
+  seq: 10
+http:
+  method: DELETE
+  url: "{{baseUrl}}/api/accounts/login/:login_id"
+  params:
+    - name: login_id
+      value: ""
+      type: path
+      description: the login_id a start returned
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Cancel a pending login: a code login stops polling Amazon, a browser login can no longer be completed, and it reads `cancelled`. One that has already ended is returned as it ended - a code confirmed just before the cancel is `confirmed`, and its account stays. 404 once the login has been forgotten.

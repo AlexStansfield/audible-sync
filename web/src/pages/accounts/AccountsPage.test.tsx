@@ -278,8 +278,11 @@ describe("Accounts", () => {
     expect(await within(dialog).findByText("Alex (UK) is connected")).toBeInTheDocument();
   });
 
-  it("reads the accounts again when a dialog with a login in it is closed", async () => {
-    const api = page([UK], { "POST /api/accounts/login": () => json(202, codeLogin()) });
+  it("cancels the code sign-in when its dialog is closed, and reads the accounts again", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+    });
     renderApp("/accounts");
     const reads = () => api.calls.filter((call) => call.method === "GET" && call.path === "/api/accounts").length;
 
@@ -289,7 +292,339 @@ describe("Accounts", () => {
     await within(dialog).findByText("Code: KQ7XM");
     const before = reads();
     await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
     await waitFor(() => expect(reads()).toBe(before + 1));
+    expect(api.calls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual([
+      "/api/accounts/login/abc",
+    ]);
+    expect(screen.queryByText(/was signed in/)).not.toBeInTheDocument();
+  });
+
+  it("says so when the code closed in its dialog had been confirmed just before", async () => {
+    const DE = account({ id: 4, name: "Alex (DE)", country_code: "de" });
+    page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "confirmed", account: DE })),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    expect(await screen.findByText("Alex (DE) was signed in.")).toBeInTheDocument();
+  });
+
+  it("cancels the browser sign-in when its dialog is closed", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser"
+          ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
+          : json(202, codeLogin());
+      },
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+      "DELETE /api/accounts/login/web": () => json(200, codeLogin({ login_id: "web", status: "cancelled" })),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+    await within(dialog).findByRole("link", { name: "Open Amazon sign-in" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual([
+        "/api/accounts/login/abc",
+        "/api/accounts/login/web",
+      ]),
+    );
+  });
+
+  it("does not cancel anything when closed before a sign-in started or after it is done", async () => {
+    const api = page([UK]);
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("cancels the code when the dialog goes by leaving the page", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+      "GET /api/books": ok({ items: [], total: 0, page: 1, page_size: 24 }),
+    });
+    const { router } = renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    await act(() => router.navigate("/library"));
+
+    await waitFor(() =>
+      expect(api.calls.filter((call) => call.method === "DELETE").map((call) => call.path)).toEqual([
+        "/api/accounts/login/abc",
+      ]),
+    );
+  });
+
+  it("cancels a login that starts only after its dialog has closed", async () => {
+    let answer: (response: Response) => void = () => {};
+    const api = page([UK], {
+      "POST /api/accounts/login": () =>
+        new Promise<Response>((resolve) => {
+          answer = resolve;
+        }),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await waitFor(() => expect(api.sent("POST /api/accounts/login")).toHaveLength(1));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+
+    answer(json(202, codeLogin()));
+
+    await waitFor(() => expect(api.calls.filter((call) => call.method === "DELETE")).toHaveLength(1));
+  });
+
+  it("cancels nothing when closed after the sign-in is done", async () => {
+    const user = fakeTime();
+    const api = page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "GET /api/accounts/login/abc": () => json(200, codeLogin({ status: "confirmed", account: UK })),
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    await within(dialog).findByText("Alex (UK) is connected");
+    await user.click(within(dialog).getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(api.calls.some((call) => call.method === "DELETE")).toBe(false);
+  });
+
+  it("waits for an account still being stored rather than starting the browser sign-in", async () => {
+    const user = fakeTime();
+    let answer: Login = codeLogin();
+    const api = page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "GET /api/accounts/login/abc": () => json(200, answer),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin()), // still pending: its wait ran out
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await user.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+
+    expect(await within(dialog).findByText(/The account is still being stored/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "browser sign-in" })).not.toBeInTheDocument();
+    expect(api.sent("POST /api/accounts/login")).toHaveLength(1);
+
+    answer = codeLogin({ status: "confirmed", account: UK });
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    expect(await within(dialog).findByText("Alex (UK) is connected")).toBeInTheDocument();
+    expect(api.sent("POST /api/accounts/login")).toHaveLength(1);
+  });
+
+  it("goes on to the browser sign-in when the service has forgotten the code", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser"
+          ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
+          : json(202, codeLogin());
+      },
+      "DELETE /api/accounts/login/abc": fail(404, "No such login, or it has expired; start again"),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+
+    expect(await within(dialog).findByRole("link", { name: "Open Amazon sign-in" })).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Could not stop the code sign-in/)).not.toBeInTheDocument();
+    expect(api.sent("POST /api/accounts/login")).toHaveLength(2);
+  });
+
+  it("offers both ways on when the code was cancelled but the browser start failed", async () => {
+    const user = fakeTime();
+    let cancelled = false;
+    page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser" ? json(500, { detail: "Internal Server Error" }) : json(202, codeLogin());
+      },
+      "GET /api/accounts/login/abc": () => json(200, codeLogin({ status: cancelled ? "cancelled" : "pending" })),
+      "DELETE /api/accounts/login/abc": () => {
+        cancelled = true;
+        return json(200, codeLogin({ status: "cancelled" }));
+      },
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await user.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+    await within(dialog).findByText(/Could not start the sign-in/);
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+
+    expect(await within(dialog).findByText("This code was cancelled")).toBeInTheDocument();
+    expect(within(dialog).queryByText("This code has expired")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Get a new code" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Use browser sign-in" })).toBeInTheDocument();
+  });
+
+  it("keeps showing a failed sign-in while its cancel is on the way", async () => {
+    const user = fakeTime();
+    const failed = codeLogin({ status: "failed", error: "Amazon refused the device" });
+    page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "GET /api/accounts/login/abc": () => json(200, failed),
+      "DELETE /api/accounts/login/abc": () => new Promise<Response>(() => {}), // no answer yet
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await within(dialog).findByText("Code: KQ7XM");
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    await user.click(await within(dialog).findByRole("button", { name: "Use browser sign-in" }));
+
+    expect(within(dialog).getByText("Amazon refused the device")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Waiting for you to enter the code…")).not.toBeInTheDocument();
+  });
+
+  it("does not wait for the refetches a cancel sets off before starting the browser sign-in", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser"
+          ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
+          : json(202, codeLogin());
+      },
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+    });
+    renderApp("/accounts");
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    const browser = await within(dialog).findByRole("button", { name: "browser sign-in" });
+
+    // From here the stats, one of the lists a cancel refetches, never answers
+    api.routes["GET /api/stats"] = () => new Promise<Response>(() => {});
+    await userEvent.click(browser);
+
+    expect(await within(dialog).findByRole("link", { name: "Open Amazon sign-in" })).toBeInTheDocument();
+  });
+
+  it("clears a failed cancel's error when a new code starts", async () => {
+    const user = fakeTime();
+    let started = 0;
+    page([UK], {
+      "POST /api/accounts/login": () => {
+        started += 1;
+        return json(202, codeLogin({ login_id: `login-${started}`, code: started === 1 ? "KQ7XM" : "ABCDE" }));
+      },
+      "GET /api/accounts/login/login-1": () => json(200, codeLogin({ login_id: "login-1", status: "expired" })),
+      "DELETE /api/accounts/login/login-1": fail(500, "Internal Server Error"),
+    });
+    renderApp("/accounts");
+
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await user.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await user.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+    await within(dialog).findByText(/Could not stop the code sign-in/);
+    await act(() => vi.advanceTimersByTimeAsync(3000));
+    await user.click(await within(dialog).findByRole("button", { name: "Get a new code" }));
+
+    expect(await within(dialog).findByText("Code: ABCDE")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Could not stop the code sign-in/)).not.toBeInTheDocument();
+  });
+
+  it("cancels the code before switching to the browser sign-in", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": async (request) => {
+        const body = (await request.json()) as { method: string };
+        return body.method === "browser"
+          ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
+          : json(202, codeLogin());
+      },
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+
+    await within(dialog).findByRole("link", { name: "Open Amazon sign-in" });
+    const order = api.calls
+      .filter((call) => call.path === "/api/accounts/login" || call.method === "DELETE")
+      .map((call) => call.method);
+    expect(order).toEqual(["POST", "DELETE", "POST"]);
+  });
+
+  it("goes to done when the code was confirmed just before switching to the browser sign-in", async () => {
+    const DE = account({ id: 4, name: "Alex (DE)", country_code: "de" });
+    const api = page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "confirmed", account: DE })),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+
+    expect(await within(dialog).findByText("Alex (DE) is connected")).toBeInTheDocument();
+    expect(api.sent("POST /api/accounts/login")).toHaveLength(1);
+    expect(screen.queryByText(/was signed in/)).not.toBeInTheDocument();
+  });
+
+  it("stays on the code when it cannot be cancelled", async () => {
+    const api = page([UK], {
+      "POST /api/accounts/login": () => json(202, codeLogin()),
+      "DELETE /api/accounts/login/abc": fail(500, "Internal Server Error"),
+    });
+    renderApp("/accounts");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Add account" }));
+    const dialog = screen.getByRole("dialog", { name: "Add an Audible account" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Get sign-in code" }));
+    await userEvent.click(await within(dialog).findByRole("button", { name: "browser sign-in" }));
+
+    expect(
+      await within(dialog).findByText("Could not stop the code sign-in: Internal Server Error"),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByText("Code: KQ7XM")).toBeInTheDocument();
+    expect(api.sent("POST /api/accounts/login")).toHaveLength(1);
   });
 
   it("reads the accounts again when the polled status's accounts change", async () => {
@@ -348,6 +683,8 @@ describe("Accounts", () => {
       },
       "GET /api/accounts/login/abc": () =>
         json(200, codeLogin({ status: "failed", error: "Amazon refused the device" })),
+      "DELETE /api/accounts/login/abc": () =>
+        json(200, codeLogin({ status: "failed", error: "Amazon refused the device" })),
       "POST /api/accounts/login/web": () => {
         pasted += 1;
         return pasted === 1
@@ -404,6 +741,7 @@ describe("Accounts", () => {
           ? json(202, { ...codeLogin({ login_id: "web", method: "browser", url: "https://a" }), code: null })
           : json(202, codeLogin());
       },
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
       "POST /api/accounts/login/web": () => {
         tries += 1;
         return tries === 1
@@ -435,6 +773,7 @@ describe("Accounts", () => {
           : json(202, codeLogin());
       },
       "GET /api/accounts/login/abc": () => json(200, codeLogin()),
+      "DELETE /api/accounts/login/abc": () => json(200, codeLogin({ status: "cancelled" })),
       "POST /api/accounts/login/web": fail(404, "No such login, or it has expired; start again"),
     });
     renderApp("/accounts");

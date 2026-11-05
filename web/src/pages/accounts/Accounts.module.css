@@ -442,6 +442,7 @@
   background: color-mix(in srgb, var(--bad) 8%, transparent);
 }
 
+.expired .codeActions,
 .failed .codeActions {
   justify-content: flex-start;
 }

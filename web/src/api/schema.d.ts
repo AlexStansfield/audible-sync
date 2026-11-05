@@ -71,7 +71,14 @@ export interface paths {
          *     right one), 502 when Amazon rejects the code.
          */
         post: operations["complete_account_login_api_accounts_login__login_id__post"];
-        delete?: never;
+        /**
+         * Cancel Account Login
+         * @description Cancel a login and answer with how it ended: `cancelled` when it was pending (a
+         *     code login stops polling Amazon; a browser login can no longer be completed), or
+         *     unchanged when it had already ended, so a code confirmed just before the cancel
+         *     reads `confirmed` and its account stays. 404 once the login has been forgotten.
+         */
+        delete: operations["cancel_account_login_api_accounts_login__login_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -974,9 +981,10 @@ export interface components {
         /**
          * LoginOut
          * @description A login in flight or finished. `status` is `pending` until the user has done their
-         *     part, then `confirmed` with the `account`, or `expired` (start again) or `failed`
-         *     with the `error`. The `code` method carries `code` and `verification_url`; the
-         *     `browser` method carries `url`.
+         *     part, then `confirmed` with the `account`, or `expired` (start again), `failed`
+         *     with the `error`, or `cancelled` (`DELETE /api/accounts/login/{login_id}`). The
+         *     `code` method carries `code` and `verification_url`; the `browser` method carries
+         *     `url`.
          */
         LoginOut: {
             account?: components["schemas"]["AccountOut"] | null;
@@ -997,7 +1005,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "pending" | "confirmed" | "expired" | "failed";
+            status: "pending" | "confirmed" | "expired" | "failed" | "cancelled";
             /** Url */
             url?: string | null;
             /** Verification Url */
@@ -1553,6 +1561,37 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_account_login_api_accounts_login__login_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                login_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };

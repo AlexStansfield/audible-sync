@@ -861,6 +861,54 @@ def test_login_rejects_an_unknown_method(api):
     assert response.status_code == 422
 
 
+def test_cancel_a_pending_code_login(api):
+    login_id = _start(api)["login_id"]  # pending for ever
+
+    response = api.delete(f"/api/accounts/login/{login_id}", headers=AUTH)
+    api.logins.join(login_id, timeout=5)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert response.json()["account"] is None
+    assert api.get(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "cancelled"
+    assert database.get_accounts() == []
+
+
+def test_cancel_reports_a_code_confirmed_before_it(api):
+    api.amazon.polls = [registered_response()]
+    login_id = _start(api)["login_id"]
+    api.logins.join(login_id, timeout=5)
+
+    body = api.delete(f"/api/accounts/login/{login_id}", headers=AUTH).json()
+
+    assert body["status"] == "confirmed"
+    assert body["account"]["name"] == "Alex (UK)"
+    assert [a.id for a in database.get_accounts()] == [body["account"]["id"]]
+
+
+def test_cancel_a_browser_login_then_its_address_is_refused(api, monkeypatch):
+    calls = _fake_complete(monkeypatch)
+    login_id = _start(api, method="browser")["login_id"]
+
+    assert api.delete(f"/api/accounts/login/{login_id}", headers=AUTH).json()["status"] == "cancelled"
+    response = api.post(f"/api/accounts/login/{login_id}", headers=AUTH, json={"response_url": LANDING})
+
+    assert response.status_code == 404
+    assert calls == []
+    assert database.get_accounts() == []
+
+
+def test_cancel_an_unknown_login(api):
+    response = api.delete("/api/accounts/login/nope", headers=AUTH)
+
+    assert response.status_code == 404
+    assert "start again" in response.json()["detail"]
+
+
+def test_cancel_needs_auth(api):
+    assert TestClient(api.app).delete("/api/accounts/login/nope").status_code == 401
+
+
 def test_login_status_of_an_unknown_login(api):
     response = api.get("/api/accounts/login/nope", headers=AUTH)
 
