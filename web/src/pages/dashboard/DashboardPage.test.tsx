@@ -203,7 +203,7 @@ describe("the Dashboard", () => {
     );
 
     await userEvent.click(within(card).getByRole("button", { name: "Retry unavailable (4)" }));
-    expect(await screen.findByText("4 books queued again for the next run.")).toBeInTheDocument();
+    expect(await screen.findByText("4 books are waiting to download again.")).toBeInTheDocument();
     expect(api.sent("POST /api/books/retry-unavailable")).toEqual([{}]);
   });
 
