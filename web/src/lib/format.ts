@@ -90,6 +90,13 @@ export function formatClock(iso: string, now: Date = new Date(), locale?: string
   return formatTime(iso, now, locale);
 }
 
+/**
+ * `formatTime` inside a sentence: `since today 08:14`, not `since Today 08:14`.
+ */
+export function formatTimeInSentence(iso: string, now: Date = new Date(), locale?: string): string {
+  return formatTime(iso, now, locale).replace(/^(Today|Yesterday|Tomorrow)\b/, (word) => word.toLowerCase());
+}
+
 /** A short date: `1 Nov` this year, `1 Nov 2024` before. */
 export function formatDay(iso: string, now: Date = new Date(), locale?: string): string {
   const date = new Date(iso);
@@ -107,9 +114,14 @@ export function formatInterval(minutes: number): string {
   return `every ${minutes} minutes`;
 }
 
-/** A date alone: `3 Oct 2025`. */
+/**
+ * A date alone: `3 Oct 2025`. A plain `2014-01-28` (a release date) is that calendar
+ * day wherever the browser is; `new Date` would read it as UTC midnight, the day before
+ * anywhere west of Greenwich.
+ */
 export function formatDate(iso: string, locale?: string): string {
-  const date = new Date(iso);
+  const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const date = plain ? new Date(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])) : new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
   return date.toLocaleDateString(locale, { day: "numeric", month: "short", year: "numeric" });
 }

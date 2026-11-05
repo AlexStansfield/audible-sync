@@ -28,8 +28,11 @@ export type BooksProps = {
   pageSelected: boolean;
   onSelectPage: (on: boolean) => void;
   onMonitor: (book: Book, monitored: boolean) => void;
-  /** The previous page is on show while the next loads: a change could not be shown */
-  monitorDisabled: boolean;
+  /**
+   * Whether a book's monitoring control waits: the previous page is on show while the
+   * next loads (a change could not be shown), or a change to it is still in flight
+   */
+  monitorDisabled: (id: number) => boolean;
 };
 
 function statusOf(book: Book, live: BooksProps["live"]): { label: string; colour: string } {
@@ -113,7 +116,7 @@ export function BookGrid({
                 </Link>
                 <span className={styles.tileAuthor}>{book.authors.join(", ") || "Unknown author"}</span>
               </div>
-              <MonitorButton book={book} onMonitor={onMonitor} disabled={monitorDisabled} />
+              <MonitorButton book={book} onMonitor={onMonitor} disabled={monitorDisabled(book.id)} />
             </div>
           </div>
         );
@@ -200,7 +203,7 @@ export function BookTable({
                   <Switch
                     checked={book.monitored}
                     label={`Monitor ${book.title}`}
-                    disabled={monitorDisabled}
+                    disabled={monitorDisabled(book.id)}
                     onChange={(monitored) => onMonitor(book, monitored)}
                   />
                 </td>

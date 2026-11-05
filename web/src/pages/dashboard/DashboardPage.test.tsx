@@ -275,7 +275,7 @@ describe("useRefreshDuringRun", () => {
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
-    const live = (bookId: number, done: number) =>
+    const live = (bookId: number, done: number, transfer: string | null = null) =>
       status({
         current_run: {
           run_id: 148,
@@ -285,7 +285,7 @@ describe("useRefreshDuringRun", () => {
           book: { id: bookId, asin: "B0", title: "x" },
           books_done: done,
           books_total: 10,
-          transfer: null,
+          transfer: transfer ? { desc: transfer, bytes: 1, total: 100 } : null,
         },
       });
     const hook = renderHook(({ value }) => useRefreshDuringRun(value, DURING_RUN), {
@@ -303,5 +303,44 @@ describe("useRefreshDuringRun", () => {
       ["books", "recent"],
       ["queue"],
     ]);
+  });
+
+  it("refetches once more when the book's download starts, the claim having happened by then", () => {
+    const client = makeQueryClient();
+    const invalidate = vi.spyOn(client, "invalidateQueries").mockResolvedValue();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const live = (bookId: number, transfer: string | null) =>
+      status({
+        current_run: {
+          run_id: 148,
+          started_at: "2026-11-02T14:00:00+00:00",
+          stage: "downloading",
+          account: null,
+          book: { id: bookId, asin: "B0", title: "x" },
+          books_done: 0,
+          books_total: 10,
+          transfer: transfer ? { desc: transfer, bytes: 1, total: 100 } : null,
+        },
+      });
+    const hook = renderHook(({ value }) => useRefreshDuringRun(value, DURING_RUN), {
+      wrapper,
+      initialProps: { value: live(1, null) },
+    });
+    const calls = () => invalidate.mock.calls.length;
+
+    // Named before it is claimed: the read now could still find it waiting
+    hook.rerender({ value: live(2, null) });
+    expect(calls()).toBe(3);
+    // Its audio starts: claimed, so read again
+    hook.rerender({ value: live(2, "x") });
+    expect(calls()).toBe(6);
+    // Its PDF and cover, and the decryption, change nothing new
+    for (const transfer of [null, "PDF", null, "Cover", null]) hook.rerender({ value: live(2, transfer) });
+    expect(calls()).toBe(6);
+    // The next book, caught by a poll already downloading: one read, not two
+    hook.rerender({ value: live(3, "y") });
+    expect(calls()).toBe(9);
   });
 });

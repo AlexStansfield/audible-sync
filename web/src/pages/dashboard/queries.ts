@@ -4,6 +4,7 @@
  */
 import { useQuery } from "@tanstack/react-query";
 import { api, unwrap } from "../../api/client";
+import { bookKey } from "../../api/queries";
 
 export const UP_NEXT_ROWS = 4;
 export const RECENT_COVERS = 6;
@@ -55,7 +56,7 @@ export function useLatestFailure(enabled: boolean) {
 /** The book a run is working on, for its author. */
 export function useBook(bookId: number | undefined) {
   return useQuery({
-    queryKey: ["books", bookId],
+    queryKey: bookKey(bookId ?? 0),
     queryFn: () => unwrap(api.GET("/api/books/{book_id}", { params: { path: { book_id: bookId ?? 0 } } })),
     enabled: bookId !== undefined,
   });

@@ -6,8 +6,14 @@ import type { components } from "../../api/schema";
 
 type RunSnapshot = components["schemas"]["RunSnapshot"];
 
-/** The downloader's names for a book's accessories (`src/downloader.py`), which follow the audio */
-const ACCESSORIES = new Set(["PDF", "Cover"]);
+/**
+ * The downloader's names for a book's accessories (`src/downloader.py`), which follow the
+ * audio, and how to say them; anything else a transfer is called is the audio.
+ */
+export const ACCESSORIES: ReadonlyMap<string, string> = new Map([
+  ["PDF", "the companion PDF"],
+  ["Cover", "the cover"],
+]);
 
 /**
  * The book in hand and the audio's progress (0-1). `null` progress - the strip's sliding

@@ -36,7 +36,7 @@ import {
   VIEW_KEY,
 } from "./libraryQuery";
 import { liveBook } from "./live";
-import { useBulkAction, useLibrary, useMonitorBook } from "./queries";
+import { useBulkAction, useLibrary, useMonitorBook, usePendingMonitors } from "./queries";
 import { EMPTY, isSelected, pageSelected, selectedCount, selectionReducer } from "./selection";
 import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "./text";
 
@@ -64,6 +64,7 @@ export function LibraryPage() {
   const stats = useStats();
   const list = useLibrary(query);
   const monitor = useMonitorBook(query);
+  const pendingMonitors = usePendingMonitors();
   const bulk = useBulkAction();
   const toast = useToast();
   const top = useRef<HTMLHeadingElement>(null);
@@ -163,7 +164,7 @@ export function LibraryPage() {
     pageSelected: pageSelected(selection, pageIds),
     onSelectPage: (on) => dispatch({ type: "page", ids: pageIds, on }),
     onMonitor: (book, monitored) => monitor.mutate({ id: book.id, monitored }),
-    monitorDisabled: list.isPlaceholderData,
+    monitorDisabled: (id) => list.isPlaceholderData || pendingMonitors.has(id),
   };
 
   const noResults = list.data !== undefined && total === 0 && !noBooks;

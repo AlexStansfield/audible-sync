@@ -8,7 +8,7 @@ import { IDLE_INTERVAL, RUNNING_INTERVAL, statusInterval, useRefreshAfterRun } f
 import { makeQueryClient, shouldRetry } from "./queryClient";
 
 describe("statusInterval", () => {
-  it("polls every 2 s while a run is in flight and every 30 s otherwise", () => {
+  it("polls every 2 s while a run is in flight and every 10 s otherwise", () => {
     expect(statusInterval(undefined)).toBe(IDLE_INTERVAL);
     expect(statusInterval(status())).toBe(IDLE_INTERVAL);
     const running = status({ scheduler: { ...status().scheduler, running: true } });

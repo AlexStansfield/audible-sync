@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { formatBytes, formatDate, formatElapsed, formatLength, formatRelative, formatTime, plural } from "./format";
+import {
+  formatBytes,
+  formatDate,
+  formatElapsed,
+  formatLength,
+  formatRelative,
+  formatTime,
+  formatTimeInSentence,
+  plural,
+} from "./format";
 
 // The test run's zone is UTC (vite.config.ts), so these are the browser's local times
 const NOW = new Date("2026-11-02T14:30:00Z");
@@ -59,6 +68,12 @@ describe("formatTime", () => {
     expect(formatTime(iso, NOW, "en-GB")).toBe(text);
   });
 
+  it("is lower case inside a sentence", () => {
+    expect(formatTimeInSentence("2026-11-02T08:00:00+00:00", NOW, "en-GB")).toBe("today 08:00");
+    expect(formatTimeInSentence("2026-11-01T21:14:00Z", NOW, "en-GB")).toBe("yesterday 21:14");
+    expect(formatTimeInSentence("2026-10-03T08:00:00Z", NOW, "en-GB")).toBe("3 Oct 08:00");
+  });
+
   it("leaves something unparseable as it is", () => {
     expect(formatTime("soon", NOW)).toBe("soon");
   });
@@ -67,6 +82,18 @@ describe("formatTime", () => {
 describe("formatDate", () => {
   it("is the date alone", () => {
     expect(formatDate("2024-01-01T00:00:00Z", "en-GB")).toBe("1 Jan 2024");
+  });
+
+  it("keeps a plain date on its calendar day west of Greenwich", () => {
+    const tz = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      expect(formatDate("2014-01-28", "en-GB")).toBe("28 Jan 2014");
+    } finally {
+      // Assigning undefined would store the text "undefined"
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
   });
 });
 
