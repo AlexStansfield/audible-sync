@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { status } from "../../test/fakeApi";
 import { run } from "../../test/fixtures";
-import { bookOfRun, isInterrupted, nextRunText, requeuedText, runDetail, subtitle, upNextHeader } from "./text";
+import { bookOfRun, isInterrupted, nextRunText, runDetail, subtitle, upNextHeader } from "./text";
 
 const scheduler = status().scheduler;
 const NOW = new Date("2026-11-02T14:20:00Z");
@@ -74,12 +74,5 @@ describe("nextRunText", () => {
     expect(nextRunText("2026-11-02T20:00:00Z", NOW)).toBe("in 5h 40m");
     expect(nextRunText("2026-11-02T14:20:00Z", NOW)).toBe("due now");
     expect(nextRunText("2026-11-02T14:18:00Z", NOW)).toBe("due now");
-  });
-});
-
-describe("requeuedText", () => {
-  it("says how many went back, or why none did", () => {
-    expect(requeuedText(3)).toBe("3 books queued again for the next run.");
-    expect(requeuedText(0)).toMatch(/^Nothing to retry/);
   });
 });

@@ -102,6 +102,35 @@ const PATHS = {
       <path d="M8 7h7M8 11h5" />
     </>
   ),
+  grid: (
+    <>
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+    </>
+  ),
+  list: <path d="M4 6h16M4 12h16M4 18h16" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
+  searchEmpty: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+      <path d="M8.5 11h5" />
+    </>
+  ),
+  select: (
+    <>
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="m8 12 3 3 5-6" />
+    </>
+  ),
+  bookmark: <path d="M6 3h12v18l-6-4-6 4z" />,
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof PATHS;
@@ -110,11 +139,14 @@ export function Icon({
   name,
   size = 18,
   strokeWidth = 2,
+  filled = false,
   className,
 }: {
   name: IconName;
   size?: number;
   strokeWidth?: number;
+  /** Filled in currentColor as well as stroked (a monitored book's bookmark) */
+  filled?: boolean;
   className?: string;
 }) {
   return (
@@ -124,7 +156,7 @@ export function Icon({
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
+      fill={filled ? "currentColor" : "none"}
       stroke="currentColor"
       strokeWidth={strokeWidth}
       strokeLinecap="round"

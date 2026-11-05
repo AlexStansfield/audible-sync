@@ -74,11 +74,3 @@ export function upNextHeader(scheduler: Scheduler, maxDownload: number | null, n
   const limit = maxDownload == null ? "everything waiting" : `up to ${plural(maxDownload, "book")} per account`;
   return `${when} · ${limit}`;
 }
-
-/** The result of Retry unavailable. */
-export function requeuedText(requeued: number): string {
-  if (requeued === 0) {
-    return "Nothing to retry: the books left are titles Audible withdrew, which come back on their own.";
-  }
-  return `${plural(requeued, "book")} queued again for the next run.`;
-}

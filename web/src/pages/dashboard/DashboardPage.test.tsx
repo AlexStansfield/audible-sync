@@ -3,11 +3,12 @@ import { renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { useRefreshDuringRun } from "../../api/queries";
 import { makeQueryClient } from "../../api/queryClient";
 import { fakeApi, ME, ok, signedIn, status } from "../../test/fakeApi";
 import { account, book, counts, run } from "../../test/fixtures";
 import { renderApp } from "../../test/render";
-import { useRefreshDuringRun } from "./DashboardPage";
+import { DURING_RUN } from "./queries";
 
 const UK = account();
 const US = account({ id: 2, name: "Alex (US)", country_code: "us" });
@@ -287,7 +288,7 @@ describe("useRefreshDuringRun", () => {
           transfer: null,
         },
       });
-    const hook = renderHook(({ value }) => useRefreshDuringRun(value), {
+    const hook = renderHook(({ value }) => useRefreshDuringRun(value, DURING_RUN), {
       wrapper,
       initialProps: { value: live(1, 0) },
     });
