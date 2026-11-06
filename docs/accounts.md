@@ -27,3 +27,7 @@ The same person can have several accounts - one per Audible marketplace, e.g. a 
 ## If Audible refuses every download
 
 **Sign in again** on the account's card, or `--account ID` on the command line, signs in again for an existing account - its library and download history are kept - which is what to do if Audible starts answering every download with "License not granted to customer": Audible stopped licensing devices registered with the older app profile in October 2026, and a fresh sign-in registers one it accepts.
+
+## Podcasts
+
+Podcasts you follow on Audible are not synced or downloaded, only books are. A show stored by an earlier version is removed from the library on the next sync.

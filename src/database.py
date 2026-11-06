@@ -801,6 +801,43 @@ def set_monitored(book_id: int, monitored: bool) -> bool:
     return cursor.rowcount == 1
 
 
+def undownloaded_books_without_length(account_id: int) -> list[Book]:
+    """
+    One account's rows with no length and nothing on disk, and that no run holds: what a
+    podcast stored as a book looks like. `sync._remove_stored_podcasts` asks Audible
+    which they are.
+    """
+    with closing(_get_connection()) as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM library
+            WHERE account_id = ? AND (length IS NULL OR length = 0) AND file_path IS NULL
+              AND status NOT IN ('{BookStatus.DOWNLOADED}', '{BookStatus.DOWNLOADING}')
+            """,
+            (account_id,),
+        ).fetchall()
+    return [Book.from_row(row) for row in rows]
+
+
+def delete_undownloaded_book(book_id: int) -> bool:
+    """
+    Remove a library row that has nothing on disk, unless a run has since taken it or
+    downloaded it. Returns whether it went. A run's record of the book keeps its own
+    copy of the title, and reads `book_id` as None from here on.
+    """
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            f"""
+            DELETE FROM library
+            WHERE id = ? AND file_path IS NULL
+              AND status NOT IN ('{BookStatus.DOWNLOADED}', '{BookStatus.DOWNLOADING}')
+            """,
+            (book_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
 def reset_for_download(book_id: int, *, monitored: bool) -> bool:
     """
     Put a book back at the start of the state machine: `waiting_download`, no attempts,
