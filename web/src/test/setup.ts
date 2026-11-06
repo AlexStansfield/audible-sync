@@ -1,6 +1,11 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+
+// How long findBy and waitFor keep looking, 1 s by default. The first test of a file pays
+// for the app's first render, which took longer than that on a busy CI runner and failed
+// the Library's first test now and then. Only a test about to fail waits this long.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom has the <dialog> element but not its methods: open and close by the attribute,
 // as a browser does (focus trapping and the backdrop are the browser's, not tested here)
