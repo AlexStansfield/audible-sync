@@ -172,20 +172,6 @@ def test_mark_book_downloaded_default_timestamp_is_utc_iso(db):
     assert before <= stamp <= datetime.now(UTC)
 
 
-def test_update_book_accessories_only_sets_given_paths(db):
-    database.update_books(ACCOUNT, [make_book("B001")])
-    database.update_book_accessories(_id("B001"), pdf_path="/p.pdf", cover_path="/c.jpg")
-    book = database.get_book_by_asin("B001")
-    assert book.pdf_path == "/p.pdf"
-    assert book.cover_path == "/c.jpg"
-    assert book.annotations_path is None
-
-    database.update_book_accessories(_id("B001"), annotations_path="/a.json")
-    book = database.get_book_by_asin("B001")
-    assert book.pdf_path == "/p.pdf"
-    assert book.annotations_path == "/a.json"
-
-
 def test_update_books_handles_a_duplicate_asin_within_one_batch(db):
     """A repeated ASIN in one API response used to abort the sync with nothing committed."""
     inserted = database.update_books(ACCOUNT, [make_book("B001"), make_book("B001"), make_book("B002")])

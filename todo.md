@@ -148,7 +148,7 @@ A quick release of fixes before Milestone 5: a followed podcast no longer ends u
 - [ ] Backend: replacing the credentials of the account a run is on deregisters the device that run is using, so the run ends `aborted` saying to log in again although a login just succeeded; the next run recovers. Defer the deregistration until the run has ended
 - [ ] Split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
 - [ ] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
-- [ ] Remove `database.update_book_accessories`, which nothing calls
+- [x] Remove `database.update_book_accessories`, which nothing calls
 
 ## Milestone 5: Wishlist and Catalogue Search
 

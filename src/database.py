@@ -773,35 +773,6 @@ def mark_book_downloaded(
         conn.commit()
 
 
-def update_book_accessories(
-    book_id: int,
-    pdf_path: str | None = None,
-    cover_path: str | None = None,
-    annotations_path: str | None = None,
-) -> None:
-    """Update the paths for downloaded accessories (PDF, cover, annotations)"""
-    updates = []
-    values: list[str] = []
-
-    if pdf_path is not None:
-        updates.append("pdf_path = ?")
-        values.append(pdf_path)
-    if cover_path is not None:
-        updates.append("cover_path = ?")
-        values.append(cover_path)
-    if annotations_path is not None:
-        updates.append("annotations_path = ?")
-        values.append(annotations_path)
-
-    if not updates:
-        return
-
-    values.append(book_id)
-    with closing(_get_connection()) as conn:
-        conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE id = ?", values)
-        conn.commit()
-
-
 # --- book management ---------------------------------------------------------------
 # What the API's per-book actions change. The file deletion itself is `library.py`'s;
 # these record the outcome.
