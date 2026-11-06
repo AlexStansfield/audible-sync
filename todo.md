@@ -135,6 +135,20 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] The code sign-in from the web app against Amazon, end to end (Sign in again in the test container, 2026-11-02: the code confirmed, a new device registered, the old one deregistered, the account kept its id and library)
 - [x] Backend: one account per Audible login. A login an account already holds (the same `customer_info.user_id` and marketplace) gives that account new credentials and keeps its library, rather than adding a second row that would download and file the same books
 
+## Milestone 4.5: Fixes
+
+A quick release of fixes before Milestone 5: a followed podcast no longer ends up in the library as a failed book, and the items carried over from Milestones 3 and 4.
+
+### Tasks
+
+- [ ] Backend: leave podcasts out of the sync. Following a podcast puts the show in the library listing as one item with `content_delivery_type` `PodcastParent`, `content_type` `Podcast` and no length; its episodes (`PodcastEpisode`) only come back when asked for with `parent_asin` (checked live, 2026-11-06). Nothing filters it, so it is stored as a book and queued, though the show itself has no audio. Skip these items when mapping the library, by the podcast values rather than by allowing only `Product`, since the library also holds real books with `content_type` `Performance`. Remove any row an earlier sync stored, with nothing on disk to delete. Downloading episodes is a feature of its own, not part of this fix
+- [ ] Backend (from the 2026-11-01 review): `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Deferred: the service runs one sync at a time, so it takes a CLI run beside the service, and the fix is a claim token on every transition
+- [ ] Backend: a plain `customer_id` column on `accounts` with a unique index on it and the marketplace, backfilled at start. The one-login-one-account rule reads the customer id from the encrypted credentials, so it cannot see an account whose credentials are unreadable (after a lost key, Add account adds a second row and the library is downloaded again) and holds only within one process (a CLI login beside the service). To decide: what becomes of any duplicates already there, which a unique index would refuse
+- [ ] Backend: replacing the credentials of the account a run is on deregisters the device that run is using, so the run ends `aborted` saying to log in again although a login just succeeded; the next run recovers. Defer the deregistration until the run has ended
+- [ ] Split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
+- [ ] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
+- [ ] Remove `database.update_book_accessories`, which nothing calls
+
 ## Milestone 5: Wishlist and Catalogue Search
 
 Manage the Audible wishlist from the web app: search the catalogue, add books and remove them. Both are part of the API as well, so another application can read the wishlist and look books up with the bearer token. The web app also becomes installable as a PWA.
@@ -176,12 +190,3 @@ Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocu
 - [ ] Backend: PWA - serve the manifest and the service worker with the right content type and `no-cache` (only `assets/` is `immutable`), at the root and under a base path
 - [ ] Docs: `docs/api.md` for the wishlist and the catalogue; the requests in `opencollection/`; the README; CLAUDE.md; and in the installation guide, that a browser offers Install only over https or on `localhost`, so a plain http address on a LAN stays an ordinary page
 - [ ] Checked live: a book added from Search appears in Audible's own wishlist and one removed leaves it; the Wishlist page matches Audible's for two accounts; the wishlist and catalogue endpoints with the bearer token alone; the app installed on a phone over https, at the root and under a base path, and updated by a new build
-
-### Carried over from Milestones 3 and 4
-
-- [ ] Backend (from the 2026-11-01 review): `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Deferred: the service runs one sync at a time, so it takes a CLI run beside the service, and the fix is a claim token on every transition
-- [ ] Backend: a plain `customer_id` column on `accounts` with a unique index on it and the marketplace, backfilled at start. The one-login-one-account rule reads the customer id from the encrypted credentials, so it cannot see an account whose credentials are unreadable (after a lost key, Add account adds a second row and the library is downloaded again) and holds only within one process (a CLI login beside the service). To decide: what becomes of any duplicates already there, which a unique index would refuse
-- [ ] Backend: replacing the credentials of the account a run is on deregisters the device that run is using, so the run ends `aborted` saying to log in again although a login just succeeded; the next run recovers. Defer the deregistration until the run has ended
-- [ ] Split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
-- [ ] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
-- [ ] Remove `database.update_book_accessories`, which nothing calls
