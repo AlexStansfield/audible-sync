@@ -1,6 +1,9 @@
 import logging
 from datetime import UTC, datetime
 
+import pytest
+from audible.exceptions import NotFoundError, NotResponding
+
 import src.sync as sync_module
 from src.sync import SyncResult, _api_timestamp, sync_library
 from tests.conftest import make_account, make_book
@@ -18,6 +21,12 @@ class FakeAudible:
     def get_library(self, purchased_after=None):
         self.calls.append(purchased_after)
         return self.books
+
+
+@pytest.fixture(autouse=True)
+def no_stored_podcasts(monkeypatch):
+    """Nothing to tidy up unless a test says so, and so no database to read."""
+    monkeypatch.setattr(sync_module, "undownloaded_books_without_length", lambda account_id: [])
 
 
 def _patch(monkeypatch, *, cursor=None, run_start=None, needs_refresh=False, updated=None):
@@ -163,3 +172,80 @@ def test_the_cursor_is_looked_up_for_the_accounts_id(monkeypatch):
     sync_library(FakeAudible([]), make_account(id=42))
 
     assert seen == [42, 42]
+
+
+class _PodcastAudible(FakeAudible):
+    """Answers `is_podcast` per ASIN; an exception is raised instead."""
+
+    def __init__(self, answers):
+        super().__init__([])
+        self.answers = answers
+        self.asked = []
+
+    def is_podcast(self, asin):
+        self.asked.append(asin)
+        answer = self.answers[asin]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+
+def _stored(monkeypatch, *asins):
+    """`asins` are the rows with no length; returns the ids the sync removes."""
+    removed = []
+    books = [make_book(asin, id=index) for index, asin in enumerate(asins, start=1)]
+    monkeypatch.setattr(sync_module, "undownloaded_books_without_length", lambda account_id: books)
+    monkeypatch.setattr(sync_module, "delete_undownloaded_book", lambda book_id: removed.append(book_id) or True)
+    return removed
+
+
+def test_a_sync_removes_a_stored_podcast_and_keeps_a_book_with_no_length(monkeypatch):
+    _patch(monkeypatch)
+    removed = _stored(monkeypatch, "POD", "BOOK")
+
+    sync_library(_PodcastAudible({"POD": True, "BOOK": False}), ACCOUNT)
+
+    assert removed == [1]
+
+
+@pytest.mark.parametrize(
+    "problem", [NotResponding.__new__(NotResponding), AttributeError("'str' object has no attribute 'get'")]
+)
+def test_a_failed_check_costs_neither_the_run_nor_more_timeouts(monkeypatch, caplog, problem):
+    """
+    It runs before the sync counts as done, so anything getting out fails the run. And
+    with Audible not answering, each further row would be another 60 s timeout.
+    """
+    _patch(monkeypatch)
+    removed = _stored(monkeypatch, "FIRST", "POD")
+    audible = _PodcastAudible({"FIRST": problem, "POD": True})
+
+    with caplog.at_level(logging.WARNING):
+        result = sync_library(audible, ACCOUNT)
+
+    assert result == SyncResult(books_seen=0, books_added=0)
+    assert audible.asked == ["FIRST"]
+    assert removed == []
+    assert "Could not check whether FIRST is a podcast" in caplog.text
+
+
+def test_a_title_gone_from_the_library_is_passed_over_quietly(monkeypatch, caplog):
+    """It would otherwise be a warning every six hours, for good."""
+    _patch(monkeypatch)
+    removed = _stored(monkeypatch, "GONE", "POD")
+    gone = NotFoundError.__new__(NotFoundError)
+
+    with caplog.at_level(logging.WARNING):
+        sync_library(_PodcastAudible({"GONE": gone, "POD": True}), ACCOUNT)
+
+    assert removed == [2]
+    assert "GONE" not in caplog.text
+
+
+def test_a_sync_asks_audible_nothing_when_every_book_has_a_length(monkeypatch):
+    _patch(monkeypatch)
+    audible = _PodcastAudible({})
+
+    sync_library(audible, ACCOUNT)
+
+    assert audible.asked == []

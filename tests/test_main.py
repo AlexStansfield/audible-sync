@@ -4,6 +4,7 @@ import threading
 
 import pytest
 
+from src import accounts as accounts_module
 from src import main as main_module
 from src.accounts import LoginAlreadyHeld
 from src.audible_login import LoginFailed
@@ -771,3 +772,39 @@ def test_a_failed_credentials_write_back_still_closes_the_run(tmp_path, monkeypa
     _, recorded = calls["finished"]
     assert recorded["outcome"] == SyncOutcome.SUCCESS
     assert "Could not store the refreshed credentials" in caplog.text
+
+
+def test_the_device_is_marked_in_use_before_the_account_is_read_and_until_the_run_ends(monkeypatch, tmp_path):
+    """
+    Read first, a login between the read and the mark would deregister the device the run
+    had just read.
+    """
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+    account = make_account()
+    in_use = {}
+
+    def read(account_id):
+        in_use["read"] = account_id in accounts_module._devices_in_use
+        return account
+
+    def run(account, settings, progress=None, *, state=None, cancel=None):
+        in_use["run"] = account.id in accounts_module._devices_in_use
+
+    monkeypatch.setattr(main_module, "get_account", read)
+    monkeypatch.setattr(main_module, "run_account", run)
+
+    run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
+
+    assert in_use == {"read": True, "run": True}
+    assert accounts_module._devices_in_use == set()
+
+
+def test_a_failing_run_releases_the_device(monkeypatch, tmp_path):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("no"))
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
+
+    assert accounts_module._devices_in_use == set()

@@ -206,3 +206,70 @@ def test_prepare_book_treats_a_missing_consumable_flag_as_available(item):
 def test_response_groups_ask_for_customer_rights():
     """Without this group every book reads back as consumable and nothing is ever parked."""
     assert "customer_rights" in RESPONSE_GROUPS
+
+
+PODCAST_SHOW = {"content_delivery_type": "PodcastParent", "content_type": "Podcast", "runtime_length_min": None}
+PODCAST_EPISODE = {"content_delivery_type": "PodcastEpisode", "content_type": "Podcast"}
+
+
+@pytest.mark.parametrize(
+    "podcast", [PODCAST_SHOW, PODCAST_EPISODE, {"content_type": "Podcast"}, {"content_delivery_type": "PodcastEpisode"}]
+)
+def test_prepare_books_leaves_out_podcasts(podcast):
+    """The shape of a followed show, checked against the live listing 2026-11-06."""
+    books = _prepare_books([make_item("B001"), make_item("POD", **podcast), make_item("B002")])
+
+    assert [book.asin for book in books] == ["B001", "B002"]
+
+
+@pytest.mark.parametrize(
+    "kinds",
+    [
+        {"content_delivery_type": "SinglePartBook", "content_type": "Product"},
+        {"content_delivery_type": "MultiPartBook", "content_type": "Product"},
+        # A real book: the live library has two
+        {"content_delivery_type": "SinglePartBook", "content_type": "Performance"},
+        {"content_delivery_type": None, "content_type": None},
+        {},
+    ],
+)
+def test_prepare_books_keeps_everything_that_is_not_a_podcast(kinds):
+    assert [book.asin for book in _prepare_books([make_item("B001", **kinds)])] == ["B001"]
+
+
+def test_prepare_books_skips_an_item_it_cannot_tell_the_kind_of():
+    """One unexpected shape costs that item, not the run, and an exception here is a failed sync."""
+    books = _prepare_books([make_item("ODD", content_delivery_type=1), make_item("B001")])
+
+    assert [book.asin for book in books] == ["B001"]
+
+
+class _FakeItemClient:
+    def __init__(self, item):
+        self.item = item
+        self.calls = []
+
+    def get(self, path, params=None):
+        self.calls.append((path, params))
+        return {"item": self.item}
+
+
+def _client_for(item):
+    audible = Audible.__new__(Audible)
+    audible.client = _FakeItemClient(item)
+    return audible
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    [
+        (PODCAST_SHOW, True),
+        ({"content_delivery_type": "SinglePartBook", "content_type": "Product"}, False),
+        ({}, False),
+    ],
+)
+def test_is_podcast_asks_for_the_one_title(item, expected):
+    audible = _client_for(item)
+
+    assert audible.is_podcast("B001") is expected
+    assert audible.client.calls == [("library/B001", {"response_groups": "product_attrs"})]

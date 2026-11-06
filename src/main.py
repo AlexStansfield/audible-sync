@@ -6,6 +6,7 @@ from src import crypto, webauth
 from src.accounts import (
     authenticator_for,
     check_marketplace,
+    device_in_use,
     persist_auth_if_changed,
     replace_account_auth,
     store_login,
@@ -112,25 +113,27 @@ def run_pipeline(
         if cancel is not None and cancel.is_set():
             logger.info("Sync cancelled before %s", listed.name)
             break
-        # Read again at its turn: the list is hours old by the last account, which may
-        # have been deleted, disabled or logged out since (the API refuses to delete an
-        # account only while the run is on it)
-        account = get_account(listed.id)
-        if account is None:
-            logger.info("Skipping %s: removed since the run began", listed.name)
-            continue
-        if not account.runnable:
-            if account.needs_login:
-                logger.warning("Skipping %s: it has no credentials, log in to it first", account.name)
-            else:
-                logger.info("Skipping %s: disabled", account.name)
-            continue
+        # A login during the run must leave this account's device working until the run ends
+        with device_in_use(listed.id):
+            # Read again at its turn: the list is hours old by the last account, which may
+            # have been deleted, disabled or logged out since (the API refuses to delete an
+            # account only while the run is on it)
+            account = get_account(listed.id)
+            if account is None:
+                logger.info("Skipping %s: removed since the run began", listed.name)
+                continue
+            if not account.runnable:
+                if account.needs_login:
+                    logger.warning("Skipping %s: it has no credentials, log in to it first", account.name)
+                else:
+                    logger.info("Skipping %s: disabled", account.name)
+                continue
 
-        try:
-            run_account(account, settings, progress=progress, state=state, cancel=cancel)
-        except Exception as error:
-            logger.exception("Run failed for %s", account.name)
-            first_error = first_error or error
+            try:
+                run_account(account, settings, progress=progress, state=state, cancel=cancel)
+            except Exception as error:
+                logger.exception("Run failed for %s", account.name)
+                first_error = first_error or error
 
     if first_error is not None:
         raise first_error

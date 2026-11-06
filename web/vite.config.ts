@@ -17,5 +17,8 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     // Times are shown in the browser's zone: fixed, so the formatting tests are too
     env: { TZ: "UTC" },
+    // Longer than a test's waits (asyncUtilTimeout in setup.ts), so one that fails says
+    // what it was looking for rather than only that it timed out
+    testTimeout: 20000,
   },
 });

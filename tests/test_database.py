@@ -172,18 +172,56 @@ def test_mark_book_downloaded_default_timestamp_is_utc_iso(db):
     assert before <= stamp <= datetime.now(UTC)
 
 
-def test_update_book_accessories_only_sets_given_paths(db):
-    database.update_books(ACCOUNT, [make_book("B001")])
-    database.update_book_accessories(_id("B001"), pdf_path="/p.pdf", cover_path="/c.jpg")
-    book = database.get_book_by_asin("B001")
-    assert book.pdf_path == "/p.pdf"
-    assert book.cover_path == "/c.jpg"
-    assert book.annotations_path is None
+def test_undownloaded_books_without_length_is_what_a_stored_podcast_looks_like(db):
+    database.update_books(
+        ACCOUNT,
+        [
+            make_book("SHOW", id=None, length=None),
+            make_book("ZERO", id=None, length=0),
+            make_book("BOOK", id=None, length=600),
+            make_book("HELD", id=None, length=None),
+            make_book("DONE", id=None, length=None),
+            make_book("FILE", id=None, length=None),
+        ],
+    )
+    assert database.claim_book_for_download(_id("HELD"))
+    assert database.claim_book_for_download(_id("DONE"))
+    database.mark_book_downloaded(_id("DONE"))
+    _set("FILE", file_path="/a/file.m4b")
 
-    database.update_book_accessories(_id("B001"), annotations_path="/a.json")
-    book = database.get_book_by_asin("B001")
-    assert book.pdf_path == "/p.pdf"
-    assert book.annotations_path == "/a.json"
+    found = database.undownloaded_books_without_length(ACCOUNT)
+
+    assert sorted(book.asin for book in found) == ["SHOW", "ZERO"]
+    assert database.undownloaded_books_without_length(ACCOUNT + 1) == []
+
+
+@pytest.mark.parametrize("status", [BookStatus.WAITING_DOWNLOAD, BookStatus.FAILED, BookStatus.UNAVAILABLE])
+def test_delete_undownloaded_book_removes_the_row(db, status):
+    database.update_books(ACCOUNT, [make_book("SHOW", id=None, length=None)])
+    _set("SHOW", status=status)
+
+    assert database.delete_undownloaded_book(_id("SHOW")) is True
+    assert database.get_book_by_asin("SHOW") is None
+
+
+@pytest.mark.parametrize("status", [BookStatus.DOWNLOADING, BookStatus.DOWNLOADED])
+def test_delete_undownloaded_book_leaves_a_row_a_run_holds_or_finished(db, status):
+    database.update_books(ACCOUNT, [make_book("SHOW", id=None, length=None)])
+    _set("SHOW", status=status)
+
+    assert database.delete_undownloaded_book(_id("SHOW")) is False
+    assert database.get_book_by_asin("SHOW") is not None
+
+
+def test_delete_undownloaded_book_leaves_a_row_with_a_file(db):
+    database.update_books(ACCOUNT, [make_book("SHOW", id=None, length=None)])
+    _set("SHOW", file_path="/a/file.m4b")
+
+    assert database.delete_undownloaded_book(_id("SHOW")) is False
+
+
+def test_delete_undownloaded_book_of_an_unknown_id_is_false(db):
+    assert database.delete_undownloaded_book(999) is False
 
 
 def test_update_books_handles_a_duplicate_asin_within_one_batch(db):

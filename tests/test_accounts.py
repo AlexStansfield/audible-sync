@@ -541,3 +541,165 @@ def test_store_login_adds_only_one_account_for_two_logins_at_once(db, monkeypatc
 
     assert len(database.get_accounts()) == 1
     assert sorted(r.replaced for r in results) == [False, True]
+
+
+def _devices_at_rest():
+    assert accounts._devices_in_use == set()
+    assert accounts._replaced_devices == {}
+
+
+def test_a_login_during_a_run_on_the_account_waits_to_deregister_the_old_device(db, monkeypatch):
+    """Deregistering it at once ended the run `aborted`, saying to log in again."""
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|new"))
+        # Stored straight away, the old device untouched for the run
+        assert database.get_account(first.account_id).auth["access_token"] == "Atna|new"
+        assert deregistered == []
+
+    assert deregistered == ["Atna|old"]
+    _devices_at_rest()
+
+
+def test_replacing_an_account_during_its_run_waits_too(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    account_id = database.add_account("Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"})
+
+    with accounts.device_in_use(account_id):
+        replace_account_auth(database.get_account(account_id), _login(access_token="Atna|new"))
+        assert deregistered == []
+
+    assert deregistered == ["Atna|old"]
+
+
+def test_a_second_login_during_the_run_retires_both_devices_when_it_ends(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|one"))
+
+    with accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|two"))
+        accounts.store_login(_login(access_token="Atna|three"))
+
+    assert deregistered == ["Atna|one", "Atna|two"]
+    assert database.get_account(first.account_id).auth["access_token"] == "Atna|three"
+
+
+def test_a_run_on_another_account_does_not_hold_up_the_old_device(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+    other = database.add_account("Alex (US)", "us", auth=None)
+
+    with accounts.device_in_use(other):
+        accounts.store_login(_login(access_token="Atna|new"))
+        assert deregistered == ["Atna|old"]
+
+    assert database.get_account(first.account_id).auth["access_token"] == "Atna|new"
+
+
+def test_a_login_after_the_run_deregisters_at_once(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with accounts.device_in_use(first.account_id):
+        pass
+    accounts.store_login(_login(access_token="Atna|new"))
+
+    assert deregistered == ["Atna|old"]
+
+
+def test_a_run_that_raises_still_retires_the_device(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with pytest.raises(RuntimeError), accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|new"))
+        raise RuntimeError("the run failed")
+
+    assert deregistered == ["Atna|old"]
+    _devices_at_rest()
+
+
+def test_a_device_that_cannot_deregister_after_the_run_is_only_a_warning(db, monkeypatch, caplog):
+    monkeypatch.setattr(Authenticator, "deregister_device", lambda self: (_ for _ in ()).throw(OSError("no answer")))
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|new"))
+
+    assert "Could not deregister the previous device" in caplog.text
+    _devices_at_rest()
+
+
+def _parked_book(account_id, asin="B001"):
+    """A book the old device was refused a licence for."""
+    database.update_books(account_id, [make_book(asin, id=None)])
+    book = database.get_book_by_asin(asin, account_id=account_id)
+    assert database.claim_book_for_download(book.id)
+    database.mark_book_unavailable(book.id, "Audible did not grant a license")
+    return book.id
+
+
+def test_books_the_old_device_parks_after_the_login_are_queued_when_the_run_ends(db, monkeypatch):
+    """The login queued what was parked then; the run, still on the old device, can park more."""
+    _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|new"))
+        book_id = _parked_book(first.account_id)
+        assert database.get_book(book_id).status == BookStatus.UNAVAILABLE
+
+    assert database.get_book(book_id).status == BookStatus.WAITING_DOWNLOAD
+
+
+def test_those_books_are_queued_even_when_the_old_device_is_kept(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|new"), deregister_previous=False)
+        book_id = _parked_book(first.account_id)
+
+    assert database.get_book(book_id).status == BookStatus.WAITING_DOWNLOAD
+    assert deregistered == []
+    _devices_at_rest()
+
+
+def test_sign_in_again_keeping_the_old_device_queues_those_books_too(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    account_id = database.add_account("Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"})
+
+    with accounts.device_in_use(account_id):
+        replace_account_auth(
+            database.get_account(account_id), _login(access_token="Atna|new"), deregister_previous=False
+        )
+        book_id = _parked_book(account_id)
+
+    assert database.get_book(book_id).status == BookStatus.WAITING_DOWNLOAD
+    assert deregistered == []
+
+
+def test_a_run_nobody_signed_in_during_leaves_parked_books_parked(db, monkeypatch):
+    """A refusal stays parked until retried, or two refused books block `max-download = 2` every run."""
+    _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+
+    with accounts.device_in_use(first.account_id):
+        book_id = _parked_book(first.account_id)
+
+    assert database.get_book(book_id).status == BookStatus.UNAVAILABLE
+
+
+def test_a_failed_requeue_after_the_run_is_only_logged(db, monkeypatch, caplog):
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+    monkeypatch.setattr(accounts, "requeue_unavailable", lambda account_id: (_ for _ in ()).throw(OSError("locked")))
+
+    with accounts.device_in_use(first.account_id):
+        accounts.store_login(_login(access_token="Atna|new"))
+
+    assert deregistered == ["Atna|old"]
+    assert "Could not queue the parked books" in caplog.text
+    _devices_at_rest()

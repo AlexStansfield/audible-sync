@@ -773,35 +773,6 @@ def mark_book_downloaded(
         conn.commit()
 
 
-def update_book_accessories(
-    book_id: int,
-    pdf_path: str | None = None,
-    cover_path: str | None = None,
-    annotations_path: str | None = None,
-) -> None:
-    """Update the paths for downloaded accessories (PDF, cover, annotations)"""
-    updates = []
-    values: list[str] = []
-
-    if pdf_path is not None:
-        updates.append("pdf_path = ?")
-        values.append(pdf_path)
-    if cover_path is not None:
-        updates.append("cover_path = ?")
-        values.append(cover_path)
-    if annotations_path is not None:
-        updates.append("annotations_path = ?")
-        values.append(annotations_path)
-
-    if not updates:
-        return
-
-    values.append(book_id)
-    with closing(_get_connection()) as conn:
-        conn.execute(f"UPDATE library SET {', '.join(updates)} WHERE id = ?", values)
-        conn.commit()
-
-
 # --- book management ---------------------------------------------------------------
 # What the API's per-book actions change. The file deletion itself is `library.py`'s;
 # these record the outcome.
@@ -828,6 +799,36 @@ def set_monitored(book_id: int, monitored: bool) -> bool:
         cursor = conn.execute("UPDATE library SET monitored = ? WHERE id = ?", (monitored, book_id))
         conn.commit()
     return cursor.rowcount == 1
+
+
+# Nothing on disk and no run holding it, so a row that can go without any tidying up
+_UNDOWNLOADED = f"file_path IS NULL AND status NOT IN ('{BookStatus.DOWNLOADED}', '{BookStatus.DOWNLOADING}')"
+
+
+def undownloaded_books_without_length(account_id: int) -> list[Book]:
+    """
+    One account's rows with no length and nothing on disk, and that no run holds: what a
+    podcast stored as a book looks like. `sync._remove_stored_podcasts` asks Audible
+    which they are.
+    """
+    with closing(_get_connection()) as conn:
+        rows = conn.execute(
+            f"SELECT * FROM library WHERE account_id = ? AND (length IS NULL OR length = 0) AND {_UNDOWNLOADED}",
+            (account_id,),
+        ).fetchall()
+    return [Book.from_row(row) for row in rows]
+
+
+def delete_undownloaded_book(book_id: int) -> bool:
+    """
+    Remove a library row that has nothing on disk, unless a run has since taken it or
+    downloaded it. Returns whether it went. A run's record of the book keeps its own
+    copy of the title, and reads `book_id` as None from here on.
+    """
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(f"DELETE FROM library WHERE id = ? AND {_UNDOWNLOADED}", (book_id,))
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def reset_for_download(book_id: int, *, monitored: bool) -> bool:

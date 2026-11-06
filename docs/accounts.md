@@ -26,4 +26,8 @@ The same person can have several accounts - one per Audible marketplace, e.g. a 
 
 ## If Audible refuses every download
 
-**Sign in again** on the account's card, or `--account ID` on the command line, signs in again for an existing account - its library and download history are kept - which is what to do if Audible starts answering every download with "License not granted to customer": Audible stopped licensing devices registered with the older app profile in October 2026, and a fresh sign-in registers one it accepts.
+**Sign in again** on the account's card, or `--account ID` on the command line, signs in again for an existing account - its library and download history are kept - which is what to do if Audible starts answering every download with "License not granted to customer": Audible stopped licensing devices registered with the older app profile in October 2026, and a fresh sign-in registers one it accepts. You can do this during a run: the run finishes on the old device, and any books it was refused are queued again for the new one when it ends. Unless you unticked that option, the app then also tries to remove the old device from your Amazon account. If it could not, or the service was stopped before the run ended, the old device stays on your Amazon account's device list, where you can remove it yourself.
+
+## Podcasts
+
+Podcasts you follow on Audible are not synced or downloaded, only books are. A show stored by an earlier version is removed from the library on the next sync.

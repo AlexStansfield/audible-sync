@@ -24,6 +24,18 @@ _PAGE_SIZE = 1000
 _API_TIMEOUT = 60
 
 
+def _is_podcast(item: dict) -> bool:
+    """
+    Whether a library item is a podcast rather than a book.
+
+    Following a show puts it in the library listing as one item, with no length and no
+    audio of its own (`PodcastParent`); its episodes (`PodcastEpisode`) only come back
+    when asked for with `parent_asin`. This matches the podcast values rather than
+    allowing only `content_type` `Product`, since real books can be `Performance`.
+    """
+    return item.get("content_type") == "Podcast" or (item.get("content_delivery_type") or "").startswith("Podcast")
+
+
 def _prepare_book(item: dict) -> Book:
     """
     Map one library item from the Audible API onto a `Book`.
@@ -126,10 +138,19 @@ class Audible:
 
         return _prepare_book(response["item"])
 
+    def is_podcast(self, asin: str) -> bool:
+        """
+        Whether Audible says this ASIN is a podcast. It still does for a show that has
+        been unfollowed, which the library listing no longer returns.
+        """
+        response = self.client.get(path=f"library/{asin}", params={"response_groups": "product_attrs"})
+        return _is_podcast(response.get("item") or {})
+
 
 def _prepare_books(items: list[dict]) -> list[Book]:
     """
-    Map a page of library items, skipping any single item that cannot be read.
+    Map a page of library items, leaving out podcasts and skipping any single item that
+    cannot be read.
 
     One unexpected item shape should cost that one book, not the entire run:
     sync happens before downloading, so an exception here stops books that are
@@ -138,6 +159,9 @@ def _prepare_books(items: list[dict]) -> list[Book]:
     books = []
     for item in items:
         try:
+            if _is_podcast(item):
+                logger.debug("Leaving out podcast %s", item.get("asin", "unknown ASIN"))
+                continue
             books.append(_prepare_book(item))
         except (KeyError, TypeError, AttributeError):
             logger.exception("Skipping library item that could not be read: %s", item.get("asin", "unknown ASIN"))
