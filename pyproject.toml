@@ -1,6 +1,6 @@
 [project]
 name = "audible-sync"
-version = "3.0.0"
+version = "3.0.1"
 description = "Sync your Audible library and decrypt your audiobooks to DRM-free M4B files"
 readme = "README.md"
 requires-python = ">=3.12"
