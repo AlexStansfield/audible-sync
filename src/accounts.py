@@ -16,6 +16,8 @@ that has none or whose registration stopped working.
 
 import logging
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from audible import Authenticator
@@ -136,6 +138,45 @@ class AnotherCustomer(LookupError):
     """A login for an account was made as a different Amazon customer from the one it belongs to."""
 
 
+# The accounts whose device a run is using, and the replaced devices waiting for it to end.
+# In memory: a CLI login beside the service cannot see the service's run, and a device
+# parked when the process is killed stays on Amazon's list, in the user's way but harmless.
+_devices_lock = threading.Lock()
+_devices_in_use: set[int] = set()
+_replaced_devices: dict[int, list[Account]] = {}
+
+
+@contextmanager
+def device_in_use(account_id: int) -> Iterator[None]:
+    """
+    Hold off deregistering this account's device for as long as a run is using it.
+
+    Enter it **before** reading the account the run will use: a login storing new
+    credentials then either finds the mark and waits, or has already stored them and the
+    run reads the new ones. On leaving, the devices replaced meanwhile are deregistered.
+    """
+    with _devices_lock:
+        _devices_in_use.add(account_id)
+    try:
+        yield
+    finally:
+        with _devices_lock:
+            _devices_in_use.discard(account_id)
+            replaced = _replaced_devices.pop(account_id, [])
+        for previous in replaced:
+            _deregister_previous(previous)
+
+
+def _retire_device(previous: Account) -> None:
+    """Deregister the device of credentials just replaced, or when the run using it ends."""
+    with _devices_lock:
+        if previous.id in _devices_in_use and previous.auth is not None:
+            _replaced_devices.setdefault(previous.id, []).append(previous)
+            logger.info("A run is using the previous device of %r: deregistering it when the run ends", previous)
+            return
+    _deregister_previous(previous)
+
+
 def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> StoredLogin:
     """
     Give an existing account new credentials, keeping its id and so its library.
@@ -144,7 +185,8 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
     download licences to devices registered with the library's old profile in October
     2026 - without deleting the account and losing which books are downloaded. Once the
     new credentials are stored the previous device is deregistered with Amazon, best
-    effort: it is the one that stopped working, so it may well not be able to. Books
+    effort: it is the one that stopped working, so it may well not be able to. A run on
+    this account may still be using it, so then it waits for the run (`device_in_use`). Books
     parked `unavailable` because that device was refused a licence are queued again for
     the new one (`requeue_unavailable`). Nothing raises after the store, so a caller that
     sees an exception can discard the new device knowing nothing holds it.
@@ -171,7 +213,7 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
             )
         previous, requeued = _store_auth(account, auth)
     if deregister_previous:
-        _deregister_previous(previous)
+        _retire_device(previous)
     return StoredLogin(previous.id, replaced=True, requeued=requeued)
 
 
@@ -281,5 +323,5 @@ def store_login(
         if previous is None:
             return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
     if deregister_previous:
-        _deregister_previous(previous)
+        _retire_device(previous)
     return StoredLogin(previous.id, replaced=True, requeued=requeued)
