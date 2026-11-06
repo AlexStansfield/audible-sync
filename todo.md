@@ -87,10 +87,6 @@ List of tasks to complete by phases
 - [x] Second review fixes (2026-11-01): `PUT /api/settings` refuses `null` for a setting that cannot be unset (it locked the API out of its own settings); rejected credentials record the run as aborted saying to log in again, not as a failed book; a failed token write-back no longer leaves the run row `running`; a withdrawn book that is already downloaded no longer forces a full library re-read every run; a book action that loses the race with a run's claim is a 409, not a silent success
 - [x] Known issues from the review (2026-11-01): `DELETE /api/accounts/{id}` is a 409 while the run is on that account, and a run skips an account removed since it began; a confirmed login whose account was deleted, or that cannot be stored, fails and deregisters the new device (API and CLI); a `200` that is not JSON no longer kills a device-code login's poll; a book refresh stores the token it renewed; the CLI warns when it holds another key than the one the stored secrets were written with; the API token is logged in full only on the start that generates it; the CLI `login`'s `print` recorded as the exception to the logging rule
 
-### Known issues from the 2026-11-01 review (not yet fixed)
-
-- [ ] `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Deferred: the service runs one sync at a time, so it takes a CLI run beside the service, and the fix is a claim token on every transition
-
 ## Milestone 4: Web App Frontend
 
 A web application that exposes a UI to the API allowing you to login to audible, view your library, manage your sync settings and sync books
@@ -138,9 +134,54 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] Close-out (2026-11-03): README and CLAUDE.md for the web app; the image built from the repository and run at the root and under a base path behind nginx (deep links, covers, the cookie's path, Send test to a real receiver); the web tests' helpers, hidden by `.gitignore`, committed
 - [x] The code sign-in from the web app against Amazon, end to end (Sign in again in the test container, 2026-11-02: the code confirmed, a new device registered, the old one deregistered, the account kept its id and library)
 - [x] Backend: one account per Audible login. A login an account already holds (the same `customer_info.user_id` and marketplace) gives that account new credentials and keeps its library, rather than adding a second row that would download and file the same books
+
+## Milestone 5: Wishlist and Catalogue Search
+
+Manage the Audible wishlist from the web app: search the catalogue, add books and remove them. Both are part of the API as well, so another application can read the wishlist and look books up with the bearer token. The web app also becomes installable as a PWA.
+
+### Requirements
+
+- View the wishlist of every account in one list
+- Search the Audible catalogue by the filters its API offers
+- Add a book to the wishlist and remove one
+- The wishlist and the catalogue search in the API, for other applications to use: the wishlist as a list to read, the catalogue as a source of audiobook data
+- Install the web app on a phone or a desktop (PWA)
+
+### What the Audible API gives
+
+Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocumented, so these are observations, not promises.
+
+- **The wishlist** is one per marketplace login, read 50 a page with the date each book was added. Adding and removing are by ASIN, and both succeed silently when there is nothing to do - a book already there, a book not there - so "already on the wishlist" has to come from our own table
+- **Catalogue search** takes `keywords`, `title`, `author`, `narrator`, `category_id`, a sort and a page of up to 50. `title` only comes back with the `product_desc` response group. `publisher` matches loosely (it returned podcasts) and is left out. Deep pages are clamped without an error, at about 1,000 results sorted by release date and 5,000 by bestsellers
+- **A book** has its title, authors, narrators, every series with the position, length, release date, language (as a word, `english`), publisher, abridged or not, description (HTML), covers at 500 and 1215 px, genres and ratings. **It has no ISBN**, and an ISBN finds nothing in a search
+- **A series** ASIN is itself a product that lists its books with their positions
+- **Authors are thin**: an id and a name, no biography or picture, and the same author can carry two ids (one on a book, another in the search suggestions)
+- **Plus**: every result carries its `plans`, so whether a book is included in the membership costs nothing extra. The Plus catalogue itself cannot be listed in the UK (the `plan` filter does not accept its plan name), so there is no browsing it
+- **The catalogue answers without credentials.** What only Audible Sync can add is what an account knows: owned, on the wishlist, included in Plus, the member price
+
+### Tasks
+
+- [ ] Design: the Wishlist and Search screens in `docs/design/`, desktop and phone, both themes: the combined list, the search filters, a result's owned, wishlisted and Plus markers, adding and removing with their in-flight and failed states, an empty wishlist and a search that finds nothing
+- [ ] Backend: `Audible` client methods for the wishlist (every page, add, remove) and the catalogue (search, a book by ASIN, a series by ASIN, the categories), mapped to a catalogue book that orders its series by the library's rule (`sort_series`, `primary_series`)
+- [ ] Backend: a `wishlist` table keyed by `(account_id, asin)` holding the book's data and the date added, synced for each account in its run after the library sync and on demand. A wishlist that cannot be read is logged and leaves the run's outcome alone
+- [ ] Backend: `GET /api/wishlist`: every account's or one's, paged and sorted (date added, title, release date), each book saying whether a library already holds it
+- [ ] Backend: `POST /api/wishlist` (`account_id`, `asin`) and `DELETE /api/wishlist/{account_id}/{asin}`: Audible first, then the table. A book the account owns is refused; one already there, or already gone, is said from the table, since Audible does not say; 409 when the account needs a sign-in, 502 when Audible does not answer
+- [ ] Backend: `GET /api/catalog/search` (the account whose marketplace to search, `keywords`, `title`, `author`, `narrator`, `category_id`, `sort`, `page`), `GET /api/catalog/books/{asin}`, `GET /api/catalog/series/{asin}` and `GET /api/catalog/categories`. Every book is marked owned, wishlisted and included in Plus, with the member price. Answers are cached for a few minutes, so a client that polls does not become a stream of requests to Audible in the account's name
+- [ ] Backend: the wishlist's and the catalogue's response models, made to be read by another application as well as the web app: the ASIN as the key of every book; the title, description, cover, release date, language as a code, genres, rating, narrators, length in seconds, abridged or not, and the series with positions; no ISBN, since Audible has none. To decide: which marketplace answers when there are several accounts, and whether to offer author search and lookup from the little Audible has
+- [ ] Web: the Wishlist page: every account's books in one list with the account filter and the sort in the URL, Remove with its confirmation, a marker on a book a library already holds, and a refresh from Audible
+- [ ] Web: the Search page: the filters in the URL, results with the owned, wishlisted and Plus markers and the member price, Add to wishlist and Remove on each (the account chosen when there are several), paging that stops where Audible's clamp does
+- [ ] Web: both pages in the sidebar and the phone's drawer, and their paths in the base path's reserved segments (`_RESERVED_SEGMENTS`, which a test checks against `web/src/app/routes.tsx`)
+- [ ] Web: PWA - a web app manifest (name, short name, `display: standalone`, the theme's colours, icons at 192 and 512 px with a maskable one, an `apple-touch-icon`), its `start_url` and `scope` relative, so one build installs at the root and under `AUDIBLE_SYNC_BASE_PATH`
+- [ ] Web: PWA - a service worker that caches the app shell (`index.html` and the build's hashed `assets/`) and never anything under `api/`. A new build is offered as "Update available" rather than swapped under an open page; with the service down the shell still loads and shows Cannot reach Audible Sync
+- [ ] Backend: PWA - serve the manifest and the service worker with the right content type and `no-cache` (only `assets/` is `immutable`), at the root and under a base path
+- [ ] Docs: `docs/api.md` for the wishlist and the catalogue; the requests in `opencollection/`; the README; CLAUDE.md; and in the installation guide, that a browser offers Install only over https or on `localhost`, so a plain http address on a LAN stays an ordinary page
+- [ ] Checked live: a book added from Search appears in Audible's own wishlist and one removed leaves it; the Wishlist page matches Audible's for two accounts; the wishlist and catalogue endpoints with the bearer token alone; the app installed on a phone over https, at the root and under a base path, and updated by a new build
+
+### Carried over from Milestones 3 and 4
+
+- [ ] Backend (from the 2026-11-01 review): `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Deferred: the service runs one sync at a time, so it takes a CLI run beside the service, and the fix is a claim token on every transition
 - [ ] Backend: a plain `customer_id` column on `accounts` with a unique index on it and the marketplace, backfilled at start. The one-login-one-account rule reads the customer id from the encrypted credentials, so it cannot see an account whose credentials are unreadable (after a lost key, Add account adds a second row and the library is downloaded again) and holds only within one process (a CLI login beside the service). To decide: what becomes of any duplicates already there, which a unique index would refuse
 - [ ] Backend: replacing the credentials of the account a run is on deregisters the device that run is using, so the run ends `aborted` saying to log in again although a login just succeeded; the next run recovers. Defer the deregistration until the run has ended
-- [ ] After the release: split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
-- [ ] After the release: trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
-- [ ] After the release: remove `database.update_book_accessories`, which nothing calls
-
+- [ ] Split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
+- [ ] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
+- [ ] Remove `database.update_book_accessories`, which nothing calls
