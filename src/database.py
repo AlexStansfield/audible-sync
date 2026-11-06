@@ -801,6 +801,10 @@ def set_monitored(book_id: int, monitored: bool) -> bool:
     return cursor.rowcount == 1
 
 
+# Nothing on disk and no run holding it, so a row that can go without any tidying up
+_UNDOWNLOADED = f"file_path IS NULL AND status NOT IN ('{BookStatus.DOWNLOADED}', '{BookStatus.DOWNLOADING}')"
+
+
 def undownloaded_books_without_length(account_id: int) -> list[Book]:
     """
     One account's rows with no length and nothing on disk, and that no run holds: what a
@@ -809,11 +813,7 @@ def undownloaded_books_without_length(account_id: int) -> list[Book]:
     """
     with closing(_get_connection()) as conn:
         rows = conn.execute(
-            f"""
-            SELECT * FROM library
-            WHERE account_id = ? AND (length IS NULL OR length = 0) AND file_path IS NULL
-              AND status NOT IN ('{BookStatus.DOWNLOADED}', '{BookStatus.DOWNLOADING}')
-            """,
+            f"SELECT * FROM library WHERE account_id = ? AND (length IS NULL OR length = 0) AND {_UNDOWNLOADED}",
             (account_id,),
         ).fetchall()
     return [Book.from_row(row) for row in rows]
@@ -826,14 +826,7 @@ def delete_undownloaded_book(book_id: int) -> bool:
     copy of the title, and reads `book_id` as None from here on.
     """
     with closing(_get_connection()) as conn:
-        cursor = conn.execute(
-            f"""
-            DELETE FROM library
-            WHERE id = ? AND file_path IS NULL
-              AND status NOT IN ('{BookStatus.DOWNLOADED}', '{BookStatus.DOWNLOADING}')
-            """,
-            (book_id,),
-        )
+        cursor = conn.execute(f"DELETE FROM library WHERE id = ? AND {_UNDOWNLOADED}", (book_id,))
         conn.commit()
         return cursor.rowcount > 0
 

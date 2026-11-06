@@ -138,22 +138,28 @@ class AnotherCustomer(LookupError):
     """A login for an account was made as a different Amazon customer from the one it belongs to."""
 
 
-# The accounts whose device a run is using, and the replaced devices waiting for it to end.
+# The accounts whose device a run is using, and the logins that replaced it meanwhile.
 # In memory: a CLI login beside the service cannot see the service's run, and a device
-# parked when the process is killed stays on Amazon's list, in the user's way but harmless.
+# waiting when the process is killed stays on Amazon's list, in the user's way but harmless.
 _devices_lock = threading.Lock()
 _devices_in_use: set[int] = set()
-_replaced_devices: dict[int, list[Account]] = {}
+_replaced_devices: dict[int, list[tuple[Account, bool]]] = {}
 
 
 @contextmanager
 def device_in_use(account_id: int) -> Iterator[None]:
     """
-    Hold off deregistering this account's device for as long as a run is using it.
+    Hold off retiring this account's device for as long as a run is using it.
 
     Enter it **before** reading the account the run will use: a login storing new
     credentials then either finds the mark and waits, or has already stored them and the
-    run reads the new ones. On leaving, the devices replaced meanwhile are deregistered.
+    run reads the new ones.
+
+    On leaving, the devices replaced meanwhile are deregistered, if the login asked for
+    that, and the account's parked books are queued again. The login queued them once,
+    but the run stayed on the old device, which may have been refusing licences all
+    along: that is why people sign in again, and the books it parked since would
+    otherwise wait for someone to retry them under a device that works.
     """
     with _devices_lock:
         _devices_in_use.add(account_id)
@@ -163,18 +169,35 @@ def device_in_use(account_id: int) -> Iterator[None]:
         with _devices_lock:
             _devices_in_use.discard(account_id)
             replaced = _replaced_devices.pop(account_id, [])
-        for previous in replaced:
-            _deregister_previous(previous)
+        for previous, deregister in replaced:
+            if deregister:
+                _deregister_previous(previous)
+        if replaced:
+            _requeue_parked(account_id, "after the run on its previous device")
 
 
-def _retire_device(previous: Account) -> None:
-    """Deregister the device of credentials just replaced, or when the run using it ends."""
+def _retire_device(previous: Account, *, deregister: bool) -> None:
+    """Deal with the device of credentials just replaced, now or when the run using it ends."""
     with _devices_lock:
-        if previous.id in _devices_in_use and previous.auth is not None:
-            _replaced_devices.setdefault(previous.id, []).append(previous)
-            logger.info("A run is using the previous device of %r: deregistering it when the run ends", previous)
+        if previous.id in _devices_in_use:
+            _replaced_devices.setdefault(previous.id, []).append((previous, deregister))
+            if deregister:
+                logger.info("A run is using the previous device of %r: deregistering it when the run ends", previous)
             return
-    _deregister_previous(previous)
+    if deregister:
+        _deregister_previous(previous)
+
+
+def _requeue_parked(account_id: int, why: str) -> int:
+    """Queue an account's parked books again; a failure is logged, never raised."""
+    try:
+        requeued = requeue_unavailable(account_id)
+    except Exception:
+        logger.exception("Could not queue the parked books of account %d again; Retry unavailable will", account_id)
+        return 0
+    if requeued:
+        logger.info("Queued %d parked book(s) of account %d again %s", requeued, account_id, why)
+    return requeued
 
 
 def replace_account_auth(account: Account, auth: Authenticator, *, deregister_previous: bool = True) -> StoredLogin:
@@ -212,8 +235,7 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
                 f"{holders[0].name} already holds this Audible login. Sign in on that account, or remove it first"
             )
         previous, requeued = _store_auth(account, auth)
-    if deregister_previous:
-        _retire_device(previous)
+    _retire_device(previous, deregister=deregister_previous)
     return StoredLogin(previous.id, replaced=True, requeued=requeued)
 
 
@@ -246,14 +268,7 @@ def _store_auth(account: Account, auth: Authenticator) -> tuple[Account, int]:
     # The books the old device was refused licences for get another go with the new
     # one; a title Audible really has retired is refused once more and parks again.
     # Past the store, so a failure here must not read as the login not being kept.
-    try:
-        requeued = requeue_unavailable(current.id)
-    except Exception:
-        logger.exception("Could not queue the parked books of %r again; Retry unavailable will", current)
-        return current, 0
-    if requeued:
-        logger.info("Queued %d parked book(s) of %r again for the new device", requeued, current)
-    return current, requeued
+    return current, _requeue_parked(current.id, "for the new device")
 
 
 def _deregister_previous(previous: Account) -> None:
@@ -322,6 +337,5 @@ def store_login(
                 logger.info("%r was removed as a login for it arrived; adding a new account", holders[0])
         if previous is None:
             return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
-    if deregister_previous:
-        _retire_device(previous)
+    _retire_device(previous, deregister=deregister_previous)
     return StoredLogin(previous.id, replaced=True, requeued=requeued)

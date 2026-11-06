@@ -158,10 +158,10 @@ def _prepare_books(items: list[dict]) -> list[Book]:
     """
     books = []
     for item in items:
-        if _is_podcast(item):
-            logger.debug("Leaving out podcast %s", item.get("asin", "unknown ASIN"))
-            continue
         try:
+            if _is_podcast(item):
+                logger.debug("Leaving out podcast %s", item.get("asin", "unknown ASIN"))
+                continue
             books.append(_prepare_book(item))
         except (KeyError, TypeError, AttributeError):
             logger.exception("Skipping library item that could not be read: %s", item.get("asin", "unknown ASIN"))

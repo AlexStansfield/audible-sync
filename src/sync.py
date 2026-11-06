@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from audible.exceptions import AudibleError
+from audible.exceptions import NotFoundError
 
 from src.audible_client import Audible
 from src.database import (
@@ -68,16 +68,23 @@ def _remove_stored_podcasts(audible: Audible, account_id: int) -> None:
     A stored show looks like a book apart from having no length, and nothing else in the
     row says what it is, so each undownloaded row with no length is checked with Audible.
     Books nearly always have a length (all 312 titles of the live library do), so this is
-    rarely a request at all. A tidy-up must not cost the run, so a failed check leaves the
-    row for the next sync.
+    rarely a request at all.
+
+    A tidy-up must not cost the run, which has not yet counted as synced here, so nothing
+    it raises gets out. The first check that fails ends it until the next sync: Audible
+    not answering would otherwise cost a timeout per row, in a sync that cannot be
+    cancelled. A title that has left the library is simply not a podcast to remove.
     """
     for book in undownloaded_books_without_length(account_id):
         try:
             if not audible.is_podcast(book.asin):
                 continue
-        except AudibleError as error:
-            logger.warning("Could not check whether %s is a podcast: %s", book.asin, error)
+        except NotFoundError:
+            logger.debug("%s is not in the library any more: leaving its row alone", book.asin)
             continue
+        except Exception as error:
+            logger.warning("Could not check whether %s is a podcast, trying again next sync: %s", book.asin, error)
+            return
         if delete_undownloaded_book(book.id):
             logger.info("Removed podcast %s (%s) from the library: podcasts are not downloaded", book.asin, book.title)
 

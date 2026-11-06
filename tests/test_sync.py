@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime
 
 import pytest
-from audible.exceptions import NotFoundError
+from audible.exceptions import NotFoundError, NotResponding
 
 import src.sync as sync_module
 from src.sync import SyncResult, _api_timestamp, sync_library
@@ -208,18 +208,38 @@ def test_a_sync_removes_a_stored_podcast_and_keeps_a_book_with_no_length(monkeyp
     assert removed == [1]
 
 
-def test_a_sync_survives_a_check_audible_does_not_answer(monkeypatch, caplog):
-    """A tidy-up must not cost the run; the next sync asks again."""
+@pytest.mark.parametrize(
+    "problem", [NotResponding.__new__(NotResponding), AttributeError("'str' object has no attribute 'get'")]
+)
+def test_a_failed_check_costs_neither_the_run_nor_more_timeouts(monkeypatch, caplog, problem):
+    """
+    It runs before the sync counts as done, so anything getting out fails the run. And
+    with Audible not answering, each further row would be another 60 s timeout.
+    """
+    _patch(monkeypatch)
+    removed = _stored(monkeypatch, "FIRST", "POD")
+    audible = _PodcastAudible({"FIRST": problem, "POD": True})
+
+    with caplog.at_level(logging.WARNING):
+        result = sync_library(audible, ACCOUNT)
+
+    assert result == SyncResult(books_seen=0, books_added=0)
+    assert audible.asked == ["FIRST"]
+    assert removed == []
+    assert "Could not check whether FIRST is a podcast" in caplog.text
+
+
+def test_a_title_gone_from_the_library_is_passed_over_quietly(monkeypatch, caplog):
+    """It would otherwise be a warning every six hours, for good."""
     _patch(monkeypatch)
     removed = _stored(monkeypatch, "GONE", "POD")
     gone = NotFoundError.__new__(NotFoundError)
 
     with caplog.at_level(logging.WARNING):
-        result = sync_library(_PodcastAudible({"GONE": gone, "POD": True}), ACCOUNT)
+        sync_library(_PodcastAudible({"GONE": gone, "POD": True}), ACCOUNT)
 
     assert removed == [2]
-    assert result == SyncResult(books_seen=0, books_added=0)
-    assert "Could not check whether GONE is a podcast" in caplog.text
+    assert "GONE" not in caplog.text
 
 
 def test_a_sync_asks_audible_nothing_when_every_book_has_a_length(monkeypatch):

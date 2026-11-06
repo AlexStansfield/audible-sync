@@ -63,4 +63,4 @@ A quick local version with no Audible access is a scratch database with an accou
 ## Since v3.0.0
 
 - [ ] Follow a podcast on Audible and run a sync: no new book appears and the run has nothing to say about it. A show stored by an earlier version is removed by the next sync, with a line in the log, whether it is still followed or not
-- [ ] Sign in again on an account while a run is downloading on it: the run carries on and ends as it would have, the log says the previous device waits for the run, and once the run has ended the device is deregistered (it leaves Amazon's device list)
+- [ ] Sign in again on an account while a run is downloading on it: the run carries on and ends as it would have, the log says the previous device waits for the run, and once the run has ended the device is deregistered (it leaves Amazon's device list) and any book it was refused meanwhile is back in the queue

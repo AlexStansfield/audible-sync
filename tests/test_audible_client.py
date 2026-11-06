@@ -237,6 +237,13 @@ def test_prepare_books_keeps_everything_that_is_not_a_podcast(kinds):
     assert [book.asin for book in _prepare_books([make_item("B001", **kinds)])] == ["B001"]
 
 
+def test_prepare_books_skips_an_item_it_cannot_tell_the_kind_of():
+    """One unexpected shape costs that item, not the run, and an exception here is a failed sync."""
+    books = _prepare_books([make_item("ODD", content_delivery_type=1), make_item("B001")])
+
+    assert [book.asin for book in books] == ["B001"]
+
+
 class _FakeItemClient:
     def __init__(self, item):
         self.item = item
