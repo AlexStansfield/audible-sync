@@ -68,7 +68,7 @@ All observed; the API is undocumented.
 - **Outcomes:** `partial` means the sync completed and the downloads did not all succeed; `failed` that the sync itself raised; `cancelled` someone stopped it; `aborted` it stopped itself. All but `failed` count as the **cursor**, which is the run's *start*, so anything added while reading is picked up next time
 - **One account failing does not stop the others.** The first error is raised again at the end so a CLI run exits non-zero. Each account is read again at its turn, since the list can be hours old
 - **`device_in_use`:** a run marks the account before reading it, and a login that replaces its credentials then stores them at once and deregisters the old device only when the run ends; deregistering at once ended the run `aborted`. The run stays on the old device meanwhile, which may be why they signed in, so its refusals park books after the login's requeue: leaving `device_in_use` queues them again. A later token write-back cannot overwrite the new device either (`replace_account_auth_if_unchanged`). In memory, so a CLI login beside the service is not covered
-- **Claims:** `get_books_to_download` and `claim_book_for_download` must agree on "abandoned" (`STALE_CLAIM_SECONDS`), or a killed run's book stays `downloading` forever. The queue offers generously; the claim decides, book by book
+- **Claims:** `get_books_to_download` and `claim_book_for_download` must agree on "abandoned" (`STALE_CLAIM_SECONDS`), or a killed run's book stays `downloading` forever. The queue offers generously; the claim decides, book by book. A claim is a token that every outcome (`mark_book_*`, `release_book`) must present, and it is cleared with the outcome: "abandoned" is a guess from the clock, and a run still alive past it would otherwise overwrite the outcome of the run that reclaimed its book. Tests that only need a downloaded book use `conftest.mark_downloaded`
 - **`mark_book_failed` decides inside the UPDATE**, from the attempts the claim counted, so nothing can race a read. `max_attempts` has no "unlimited": retrying forever is the bug it exists to fix
 - **The failure arms in `download_books` are ordered:** `LicenseError` subclasses `RuntimeError` and must sit above `except Exception`. Credentials errors and cancels **release** the book without charging an attempt, and stop the run
 - **A refused licence uses no `max-download` slot** (one POST, nothing downloaded), or refused titles at the head of the queue starve the rest. So `max_consecutive_failures` is the breaker: one bad day would otherwise mean a licence request per queued book
@@ -202,7 +202,7 @@ uv run python -c "import sqlite3; c=sqlite3.connect('data/audible_sync.db'); pri
 
 ## Known issues
 
-- Unguarded `mark_book_*`, a `customer_id` column, and splitting `src/api.py` are in `todo.md`
+- A `customer_id` column and splitting `src/api.py` are in `todo.md`
 - `requirements.txt` drifts if `uv lock` runs without re-exporting
 - Two books rendering to one name are filed side by side with ` [{asin}]`; the template is what needs disambiguating
 - Activity's offset paging can skip runs removed between pages; a cursor would need the API's help

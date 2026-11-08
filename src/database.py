@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import secrets
 import sqlite3
 import stat
 from contextlib import closing
@@ -214,6 +215,7 @@ def _migrate_schema(conn):
         "last_attempt_at": "TEXT",
         "monitored": "BOOLEAN NOT NULL DEFAULT 1",
         "file_path": "TEXT",
+        "claim_token": "TEXT",
     }
 
     for column, column_type in new_columns.items():
@@ -237,7 +239,7 @@ _LIBRARY_COLUMNS = (
     "asin", "title", "subtitle", "authors", "narrators", "series", "genres", "length",
     "is_finished", "percent_complete", "date_added", "release_date", "cover_url", "status",
     "monitored", "file_path", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
-    "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at",
+    "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at", "claim_token",
 )  # fmt: skip
 
 
@@ -326,6 +328,9 @@ def _library_ddl() -> str:
             attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
             last_attempt_at TEXT,
+            -- The claim a run holds while `downloading`, which every outcome must present
+            -- (`claim_book_for_download`); NULL otherwise
+            claim_token TEXT,
             UNIQUE (account_id, asin)
         )
     """
@@ -585,7 +590,7 @@ def _stale_cutoff(seconds: int) -> str:
     return (datetime.now(UTC) - timedelta(seconds=seconds)).replace(microsecond=0).isoformat()
 
 
-def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECONDS) -> bool:
+def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECONDS) -> str | None:
     """
     Take ownership of one book, moving it to `downloading` and counting the attempt.
 
@@ -597,20 +602,30 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
     `last_attempt_at` is older than `stale_after`. A NULL timestamp counts as stale too,
     since such a row would otherwise never be picked up by anything again.
 
+    The claim is a fresh random token, stored on the row and handed back, which every
+    outcome (`mark_book_downloaded`, `mark_book_failed`, `mark_book_unavailable`,
+    `release_book`) must present. "Abandoned" is only a guess from the clock: a run
+    still alive past `stale_after` (a CLI run beside the service, a very slow book)
+    loses the book to the reclaim, and without the token the two runs would overwrite
+    each other's outcome - a failure recorded over a finished download, say. With it,
+    only the newest claim can record anything.
+
     Args:
         book_id: The book to claim
         stale_after: Seconds after which a `downloading` row is treated as abandoned
 
     Returns:
-        True if this caller now owns the book, False if somebody else does
+        The claim if this caller now owns the book, None if somebody else does
     """
+    token = secrets.token_hex(16)
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
             """
             UPDATE library
                SET status = ?,
                    attempts = attempts + 1,
-                   last_attempt_at = ?
+                   last_attempt_at = ?,
+                   claim_token = ?
              WHERE id = ?
                AND (status = ?
                     OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
@@ -618,6 +633,7 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
             (
                 BookStatus.DOWNLOADING,
                 _utcnow(),
+                token,
                 book_id,
                 BookStatus.WAITING_DOWNLOAD,
                 BookStatus.DOWNLOADING,
@@ -626,10 +642,17 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
         )
         conn.commit()
 
-    return cursor.rowcount == 1
+    return token if cursor.rowcount == 1 else None
 
 
-def mark_book_failed(book_id: int, error: str, *, max_attempts: int, terminal: bool = False) -> BookStatus | None:
+# Every outcome's WHERE: the row is still this claim's. `claim_token` is cleared with
+# the outcome, so a claim records one outcome at most.
+_HELD = f"id = ? AND status = '{BookStatus.DOWNLOADING}' AND claim_token = ?"
+
+
+def mark_book_failed(
+    book_id: int, error: str, *, claim: str, max_attempts: int, terminal: bool = False
+) -> BookStatus | None:
     """
     Record why a download failed and decide whether the book gets another go.
 
@@ -645,29 +668,32 @@ def mark_book_failed(book_id: int, error: str, *, max_attempts: int, terminal: b
     Args:
         book_id: The book that failed
         error: Message stored in `last_error` for a later run, or a UI, to show
+        claim: What `claim_book_for_download` returned
         max_attempts: Attempts allowed before the book is given up on
         terminal: Fail the book now, whatever `attempts` says
 
     Returns:
-        The status the book ended up in, or None if there is no such book
+        The status the book ended up in, or None if there is no such book or the claim
+        is no longer held
     """
     with closing(_get_connection()) as conn:
         row = conn.execute(
-            """
+            f"""
             UPDATE library
                SET status = CASE WHEN ? OR attempts >= ? THEN ? ELSE ? END,
-                   last_error = ?
-             WHERE id = ?
+                   last_error = ?,
+                   claim_token = NULL
+             WHERE {_HELD}
          RETURNING status
             """,
-            (terminal, max_attempts, BookStatus.FAILED, BookStatus.WAITING_DOWNLOAD, error, book_id),
+            (terminal, max_attempts, BookStatus.FAILED, BookStatus.WAITING_DOWNLOAD, error, book_id, claim),
         ).fetchone()
         conn.commit()
 
     return None if row is None else BookStatus(row["status"])
 
 
-def mark_book_unavailable(book_id: int, error: str) -> None:
+def mark_book_unavailable(book_id: int, error: str, *, claim: str) -> bool:
     """
     Park a book Audible will not license, without failing it.
 
@@ -685,21 +711,25 @@ def mark_book_unavailable(book_id: int, error: str) -> None:
 
     `attempts` is left where the claim put it: the attempt really did happen, and
     nothing terminal is decided from it while the book sits here.
+
+    Returns whether the claim was still held, and so whether the book was parked.
     """
     with closing(_get_connection()) as conn:
-        conn.execute(
-            """
+        cursor = conn.execute(
+            f"""
             UPDATE library
                SET status = ?,
-                   last_error = ?
-             WHERE id = ?
+                   last_error = ?,
+                   claim_token = NULL
+             WHERE {_HELD}
             """,
-            (BookStatus.UNAVAILABLE, error, book_id),
+            (BookStatus.UNAVAILABLE, error, book_id, claim),
         )
         conn.commit()
+    return cursor.rowcount == 1
 
 
-def release_book(book_id: int) -> None:
+def release_book(book_id: int, *, claim: str) -> bool:
     """
     Put a claimed book back exactly as it was found, attempt count and all.
 
@@ -710,24 +740,29 @@ def release_book(book_id: int) -> None:
     `last_attempt_at` is deliberately left where the claim put it - it is a record of
     when the book was last touched, and nothing decides anything from it once the status
     is back to `waiting_download`.
+
+    Returns whether the claim was still held, and so whether the book went back.
     """
     with closing(_get_connection()) as conn:
-        conn.execute(
-            """
+        cursor = conn.execute(
+            f"""
             UPDATE library
                SET status = ?,
-                   attempts = MAX(attempts - 1, 0)
-             WHERE id = ? AND status = ?
+                   attempts = MAX(attempts - 1, 0),
+                   claim_token = NULL
+             WHERE {_HELD}
             """,
-            (BookStatus.WAITING_DOWNLOAD, book_id, BookStatus.DOWNLOADING),
+            (BookStatus.WAITING_DOWNLOAD, book_id, claim),
         )
         conn.commit()
+    return cursor.rowcount == 1
 
 
 def mark_book_downloaded(
     book_id: int,
     encoding_format: str | None = None,
     *,
+    claim: str,
     file_path: str | None = None,
     pdf_path: str | None = None,
     cover_path: str | None = None,
@@ -744,20 +779,23 @@ def mark_book_downloaded(
     `last_error` is cleared here: a book that succeeded on its second attempt must not
     keep showing the first attempt's failure. `attempts` is kept on purpose - it is a
     true record of what the book cost.
+
+    Returns whether the claim was still held, and so whether anything was recorded.
     """
     with closing(_get_connection()) as conn:
-        conn.execute(
-            """
+        cursor = conn.execute(
+            f"""
             UPDATE library
                SET status = ?,
                    last_error = NULL,
+                   claim_token = NULL,
                    encoding_format = ?,
                    downloaded_at = ?,
                    file_path = COALESCE(?, file_path),
                    pdf_path = COALESCE(?, pdf_path),
                    cover_path = COALESCE(?, cover_path),
                    annotations_path = COALESCE(?, annotations_path)
-             WHERE id = ?
+             WHERE {_HELD}
             """,
             (
                 BookStatus.DOWNLOADED,
@@ -768,9 +806,11 @@ def mark_book_downloaded(
                 cover_path,
                 annotations_path,
                 book_id,
+                claim,
             ),
         )
         conn.commit()
+    return cursor.rowcount == 1
 
 
 # --- book management ---------------------------------------------------------------

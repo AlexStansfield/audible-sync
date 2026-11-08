@@ -8,7 +8,7 @@ import src.database as database
 from src import crypto
 from src.model import Account, Book, BookStatus, RunBookOutcome, SyncOutcome, SyncRun
 from tests.conftest import ACCOUNT_ID as ACCOUNT
-from tests.conftest import make_book
+from tests.conftest import make_book, mark_downloaded
 
 
 @pytest.fixture
@@ -61,6 +61,7 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "attempts",
         "last_error",
         "last_attempt_at",
+        "claim_token",
     }
 
 
@@ -88,6 +89,7 @@ def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
         "attempts",
         "last_error",
         "last_attempt_at",
+        "claim_token",
     }
     assert expected <= columns
 
@@ -143,7 +145,7 @@ def test_get_books_orders_newest_first_and_respects_limit(db):
 
 def test_mark_book_downloaded_removes_from_waiting(db):
     database.update_books(ACCOUNT, [make_book("B001"), make_book("B002")])
-    database.mark_book_downloaded(_id("B001"))
+    mark_downloaded(_id("B001"))
 
     waiting = [book.asin for book in database.get_books_to_download()]
     assert waiting == ["B002"]
@@ -153,7 +155,7 @@ def test_mark_book_downloaded_removes_from_waiting(db):
 def test_mark_book_downloaded_records_format_and_timestamp(db, monkeypatch):
     monkeypatch.setattr(database, "_utcnow", lambda: "2026-01-02T03:04:05+00:00")
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.mark_book_downloaded(_id("B001"), encoding_format="oga")
+    mark_downloaded(_id("B001"), encoding_format="oga")
 
     book = database.get_book_by_asin("B001")
     assert book.encoding_format == "oga"
@@ -163,7 +165,7 @@ def test_mark_book_downloaded_records_format_and_timestamp(db, monkeypatch):
 def test_mark_book_downloaded_default_timestamp_is_utc_iso(db):
     database.update_books(ACCOUNT, [make_book("B001")])
     before = datetime.now(UTC).replace(microsecond=0)
-    database.mark_book_downloaded(_id("B001"))
+    mark_downloaded(_id("B001"))
 
     book = database.get_book_by_asin("B001")
     assert book.encoding_format is None
@@ -185,8 +187,9 @@ def test_undownloaded_books_without_length_is_what_a_stored_podcast_looks_like(d
         ],
     )
     assert database.claim_book_for_download(_id("HELD"))
-    assert database.claim_book_for_download(_id("DONE"))
-    database.mark_book_downloaded(_id("DONE"))
+    claim = database.claim_book_for_download(_id("DONE"))
+    assert claim
+    database.mark_book_downloaded(_id("DONE"), claim=claim)
     _set("FILE", file_path="/a/file.m4b")
 
     found = database.undownloaded_books_without_length(ACCOUNT)
@@ -257,7 +260,7 @@ def test_latest_date_added_returns_the_newest_regardless_of_insert_order(db):
 def test_mark_book_downloaded_records_accessory_paths_in_one_statement(db):
     database.update_books(ACCOUNT, [make_book("B001")])
 
-    database.mark_book_downloaded(
+    mark_downloaded(
         _id("B001"),
         encoding_format="m4b",
         pdf_path="/lib/book.pdf",
@@ -274,9 +277,10 @@ def test_mark_book_downloaded_records_accessory_paths_in_one_statement(db):
 
 def test_mark_book_downloaded_keeps_accessory_paths_it_is_not_given(db):
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.mark_book_downloaded(_id("B001"), encoding_format="m4b", pdf_path="/lib/book.pdf")
+    mark_downloaded(_id("B001"), encoding_format="m4b", pdf_path="/lib/book.pdf")
+    _set("B001", status="waiting_download")
 
-    database.mark_book_downloaded(_id("B001"), encoding_format="oga")
+    mark_downloaded(_id("B001"), encoding_format="oga")
 
     book = database.get_book_by_asin("B001")
     assert book.pdf_path == "/lib/book.pdf"
@@ -349,7 +353,7 @@ def _claimable(asin: str = "B001") -> None:
 def test_claim_book_for_download_takes_the_book_and_counts_the_attempt(db):
     _claimable()
 
-    assert database.claim_book_for_download(_id("B001")) is True
+    assert database.claim_book_for_download(_id("B001")) is not None
 
     book = database.get_book_by_asin("B001")
     assert book.status is BookStatus.DOWNLOADING
@@ -360,9 +364,9 @@ def test_claim_book_for_download_takes_the_book_and_counts_the_attempt(db):
 def test_claim_book_for_download_refuses_a_book_another_run_already_holds(db):
     """The second caller matches no rows, so two runs can never work on one book."""
     _claimable()
-    assert database.claim_book_for_download(_id("B001")) is True
+    assert database.claim_book_for_download(_id("B001")) is not None
 
-    assert database.claim_book_for_download(_id("B001")) is False
+    assert database.claim_book_for_download(_id("B001")) is None
     assert database.get_book_by_asin("B001").attempts == 1
 
 
@@ -416,7 +420,7 @@ def test_download_queue_agrees_with_the_claim_about_what_is_stale(db):
     offered = database.get_books_to_download()
 
     assert [book.asin for book in offered] == ["B001"]
-    assert database.claim_book_for_download(_id("B001")) is True
+    assert database.claim_book_for_download(_id("B001")) is not None
     assert database.get_book_by_asin("B001").attempts == 2
 
 
@@ -454,7 +458,7 @@ def test_claim_book_for_download_reclaims_a_download_abandoned_long_enough_ago(d
     conn.commit()
     conn.close()
 
-    assert database.claim_book_for_download(_id("B001")) is True
+    assert database.claim_book_for_download(_id("B001")) is not None
     assert database.get_book_by_asin("B001").attempts == 2
 
 
@@ -466,14 +470,14 @@ def test_claim_book_for_download_reclaims_a_downloading_row_with_no_timestamp(db
     conn.commit()
     conn.close()
 
-    assert database.claim_book_for_download(_id("B001")) is True
+    assert database.claim_book_for_download(_id("B001")) is not None
 
 
 def test_claim_book_for_download_does_not_reclaim_a_download_still_running(db):
     _claimable()
     database.claim_book_for_download(_id("B001"))
 
-    assert database.claim_book_for_download(_id("B001"), stale_after=3600) is False
+    assert database.claim_book_for_download(_id("B001"), stale_after=3600) is None
 
 
 @pytest.mark.parametrize("status", [BookStatus.DOWNLOADED, BookStatus.FAILED])
@@ -484,18 +488,84 @@ def test_claim_book_for_download_ignores_a_finished_or_failed_book(db, status):
     conn.commit()
     conn.close()
 
-    assert database.claim_book_for_download(_id("B001")) is False
+    assert database.claim_book_for_download(_id("B001")) is None
 
 
-def test_claim_book_for_download_returns_false_for_an_unknown_asin(db):
-    assert database.claim_book_for_download(999) is False
+def test_claim_book_for_download_returns_none_for_an_unknown_asin(db):
+    assert database.claim_book_for_download(999) is None
+
+
+def test_each_claim_is_its_own(db):
+    _claimable()
+    first = database.claim_book_for_download(_id("B001"))
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    second = database.claim_book_for_download(_id("B001"))
+
+    assert first and second and first != second
+
+
+def _reclaimed() -> tuple[str, str]:
+    """
+    B001 claimed by a run that then held it past `STALE_CLAIM_SECONDS`, and reclaimed by
+    another: the first claim and the second.
+    """
+    _claimable()
+    stale = database.claim_book_for_download(_id("B001"))
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00")
+    return stale, database.claim_book_for_download(_id("B001"))
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        lambda book_id, claim: database.mark_book_downloaded(book_id, "m4b", claim=claim, file_path="/old.m4b"),
+        lambda book_id, claim: database.mark_book_failed(book_id, "boom", claim=claim, max_attempts=1),
+        lambda book_id, claim: database.mark_book_unavailable(book_id, "Denied", claim=claim),
+        lambda book_id, claim: database.release_book(book_id, claim=claim),
+    ],
+    ids=["downloaded", "failed", "unavailable", "released"],
+)
+def test_an_outcome_from_a_claim_another_run_has_taken_over_changes_nothing(db, outcome):
+    """
+    Without the claim, the run the book was reclaimed from could overwrite the outcome
+    of the run that took it over: a failure recorded over a finished download, say.
+    """
+    stale, current = _reclaimed()
+    before = database.get_book_by_asin("B001")
+
+    assert not outcome(_id("B001"), stale)
+
+    assert database.get_book_by_asin("B001") == before
+    assert database.mark_book_downloaded(_id("B001"), "m4b", claim=current, file_path="/new.m4b")
+    assert database.get_book_by_asin("B001").file_path == "/new.m4b"
+
+
+def test_the_run_that_took_a_book_over_keeps_its_outcome(db):
+    stale, current = _reclaimed()
+    database.mark_book_downloaded(_id("B001"), "m4b", claim=current, file_path="/new.m4b")
+
+    assert database.mark_book_failed(_id("B001"), "boom", claim=stale, max_attempts=1) is None
+
+    book = database.get_book_by_asin("B001")
+    assert (book.status, book.last_error, book.file_path) == (BookStatus.DOWNLOADED, None, "/new.m4b")
+
+
+def test_a_claim_records_one_outcome(db):
+    """The token goes with the outcome, so a claim cannot record a second after a retry has re-queued it."""
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+    database.mark_book_failed(_id("B001"), "boom", claim=claim, max_attempts=3)
+    _set("B001", status="downloading")
+
+    assert not database.mark_book_downloaded(_id("B001"), "m4b", claim=claim)
 
 
 def test_mark_book_failed_returns_a_retryable_book_to_the_queue(db):
     _claimable()
-    database.claim_book_for_download(_id("B001"))
+    claim = database.claim_book_for_download(_id("B001"))
 
-    status = database.mark_book_failed(_id("B001"), "HTTPError: 503", max_attempts=3)
+    status = database.mark_book_failed(_id("B001"), "HTTPError: 503", claim=claim, max_attempts=3)
 
     assert status is BookStatus.WAITING_DOWNLOAD
     book = database.get_book_by_asin("B001")
@@ -509,8 +579,8 @@ def test_mark_book_failed_gives_up_once_the_attempts_are_used_up(db):
     _claimable()
     outcomes = []
     for _ in range(3):
-        database.claim_book_for_download(_id("B001"))
-        outcomes.append(database.mark_book_failed(_id("B001"), "boom", max_attempts=3))
+        claim = database.claim_book_for_download(_id("B001"))
+        outcomes.append(database.mark_book_failed(_id("B001"), "boom", claim=claim, max_attempts=3))
 
     assert outcomes == [BookStatus.WAITING_DOWNLOAD, BookStatus.WAITING_DOWNLOAD, BookStatus.FAILED]
     assert database.get_book_by_asin("B001").attempts == 3
@@ -520,9 +590,9 @@ def test_mark_book_failed_gives_up_once_the_attempts_are_used_up(db):
 def test_mark_book_failed_terminal_gives_up_on_the_first_attempt(db):
     """A licence Audible refuses will not be granted on the third ask."""
     _claimable()
-    database.claim_book_for_download(_id("B001"))
+    claim = database.claim_book_for_download(_id("B001"))
 
-    status = database.mark_book_failed(_id("B001"), "LicenseError: Denied", max_attempts=3, terminal=True)
+    status = database.mark_book_failed(_id("B001"), "LicenseError: Denied", claim=claim, max_attempts=3, terminal=True)
 
     assert status is BookStatus.FAILED
     assert database.get_book_by_asin("B001").attempts == 1
@@ -530,15 +600,15 @@ def test_mark_book_failed_terminal_gives_up_on_the_first_attempt(db):
 
 
 def test_mark_book_failed_returns_none_for_an_unknown_asin(db):
-    assert database.mark_book_failed(999, "boom", max_attempts=3) is None
+    assert database.mark_book_failed(999, "boom", claim="anything", max_attempts=3) is None
 
 
 def test_release_book_hands_the_claim_back_without_burning_an_attempt(db):
     """Expired credentials are not this book's fault, so the attempt is given back."""
     _claimable()
-    database.claim_book_for_download(_id("B001"))
+    claim = database.claim_book_for_download(_id("B001"))
 
-    database.release_book(_id("B001"))
+    assert database.release_book(_id("B001"), claim=claim)
 
     book = database.get_book_by_asin("B001")
     assert book.status is BookStatus.WAITING_DOWNLOAD
@@ -548,9 +618,10 @@ def test_release_book_hands_the_claim_back_without_burning_an_attempt(db):
 
 def test_release_book_leaves_a_book_it_does_not_hold_alone(db):
     _claimable()
-    database.mark_book_downloaded(_id("B001"), encoding_format="m4b")
+    claim = database.claim_book_for_download(_id("B001"))
+    database.mark_book_downloaded(_id("B001"), "m4b", claim=claim)
 
-    database.release_book(_id("B001"))
+    assert not database.release_book(_id("B001"), claim=claim)
 
     assert database.get_book_by_asin("B001").status is BookStatus.DOWNLOADED
 
@@ -558,8 +629,8 @@ def test_release_book_leaves_a_book_it_does_not_hold_alone(db):
 def test_get_books_to_download_skips_downloading_and_failed_books(db):
     database.update_books(ACCOUNT, [make_book("WAIT"), make_book("BUSY"), make_book("DEAD")])
     database.claim_book_for_download(_id("BUSY"))
-    database.claim_book_for_download(_id("DEAD"))
-    database.mark_book_failed(_id("DEAD"), "boom", max_attempts=1)
+    claim = database.claim_book_for_download(_id("DEAD"))
+    database.mark_book_failed(_id("DEAD"), "boom", max_attempts=1, claim=claim)
 
     assert [book.asin for book in database.get_books_to_download()] == ["WAIT"]
 
@@ -572,11 +643,11 @@ def test_get_book_by_asin_returns_the_status_as_an_enum(db):
 def test_mark_book_downloaded_clears_a_stale_error(db):
     """A book that succeeded on its second attempt must not keep showing the first failure."""
     _claimable()
-    database.claim_book_for_download(_id("B001"))
-    database.mark_book_failed(_id("B001"), "HTTPError: 503", max_attempts=3)
-    database.claim_book_for_download(_id("B001"))
+    claim = database.claim_book_for_download(_id("B001"))
+    database.mark_book_failed(_id("B001"), "HTTPError: 503", max_attempts=3, claim=claim)
+    claim = database.claim_book_for_download(_id("B001"))
 
-    database.mark_book_downloaded(_id("B001"), encoding_format="m4b")
+    database.mark_book_downloaded(_id("B001"), "m4b", claim=claim)
 
     book = database.get_book_by_asin("B001")
     assert book.last_error is None
@@ -602,8 +673,7 @@ def test_update_books_refreshes_the_mutable_api_fields_on_a_second_sync(db):
 def test_update_books_never_touches_the_download_state(db):
     """Everything the downloader owns survives a re-sync untouched."""
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.claim_book_for_download(_id("B001"))
-    database.mark_book_downloaded(
+    mark_downloaded(
         _id("B001"),
         encoding_format="oga",
         pdf_path="/lib/book.pdf",
@@ -704,9 +774,9 @@ def test_update_books_leaves_every_other_status_alone_when_rights_change(db, sta
 
 def test_mark_book_unavailable_parks_a_book_without_failing_it(db):
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.claim_book_for_download(_id("B001"))
+    claim = database.claim_book_for_download(_id("B001"))
 
-    database.mark_book_unavailable(_id("B001"), "Audible did not grant a license (status Denied)")
+    assert database.mark_book_unavailable(_id("B001"), "Audible did not grant a license (status Denied)", claim=claim)
 
     book = database.get_book_by_asin("B001")
     assert book.status is BookStatus.UNAVAILABLE
@@ -725,8 +795,8 @@ def test_a_licence_denied_book_stays_parked_through_the_next_sync(db):
     and with `max-download = 2` nothing else ever downloaded.
     """
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.claim_book_for_download(_id("B001"))
-    database.mark_book_unavailable(_id("B001"), "Denied")
+    claim = database.claim_book_for_download(_id("B001"))
+    database.mark_book_unavailable(_id("B001"), "Denied", claim=claim)
 
     database.update_books(ACCOUNT, [make_book("B001", is_consumable=True)])
 
@@ -738,8 +808,8 @@ def test_a_licence_denied_book_stays_parked_through_the_next_sync(db):
 
 def test_a_licence_denied_book_comes_back_when_retried(db):
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.claim_book_for_download(_id("B001"))
-    database.mark_book_unavailable(_id("B001"), "Denied")
+    claim = database.claim_book_for_download(_id("B001"))
+    database.mark_book_unavailable(_id("B001"), "Denied", claim=claim)
 
     assert database.reset_for_download(_id("B001"), monitored=True) is True
 
@@ -750,8 +820,8 @@ def test_requeue_unavailable_gives_licence_refused_books_another_go(db):
     """The bulk retry for the day Audible refused every licence: the device's fault, not the books'."""
     database.update_books(ACCOUNT, [make_book("B001"), make_book("B002"), make_book("B003", is_consumable=False)])
     for asin in ("B001", "B002"):
-        database.claim_book_for_download(_id(asin))
-        database.mark_book_unavailable(_id(asin), "Denied")
+        claim = database.claim_book_for_download(_id(asin))
+        database.mark_book_unavailable(_id(asin), "Denied", claim=claim)
     _set("B002", monitored=0)
 
     assert database.requeue_unavailable(ACCOUNT) == 2
@@ -785,8 +855,8 @@ def test_requeue_unavailable_is_scoped_to_the_account_asked_for(db):
     database.update_books(other, [make_book("B001")])
     for account in (ACCOUNT, other):
         book = database.get_book_by_asin("B001", account_id=account)
-        database.claim_book_for_download(book.id)
-        database.mark_book_unavailable(book.id, "Denied")
+        claim = database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied", claim=claim)
 
     assert database.requeue_unavailable(other) == 1
 
@@ -1470,7 +1540,7 @@ def test_migration_enforces_one_row_per_account_and_asin(tmp_path, monkeypatch):
 def test_mark_book_downloaded_records_where_the_audio_went(db):
     database.update_books(ACCOUNT, [make_book("B001")])
 
-    database.mark_book_downloaded(_id("B001"), "m4b", file_path="/lib/A/T/T.m4b")
+    mark_downloaded(_id("B001"), "m4b", file_path="/lib/A/T/T.m4b")
 
     assert database.get_book_by_asin("B001").file_path == "/lib/A/T/T.m4b"
 
@@ -1484,9 +1554,7 @@ def test_migrate_schema_adds_file_path(tmp_path, monkeypatch):
 
 def test_clear_book_files_forgets_every_path_and_the_download(db):
     database.update_books(ACCOUNT, [make_book("B001")])
-    database.mark_book_downloaded(
-        _id("B001"), "oga", file_path="/a", pdf_path="/p", cover_path="/c", annotations_path="/n"
-    )
+    mark_downloaded(_id("B001"), "oga", file_path="/a", pdf_path="/p", cover_path="/c", annotations_path="/n")
 
     database.clear_book_files(_id("B001"))
 
@@ -1672,13 +1740,13 @@ def test_library_stats_counts_what_retry_unavailable_would_queue(db):
     )
     database.update_books(other, [make_book("B005")])
     for asin in ("B001", "B002", "B003"):
-        database.claim_book_for_download(_id(asin))
-        database.mark_book_unavailable(_id(asin), "Denied")
+        claim = database.claim_book_for_download(_id(asin))
+        database.mark_book_unavailable(_id(asin), "Denied", claim=claim)
     _set("B002", monitored=0)
     _set("B003", is_consumable=None)  # from before the column: fails open
     book = database.get_book_by_asin("B005", account_id=other)
-    database.claim_book_for_download(book.id)
-    database.mark_book_unavailable(book.id, "Denied")
+    claim = database.claim_book_for_download(book.id)
+    database.mark_book_unavailable(book.id, "Denied", claim=claim)
 
     stats = database.library_stats(account_id=ACCOUNT)
     assert stats["by_status"]["unavailable"] == 4
@@ -1705,8 +1773,8 @@ def test_library_stats_counts_a_status_it_does_not_know_in_the_totals_only(db):
 
 def test_downloaded_file_paths(db):
     other = _shelf(db)
-    database.mark_book_downloaded(_id("B003"), "m4b", file_path="/lib/a.m4b")
-    database.mark_book_downloaded(database.get_book_by_asin("B004", account_id=other).id, "m4b", file_path="/lib/b.m4b")
+    _set("B003", file_path="/lib/a.m4b")
+    mark_downloaded(database.get_book_by_asin("B004", account_id=other).id, "m4b", file_path="/lib/b.m4b")
 
     assert sorted(database.downloaded_file_paths()) == ["/lib/a.m4b", "/lib/b.m4b"]
     assert database.downloaded_file_paths(account_id=other) == ["/lib/b.m4b"]

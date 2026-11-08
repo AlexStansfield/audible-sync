@@ -149,8 +149,8 @@ def test_replace_account_auth_queues_the_books_the_old_device_was_refused(db, mo
     database.update_books(other, [make_book("B001")])
     for account in (account_id, other):
         book = database.get_book_by_asin("B001", account_id=account)
-        database.claim_book_for_download(book.id)
-        database.mark_book_unavailable(book.id, "Denied")
+        claim = database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied", claim=claim)
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: _Deregistering())
 
     with caplog.at_level(logging.INFO):
@@ -636,8 +636,9 @@ def _parked_book(account_id, asin="B001"):
     """A book the old device was refused a licence for."""
     database.update_books(account_id, [make_book(asin, id=None)])
     book = database.get_book_by_asin(asin, account_id=account_id)
-    assert database.claim_book_for_download(book.id)
-    database.mark_book_unavailable(book.id, "Audible did not grant a license")
+    claim = database.claim_book_for_download(book.id)
+    assert claim
+    database.mark_book_unavailable(book.id, "Audible did not grant a license", claim=claim)
     return book.id
 
 

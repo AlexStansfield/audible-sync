@@ -329,17 +329,18 @@ def _patch_pipeline(
     def fake_claim(book_id, **kwargs):
         if claimed is not None:
             claimed.append(asins[book_id])
-        return True
+        return f"claim-{book_id}"
 
-    def fake_fail(book_id, error, *, max_attempts, terminal=False):
+    def fake_fail(book_id, error, *, claim, max_attempts, terminal=False):
+        assert claim == f"claim-{book_id}"
         if failures is not None:
             failures.append((asins[book_id], error, terminal, max_attempts))
         return BookStatus.FAILED if terminal else BookStatus.WAITING_DOWNLOAD
 
     monkeypatch.setattr(downloader, "claim_book_for_download", fake_claim)
     monkeypatch.setattr(downloader, "mark_book_failed", fake_fail)
-    monkeypatch.setattr(downloader, "release_book", lambda book_id: None)
-    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda book_id, error: None)
+    monkeypatch.setattr(downloader, "release_book", lambda book_id, *, claim: True)
+    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda book_id, error, *, claim: True)
 
     def fake_record(run_id, book, outcome, **details):
         if records is not None:
@@ -347,7 +348,8 @@ def _patch_pipeline(
 
     monkeypatch.setattr(downloader, "record_run_book", fake_record)
 
-    def fake_mark(book_id, **kw):
+    def fake_mark(book_id, *, claim, **kw):
+        assert claim == f"claim-{book_id}"
         marked.append((asins[book_id], kw["encoding_format"]))
         accessories.append({k: v for k, v in kw.items() if k.endswith("_path") and k != "file_path"})
 
@@ -395,6 +397,30 @@ def test_download_books_skips_failed_book_and_cleans_temp(tmp_path, monkeypatch)
     ]
 
 
+def test_download_books_leaves_the_outcome_to_a_run_that_reclaimed_the_book(tmp_path, monkeypatch, caplog):
+    """
+    A run that held a book past `STALE_CLAIM_SECONDS` while another process reclaimed it
+    has its outcomes refused by the claim token. It says so and carries on: the work it
+    did happened, and the book is the other run's to record.
+    """
+    downloads = tmp_path / "downloads"
+    library = tmp_path / "audiobooks"
+    downloads.mkdir()
+    marked, accessories, decrypt_calls = [], [], []
+    _patch_pipeline(monkeypatch, _library_books(), marked, accessories, decrypt_calls)
+    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda book_id, **kw: False)
+    monkeypatch.setattr(downloader, "mark_book_failed", lambda *a, **kw: None)
+
+    with caplog.at_level(logging.WARNING, logger="src.downloader"):
+        stats = downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
+
+    assert (stats.succeeded, stats.failed) == (2, 1)
+    lost = [r.getMessage() for r in caplog.records if "another run has taken the book over" in r.getMessage()]
+    assert len(lost) == 3
+    assert any("(BAD1) was not downloaded" in message for message in lost)
+    assert any("(OK2) was downloaded" in message for message in lost)
+
+
 def test_download_books_oga_files_with_oga_extension(tmp_path, monkeypatch):
     downloads = tmp_path / "downloads"
     library = tmp_path / "audiobooks"
@@ -421,13 +447,15 @@ def test_download_books_reports_license_failure_and_keeps_going(tmp_path, monkey
     parked = []
     monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
-    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: "claim")
     monkeypatch.setattr(
         downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
     )
     asins = _asins(books)
     monkeypatch.setattr(
-        downloader, "mark_book_unavailable", lambda book_id, error: parked.append((asins[book_id], error))
+        downloader,
+        "mark_book_unavailable",
+        lambda book_id, error, *, claim: parked.append((asins[book_id], error)) or True,
     )
 
     def refuse(self, book, temp_dir):
@@ -623,12 +651,12 @@ def test_download_books_stops_on_an_authentication_failure(tmp_path, monkeypatch
     released = []
     monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
-    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: True)
+    monkeypatch.setattr(downloader, "claim_book_for_download", lambda asin, **kw: "claim")
     monkeypatch.setattr(
         downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("credentials are not the book's fault")
     )
     asins = _asins(books)
-    monkeypatch.setattr(downloader, "release_book", lambda book_id: released.append(asins[book_id]))
+    monkeypatch.setattr(downloader, "release_book", lambda book_id, *, claim: released.append(asins[book_id]))
 
     attempts = []
 
@@ -753,7 +781,11 @@ def test_download_books_skips_a_book_another_run_is_already_downloading(tmp_path
     books = [make_book("BUSY", "Taken"), make_book("OK2", "Mine")]
     asins = _asins(books)
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls, failures=failures)
-    monkeypatch.setattr(downloader, "claim_book_for_download", lambda book_id, **kw: asins[book_id] != "BUSY")
+    monkeypatch.setattr(
+        downloader,
+        "claim_book_for_download",
+        lambda book_id, **kw: None if asins[book_id] == "BUSY" else f"claim-{book_id}",
+    )
 
     downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
@@ -818,7 +850,9 @@ def test_download_books_parks_an_unlicensable_book_without_burning_attempts(tmp_
     books = [make_book("GONE", "Withdrawn"), make_book("OK2", "Fine")]
     asins = _asins(books)
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
-    monkeypatch.setattr(downloader, "mark_book_unavailable", lambda book_id, error: parked.append(asins[book_id]))
+    monkeypatch.setattr(
+        downloader, "mark_book_unavailable", lambda book_id, error, *, claim: parked.append(asins[book_id]) or True
+    )
     monkeypatch.setattr(
         downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a withdrawn title is not a failure")
     )
@@ -1380,9 +1414,9 @@ def _cancel_patches(monkeypatch, books, claimed, released):
     asins = _asins(books)
     monkeypatch.setattr(downloader, "get_books_to_download", lambda **kw: books)
     monkeypatch.setattr(
-        downloader, "claim_book_for_download", lambda book_id, **kw: claimed.append(asins[book_id]) or True
+        downloader, "claim_book_for_download", lambda book_id, **kw: claimed.append(asins[book_id]) or "claim"
     )
-    monkeypatch.setattr(downloader, "release_book", lambda book_id: released.append(asins[book_id]))
+    monkeypatch.setattr(downloader, "release_book", lambda book_id, *, claim: released.append(asins[book_id]))
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda asin, **kw: pytest.fail("should not be marked"))
     monkeypatch.setattr(downloader, "mark_book_failed", lambda *a, **kw: pytest.fail("a cancel is not a failure"))
 
@@ -1487,7 +1521,7 @@ def test_download_books_records_where_the_audio_was_filed(tmp_path, monkeypatch)
     books = [make_book("OK2", "Two")]
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
     filed = {}
-    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda book_id, **kw: filed.update(kw))
+    monkeypatch.setattr(downloader, "mark_book_downloaded", lambda book_id, **kw: filed.update(kw) or True)
 
     downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
@@ -1537,7 +1571,11 @@ def test_download_books_a_lost_claim_still_uses_a_slot(tmp_path, monkeypatch):
     books = [make_book("BUSY", "Taken"), make_book("OK2", "Mine")]
     asins = _asins(books)
     _patch_pipeline(monkeypatch, books, marked, accessories, decrypt_calls)
-    monkeypatch.setattr(downloader, "claim_book_for_download", lambda book_id, **kw: asins[book_id] != "BUSY")
+    monkeypatch.setattr(
+        downloader,
+        "claim_book_for_download",
+        lambda book_id, **kw: None if asins[book_id] == "BUSY" else f"claim-{book_id}",
+    )
 
     stats = downloader.download_books(
         object(), make_settings(download_folder=downloads, audiobook_folder=tmp_path / "audiobooks", max_download=1)

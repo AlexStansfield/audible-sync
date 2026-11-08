@@ -722,7 +722,7 @@ def _download_accessories(downloader: Downloader, book: Book, temp_dir: Path, sa
     return accessories
 
 
-def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: Settings) -> Path:
+def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: Settings, claim: str) -> Path:
     """
     Download, decrypt and file a single book, returning where the audio was filed.
     Raises on any failure so the caller can decide how to handle it.
@@ -732,6 +732,7 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
         book: The book to process
         temp_dir: Temporary working folder for this book
         settings: Library folder, naming templates, output format and bitrate
+        claim: The run's claim on the book, which recording it as downloaded presents
     """
     asin = book.asin
     title = book.title
@@ -788,8 +789,28 @@ def _process_book(downloader: Downloader, book: Book, temp_dir: Path, settings: 
         logger.info("%s moved to %s", column.removesuffix("_path").capitalize(), final_path)
 
     # Record where everything went and the completed status in one statement
-    mark_book_downloaded(book.id, encoding_format=settings.encoding_format, file_path=str(to_path), **final_paths)
+    if not mark_book_downloaded(
+        book.id, encoding_format=settings.encoding_format, claim=claim, file_path=str(to_path), **final_paths
+    ):
+        _claim_lost(book, "downloaded")
     return to_path
+
+
+def _claim_lost(book: Book, outcome: str) -> None:
+    """
+    Say that a book's outcome was not recorded because another run has reclaimed it.
+
+    That happens when this run held the book past `STALE_CLAIM_SECONDS` while another
+    process was running: the other took it as abandoned, and its outcome is the one the
+    row keeps. The files this run filed stay where they are; the other run files the
+    book under the same name, since `_resolve_output_path` recognises its ASIN.
+    """
+    logger.warning(
+        "%s (%s) was %s, but another run has taken the book over in the meantime; its outcome is left to that run",
+        book.title,
+        book.asin,
+        outcome,
+    )
 
 
 def _record(run_id: int | None, book: Book, outcome: RunBookOutcome, started: float, **details) -> None:
@@ -929,7 +950,8 @@ def download_books(
         # Claimed one at a time rather than as a batch: a run that stops half way, or is
         # killed, then leaves behind only the book it was actually working on, and only
         # the books really tried spend an attempt.
-        if not claim_book_for_download(book.id):
+        claim = claim_book_for_download(book.id)
+        if claim is None:
             # Another run has it, so it is being worked on: that is a slot used
             logger.info("Skipping %s (%s): another run is already downloading it", title, asin)
             attempted += 1
@@ -939,7 +961,7 @@ def download_books(
         started = time.monotonic()
 
         try:
-            filed = _process_book(downloader, book, temp_dir, settings)
+            filed = _process_book(downloader, book, temp_dir, settings, claim)
             _record(run_id, book, RunBookOutcome.DOWNLOADED, started, bytes=_file_size(filed))
             succeeded += 1
             attempted += 1
@@ -950,7 +972,7 @@ def download_books(
             # eventually mark perfectly good books failed. Nor is it counted as a failed
             # book: the run record says the account needs attention instead.
             logger.exception("Audible rejected our credentials, stopping before %s (%s)", title, asin)
-            release_book(book.id)
+            release_book(book.id, claim=claim)
             credentials_error = f"{type(error).__name__}: {error}"
             attempted += 1
             break
@@ -958,7 +980,7 @@ def download_books(
             # Nothing is wrong with the book; whoever stopped the run gets it back in the
             # queue where it was, attempt count and all.
             logger.info("Cancelled while downloading %s (%s), handing it back to the queue", title, asin)
-            release_book(book.id)
+            release_book(book.id, claim=claim)
             cancelled = True
             attempted += 1
             break
@@ -972,7 +994,8 @@ def download_books(
             logger.warning(
                 "Audible will not license %s (%s) for download, parking it until retried: %s", title, asin, error
             )
-            mark_book_unavailable(book.id, str(error))
+            if not mark_book_unavailable(book.id, str(error), claim=claim):
+                _claim_lost(book, "refused a licence")
             _record(run_id, book, RunBookOutcome.REFUSED, started, error=str(error))
             unavailable.append((asin, title))
             streak += 1
@@ -981,7 +1004,9 @@ def download_books(
         except Exception as error:
             logger.exception("Failed to process %s (%s), skipping", title, asin)
             reason = f"{type(error).__name__}: {error}"
-            status = mark_book_failed(book.id, reason, max_attempts=settings.max_attempts)
+            status = mark_book_failed(book.id, reason, claim=claim, max_attempts=settings.max_attempts)
+            if status is None:
+                _claim_lost(book, "not downloaded")
             _record(run_id, book, RunBookOutcome.FAILED, started, error=reason)
             if status is BookStatus.FAILED:
                 logger.warning("Giving up on %s (%s) after %d attempts", title, asin, settings.max_attempts)

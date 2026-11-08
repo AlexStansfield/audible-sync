@@ -831,8 +831,8 @@ def test_a_login_says_how_many_parked_books_it_queued(api, monkeypatch, through)
     account_id = first["account"]["id"]
     assert first["requeued"] == 0
     (refused, _) = _shelve(account_id, make_book("B001"), make_book("B002", is_consumable=False))
-    database.claim_book_for_download(refused.id)
-    database.mark_book_unavailable(refused.id, "Denied")
+    claim = database.claim_book_for_download(refused.id)
+    database.mark_book_unavailable(refused.id, "Denied", claim=claim)
 
     api.amazon.polls = [registered_response()]
     start = {"account_id": account_id} if through == "account_id" else {}
@@ -1228,7 +1228,7 @@ def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeyp
 # --- books ---------------------------------------------------------------------------
 
 from src.model import BookStatus  # noqa: E402
-from tests.conftest import make_book  # noqa: E402
+from tests.conftest import make_book, mark_downloaded  # noqa: E402
 
 
 def _shelve(account_id, *books, **kwargs):
@@ -1319,7 +1319,7 @@ def _downloaded(api, tmp_path, status=BookStatus.DOWNLOADED):
     audio, cover = folder / "Title.m4b", folder / "Title_cover.jpg"
     audio.write_bytes(b"a")
     cover.write_bytes(b"\xff\xd8cover")
-    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio), cover_path=str(cover))
+    mark_downloaded(book.id, "m4b", file_path=str(audio), cover_path=str(cover))
     if status is not BookStatus.DOWNLOADED:
         database.claim_book_for_download(book.id) if status is BookStatus.DOWNLOADING else None
     return database.get_book(book.id), audio, cover
@@ -1367,8 +1367,8 @@ def test_book_actions_404_for_an_unknown_book(api, action):
 
 def test_retry_queues_a_failed_book(api):
     (book,) = _shelve(_account(), make_book("B001"))
-    database.claim_book_for_download(book.id)
-    database.mark_book_failed(book.id, "boom", max_attempts=1)
+    claim = database.claim_book_for_download(book.id)
+    database.mark_book_failed(book.id, "boom", max_attempts=1, claim=claim)
 
     response = api.post(f"/api/books/{book.id}/retry", headers=AUTH)
 
@@ -1388,8 +1388,8 @@ def test_retry_refuses_a_downloaded_book(api, tmp_path):
 
 
 def _park(book):
-    database.claim_book_for_download(book.id)
-    database.mark_book_unavailable(book.id, "Denied")
+    claim = database.claim_book_for_download(book.id)
+    database.mark_book_unavailable(book.id, "Denied", claim=claim)
 
 
 def test_retry_unavailable_queues_the_parked_books_of_one_account(api):
@@ -1433,8 +1433,8 @@ def test_retry_unavailable_rejects_an_unknown_field(api):
 
 def test_bulk_by_ids(api):
     waiting, failed = _shelve(_account(), make_book("B001"), make_book("B002"), monitor_new=False)
-    database.claim_book_for_download(failed.id)
-    database.mark_book_failed(failed.id, "boom", max_attempts=1)
+    claim = database.claim_book_for_download(failed.id)
+    database.mark_book_failed(failed.id, "boom", max_attempts=1, claim=claim)
 
     response = api.post(
         "/api/books/bulk", json={"action": "monitor", "ids": [waiting.id, failed.id, 999]}, headers=AUTH
@@ -1605,10 +1605,8 @@ def test_stats(api, tmp_path, monkeypatch):
     _shelve(other, make_book("B002"), make_book("B003"), monitor_new=False)
     audio = tmp_path / "a.m4b"
     audio.write_bytes(b"x" * 1234)
-    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio))
-    database.mark_book_downloaded(
-        database.get_book_by_asin("B002", account_id=other).id, "m4b", file_path=str(tmp_path / "gone.m4b")
-    )
+    mark_downloaded(book.id, "m4b", file_path=str(audio))
+    mark_downloaded(database.get_book_by_asin("B002", account_id=other).id, "m4b", file_path=str(tmp_path / "gone.m4b"))
     monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
     database.finish_sync_run(database.start_sync_run(account_id), outcome="success")
 
@@ -1636,8 +1634,8 @@ def test_stats_count_the_retryable_unavailable_books_and_the_monitored_by_status
         account_id, make_book("B001"), make_book("B002", is_consumable=False), make_book("B003")
     )
     for book in (refused, withdrawn, unwanted):
-        database.claim_book_for_download(book.id)
-        database.mark_book_unavailable(book.id, "Denied")
+        claim = database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied", claim=claim)
     database.set_monitored(unwanted.id, False)
 
     body = api.get("/api/stats", headers=AUTH).json()
