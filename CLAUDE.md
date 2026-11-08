@@ -111,7 +111,7 @@ All observed; the API is undocumented.
 ## Accounts and login
 
 - **An account is one marketplace login, not a person.** `library` is keyed `(account_id, asin)`; a credential-less placeholder (the migration's) is legal and skipped
-- **One login, one account:** `store_login` gives the oldest holder of the same `user_id` + marketplace the new credentials, since a second row would file every book again. The lock covers this process only: the id is in the encrypted blob, so the database cannot enforce it. A login not saying whose it is never matches. Duplicates from before are left alone
+- **One login, one account:** `store_login` gives the account holding the same `user_id` + marketplace the new credentials, since a second row would file every book again. The id is kept in the clear as `accounts.customer_id` with a partial unique index on it and the marketplace, so the rule holds across processes (a CLI login beside the service: a refused insert means look again) and for an account whose credentials cannot be read (a lost key: signing in restores it rather than adding another). Clearing credentials keeps it. A login not saying whose it is never matches. `backfill_customer_ids` fills it in at start; of duplicates from before, the oldest gets it, the rest are left alone with a warning and may still sign in on their own row
 - **`replace_account_auth` stores first and nothing raises after that**, then deregisters. Deregistering first left a failed store with two dead devices. It refuses another customer's login (`AnotherCustomer`) and another account's (`LoginAlreadyHeld`), leaving the working device alone; on any exception the caller discards the new device, or nothing would ever hold it
 - **Requeueing:** the new device is the moment to retry licence-refused books, but `requeue_unavailable` skips titles Audible withdrew, which are a guaranteed refusal feeding the breaker
 - **Device code is the default login**, because the browser flow depends on the user's browser (Amazon refused a desktop one on 2026-10-31). It is the protocol of mkb79/Audible PR #914; once released, the library's client can replace the three functions in `audible_login.py`
@@ -202,7 +202,7 @@ uv run python -c "import sqlite3; c=sqlite3.connect('data/audible_sync.db'); pri
 
 ## Known issues
 
-- A `customer_id` column and splitting `src/api.py` are in `todo.md`
+- Splitting `src/api.py` is in `todo.md`
 - `requirements.txt` drifts if `uv lock` runs without re-exporting
 - Two books rendering to one name are filed side by side with ` [{asin}]`; the template is what needs disambiguating
 - Activity's offset paging can skip runs removed between pages; a cursor would need the API's help

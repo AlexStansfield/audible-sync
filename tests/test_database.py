@@ -1274,6 +1274,111 @@ def test_encrypt_stored_secrets_rewrites_plain_text_rows_once(db):
     assert database.encrypt_stored_secrets() == 0
 
 
+def _login_blob(user_id: str = "u1") -> dict:
+    return {"locale_code": "uk", "customer_info": {"user_id": user_id}}
+
+
+def _customer_ids() -> dict[int, str | None]:
+    conn = sqlite3.connect(database.DB_FILE)
+    rows = dict(conn.execute("SELECT id, customer_id FROM accounts"))
+    conn.close()
+    return rows
+
+
+def test_migrate_schema_adds_customer_id_to_an_old_accounts_table(tmp_path, monkeypatch):
+    db_file = tmp_path / "old.db"
+    conn = sqlite3.connect(db_file)
+    conn.execute(
+        "CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, "
+        "country_code TEXT NOT NULL DEFAULT '', customer_name TEXT, auth JSON, enabled BOOLEAN NOT NULL DEFAULT 1, "
+        "monitor_existing BOOLEAN NOT NULL DEFAULT 1, created_at TEXT NOT NULL, last_synced_at TEXT)"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.setattr(database, "DB_FILE", str(db_file))
+
+    database.init_db()
+
+    conn = sqlite3.connect(db_file)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(accounts)")}
+    indexes = {row[1] for row in conn.execute("PRAGMA index_list(accounts)")}
+    conn.close()
+    assert "customer_id" in columns
+    assert "idx_accounts_customer" in indexes
+
+
+def test_one_customer_holds_one_account_per_marketplace(db):
+    """The database enforces it, so a CLI login beside the service cannot add a second."""
+    database.add_account("Alex (UK)", "uk", auth=None, customer_id="u1")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        database.add_account("Alex again", "UK", auth=None, customer_id="u1")
+    database.add_account("Alex (US)", "us", auth=None, customer_id="u1")
+    database.add_account("Someone (UK)", "uk", auth=None, customer_id="u2")
+    # Unknown customers are not one customer
+    database.add_account("Pending", "uk", auth=None)
+    database.add_account("Pending", "uk", auth=None)
+
+
+def test_get_account_by_customer_finds_an_account_whose_credentials_cannot_be_read(db):
+    account_id = database.add_account("Alex (UK)", "uk", auth=_login_blob(), customer_id="u1")
+    crypto.configure(crypto.generate_key())  # the key was lost
+
+    account = database.get_account_by_customer("u1", "UK")
+
+    assert account.id == account_id and account.needs_login
+    assert database.get_account_by_customer("u1", "us") is None
+    assert database.get_account_by_customer("u2", "uk") is None
+
+
+def test_clearing_the_credentials_keeps_the_customer(db):
+    """The library is still that customer's, so the next login of theirs must find it."""
+    account_id = database.add_account("Alex (UK)", "uk", auth=_login_blob(), customer_id="u1")
+
+    database.save_account_auth(account_id, None)
+
+    assert database.get_account(account_id).customer_id == "u1"
+
+
+def test_backfill_customer_ids_reads_each_account_s_customer_from_its_credentials(db):
+    alex = database.add_account("Alex (UK)", "uk", auth=_login_blob("u1"))
+    sam = database.add_account("Sam (UK)", "uk", auth=_login_blob("u2"))
+    placeholder = database.add_account("Audible", "", auth=None)
+
+    assert database.backfill_customer_ids() == 2
+
+    ids = _customer_ids()
+    assert (ids[alex], ids[sam], ids[placeholder], ids[ACCOUNT]) == ("u1", "u2", None, None)
+    assert database.backfill_customer_ids() == 0
+
+
+def test_backfill_customer_ids_gives_a_duplicate_login_to_the_oldest_account(db, caplog):
+    """Duplicates from before the rule stay, books and all; the index cannot hold both."""
+    first = database.add_account("First", "uk", auth=_login_blob())
+    second = database.add_account("Second", "UK", auth=_login_blob())
+
+    assert database.backfill_customer_ids() == 1
+
+    ids = _customer_ids()
+    assert (ids[first], ids[second]) == ("u1", None)
+    assert f"Accounts {first} and {second} hold the same Audible login" in caplog.text
+    assert f"remove account {second}" in caplog.text
+
+
+def test_backfill_customer_ids_leaves_unreadable_credentials_for_a_later_start(db):
+    secret_key = crypto.generate_key()
+    crypto.configure(secret_key)
+    account_id = database.add_account("Alex (UK)", "uk", auth=_login_blob())
+    crypto.configure(crypto.generate_key())
+    database._undecryptable_logged.clear()
+
+    assert database.backfill_customer_ids() == 0
+    crypto.configure(secret_key)
+    assert database.backfill_customer_ids() == 1
+
+    assert _customer_ids()[account_id] == "u1"
+
+
 def test_init_db_makes_the_file_owner_only(db):
     import stat
 

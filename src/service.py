@@ -42,7 +42,7 @@ from src import crypto, webauth
 from src.api import create_app, normalise_base_path
 from src.apitoken import resolve_api_token
 from src.crypto import load_secret_key
-from src.database import encrypt_stored_secrets, init_db
+from src.database import backfill_customer_ids, encrypt_stored_secrets, init_db
 from src.logbuffer import RingBufferHandler
 from src.main import configure_logging, run_pipeline
 from src.paths import REPO_ROOT, resolve_path
@@ -154,6 +154,7 @@ def build(config: ServiceConfig):
     # lives encrypted in the settings table
     crypto.configure(load_secret_key())
     encrypt_stored_secrets()
+    backfill_customer_ids()
 
     api_token = resolve_api_token(config.api_token)
     ensure_web_user()

@@ -15,6 +15,7 @@ that has none or whose registration stopped working.
 """
 
 import logging
+import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -25,7 +26,7 @@ from audible import Authenticator
 from src.database import (
     add_account,
     get_account,
-    get_accounts,
+    get_account_by_customer,
     replace_account_auth_if_unchanged,
     requeue_unavailable,
     save_account_auth,
@@ -96,6 +97,7 @@ def add_account_from_authenticator(
         _country_of(auth) or "",
         auth=auth_to_dict(auth),
         customer_name=customer_name_of(auth),
+        customer_id=_user_id(auth.customer_info),
         monitor_existing=monitor_existing,
     )
 
@@ -121,8 +123,9 @@ def _country_of(auth: Authenticator) -> str | None:
 
 
 # Two logins finishing together must not both find no account holding theirs and both be
-# stored. Within this process only: the customer id is inside the encrypted blob, so the
-# database has nothing to enforce it with (todo.md has the column that would).
+# stored. The unique index on `accounts.customer_id` enforces that across processes (a CLI
+# login beside the service); this lock makes it an orderly wait within one, rather than a
+# refused write.
 _store_lock = threading.Lock()
 
 
@@ -229,12 +232,11 @@ def replace_account_auth(account: Account, auth: Authenticator, *, deregister_pr
             The migration's placeholder has no marketplace yet and takes any
     """
     with _store_lock:
-        holders = _holders(auth)
-        if holders and account.id not in {holder.id for holder in holders}:
-            raise LoginAlreadyHeld(
-                f"{holders[0].name} already holds this Audible login. Sign in on that account, or remove it first"
-            )
-        previous, requeued = _store_auth(account, auth)
+        try:
+            previous, requeued = _store_auth(account, auth)
+        except sqlite3.IntegrityError as error:
+            # Another process stored this login on another account since `_store_auth` looked
+            raise _already_held(_holder(auth)) from error
     _retire_device(previous, deregister=deregister_previous)
     return StoredLogin(previous.id, replaced=True, requeued=requeued)
 
@@ -252,15 +254,28 @@ def _store_auth(account: Account, auth: Authenticator) -> tuple[Account, int]:
     if current is None:
         raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
     check_marketplace(current, _country_of(auth))
-    stored_customer = _user_id((current.auth or {}).get("customer_info"))
+    # The column, so a customer is known even when the credentials cannot be read
+    stored_customer = current.customer_id or _user_id((current.auth or {}).get("customer_info"))
     new_customer = _user_id(auth.customer_info)
     if stored_customer and new_customer and stored_customer != new_customer:
         raise AnotherCustomer(
             f"This is a different Amazon login from the one {current.name} belongs to. "
             "Sign in as that customer, or use Add account to add this login as a new account"
         )
+    holder = _holder(auth)
+    if holder is not None and holder.id != current.id:
+        # One login, one account. Except a duplicate from before the rule, which
+        # `backfill_customer_ids` left without the customer: it may still sign in on its
+        # own row, but the customer stays with the account that holds it
+        if stored_customer != new_customer:
+            raise _already_held(holder)
+        new_customer = None
     stored = save_account_auth(
-        current.id, auth_to_dict(auth), country_code=_country_of(auth), customer_name=customer_name_of(auth)
+        current.id,
+        auth_to_dict(auth),
+        country_code=_country_of(auth),
+        customer_name=customer_name_of(auth),
+        customer_id=new_customer,
     )
     if not stored:
         raise AccountGone(f"Account {current.id} ({current.name}) was removed while the login was in progress")
@@ -282,25 +297,26 @@ def _deregister_previous(previous: Account) -> None:
         logger.warning("Could not deregister the previous device of %r", previous, exc_info=True)
 
 
-def _holders(auth: Authenticator) -> list[Account]:
+def _holder(auth: Authenticator) -> Account | None:
     """
-    The accounts already holding this Audible login, oldest first: the same customer in
-    the same marketplace. Amazon's `customer_info.user_id` says who it is, and every
-    registration carries it. None when the login does not say, and an account whose
-    credentials cannot be read (none yet, or under another key) is never one, since
-    nothing says whose that is.
+    The account already holding this Audible login: the same customer in the same
+    marketplace. Amazon's `customer_info.user_id` says who it is, and every registration
+    carries it. None when the login does not say.
+
+    Read from `accounts.customer_id`, so an account whose credentials cannot be read -
+    the key was lost, say - is still found, rather than a login adding a second account
+    that downloads the whole library again.
     """
     user_id = _user_id(auth.customer_info)
     country_code = _country_of(auth)
     if not user_id or not country_code:
-        return []
-    return [
-        account
-        for account in get_accounts()
-        if (account.country_code or "").lower() == country_code.lower()
-        and account.auth
-        and _user_id(account.auth.get("customer_info")) == user_id
-    ]
+        return None
+    return get_account_by_customer(user_id, country_code)
+
+
+def _already_held(holder: Account | None) -> LoginAlreadyHeld:
+    name = holder.name if holder is not None else "Another account"
+    return LoginAlreadyHeld(f"{name} already holds this Audible login. Sign in on that account, or remove it first")
 
 
 def _user_id(customer_info: dict | None) -> str | None:
@@ -323,19 +339,28 @@ def store_login(
     `monitor_existing` are not used, since they describe an account being created. A match
     removed meanwhile means a new account.
 
-    Raises nothing of its own; a database error means nothing was stored, and the caller
-    owns the new device.
+    A database error means nothing was stored, and the caller owns the new device. So
+    does `LoginAlreadyHeld`, raised only when another process keeps adding an account
+    for this login as fast as this one looks for it.
     """
     with _store_lock:
-        holders = _holders(auth)
         previous = None
         requeued = 0
-        if holders:
+        # Twice at most: a new account the unique index refuses is one another process
+        # added for this login since the first look, and the second look finds it
+        for _ in range(2):
+            holder = _holder(auth)
+            if holder is not None:
+                try:
+                    previous, requeued = _store_auth(holder, auth)
+                    break
+                except AccountGone:
+                    logger.info("%r was removed as a login for it arrived; adding a new account", holder)
             try:
-                previous, requeued = _store_auth(holders[0], auth)
-            except AccountGone:
-                logger.info("%r was removed as a login for it arrived; adding a new account", holders[0])
+                return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
+            except sqlite3.IntegrityError:
+                logger.info("Another process added an account for this login meanwhile; storing it there")
         if previous is None:
-            return StoredLogin(add_account_from_authenticator(auth, name=name, monitor_existing=monitor_existing))
+            raise LoginAlreadyHeld("This Audible login is being stored by another process; try again")
     _retire_device(previous, deregister=deregister_previous)
     return StoredLogin(previous.id, replaced=True, requeued=requeued)
