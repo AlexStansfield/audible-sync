@@ -143,12 +143,58 @@ A quick release of fixes before Milestone 5: a followed podcast no longer ends u
 
 - [x] Web tests: the first test of a file could fail on a busy CI runner, as the first render took longer than `findBy`'s one second (reproduced by sharing one core). The wait is now 5 s
 - [x] Backend: leave podcasts out of the sync. Following a podcast puts the show in the library listing as one item with `content_delivery_type` `PodcastParent`, `content_type` `Podcast` and no length; its episodes (`PodcastEpisode`) only come back when asked for with `parent_asin` (checked live, 2026-11-06). Nothing filters it, so it is stored as a book and queued, though the show itself has no audio. Skip these items when mapping the library, by the podcast values rather than by allowing only `Product`, since the library also holds real books with `content_type` `Performance`. Remove any row an earlier sync stored, with nothing on disk to delete. Downloading episodes is a feature of its own, not part of this fix
-- [ ] Backend (from the 2026-11-01 review): `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Deferred: the service runs one sync at a time, so it takes a CLI run beside the service, and the fix is a claim token on every transition
-- [ ] Backend: a plain `customer_id` column on `accounts` with a unique index on it and the marketplace, backfilled at start. The one-login-one-account rule reads the customer id from the encrypted credentials, so it cannot see an account whose credentials are unreadable (after a lost key, Add account adds a second row and the library is downloaded again) and holds only within one process (a CLI login beside the service). To decide: what becomes of any duplicates already there, which a unique index would refuse
+- [x] Backend (from the 2026-11-01 review): `mark_book_downloaded`/`_failed`/`_unavailable` are not guarded on the claim, so after a stale reclaim (a book taking over `STALE_CLAIM_SECONDS` while a second process runs) the two runs can overwrite each other's outcome. Fixed with a claim token: `claim_book_for_download` returns one, every outcome and `release_book` must present it, and the run that lost the book logs that its outcome was left to the other
+- [x] Backend: a plain `customer_id` column on `accounts` with a unique index on it and the marketplace, backfilled at start. The one-login-one-account rule reads the customer id from the encrypted credentials, so it cannot see an account whose credentials are unreadable (after a lost key, Add account adds a second row and the library is downloaded again) and holds only within one process (a CLI login beside the service). Duplicates already there: the oldest gets the customer and so keeps receiving its logins, as before; the others keep their books, can still sign in on their own row, and a warning at start says which to remove
 - [x] Backend: replacing the credentials of the account a run is on deregisters the device that run is using, so the run ends `aborted` saying to log in again although a login just succeeded; the next run recovers. Defer the deregistration until the run has ended
-- [ ] Split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
+- [x] Split `src/api.py` (967 lines, about 40 routes inside `create_app`) into one router per area, as the routes already group: `api_auth`, `api_sync`, `api_settings`, `api_system`, `api_accounts` and `api_books`, with the OpenAPI document unchanged. `src/` itself stays flat: 26 modules with tidy dependencies do not need folders yet. `downloader.py` is the next candidate, and `database.py` the last, since tests point `src.database.DB_FILE` at a temp file and that setting has to stay in one place
 - [x] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
 - [x] Remove `database.update_book_accessories`, which nothing calls
+
+## Milestone 4.6: Source layout
+
+Restructure `src/` the way a Python project usually is, before Milestone 5 adds the wishlist and the catalogue: a named package inside `src/` (the "src layout"), with its modules grouped by area. One PR from `dev` once 4.5 is released, and nothing in it changes behaviour.
+
+### Target
+
+```
+src/audible_sync/
+  __init__.py
+  __main__.py            python -m audible_sync -> cli.main
+  cli.py                 main.py
+  service.py
+  settings.py  paths.py  model.py  database.py  library.py  system.py  logbuffer.py
+  audible_api/           client.py (audible_client)  login.py (audible_login)  accounts.py
+  pipeline/              sync.py  downloader.py  naming.py  encoding.py  progress.py
+                         scheduler.py  runstate.py  notify.py
+  security/              crypto.py  webauth.py  apitoken.py
+  api/                   app.py (api.py)  schemas.py  openapi_export.py
+    routes/              auth.py  sync.py  settings.py  system.py  accounts.py  books.py (the api_* modules)
+```
+
+- `tests/` stays flat; only its imports change
+- `database.py` stays one module: tests point its `DB_FILE` at a temp file, so splitting it is a task of its own
+- `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: this is a service in an image, not a library on PyPI. `REPO_ROOT` becomes `parents[2]` and is still `/app`
+- `audible_api/`, not `audible/`: with absolute imports it would not shadow the dependency, but it would read as if it did
+
+### Tasks
+
+- [ ] Commit 1, the named package (mechanical): `git mv src/*.py src/audible_sync/` with an `__init__.py`; `pyproject.toml` gets a `[build-system]` and loses pytest's `pythonpath = ["."]`, ruff's `known-first-party` becomes `audible_sync`; `uv lock` and re-export `requirements.txt`
+- [ ] Commit 1: rewrite `from src.`, `import src.` and `from src import`, and every string naming a module: monkeypatch targets (`"src.database.DB_FILE"`, `"src.audible_client._PAGE_SIZE"`, `"src.apitoken"` and the rest), `caplog` logger names (`logger="src.downloader"` and four more), and the `getLogger("src.main"/"src.service")` of the two entry modules
+- [ ] Commit 1: `paths.REPO_ROOT` to `parents[2]` and `tests/test_paths.py` with it
+- [ ] Commit 1: the Dockerfile: `uv sync --locked --no-dev --no-install-project` before `COPY . .` and `uv sync --locked --no-dev` after it, and `CMD` `python -m audible_sync.service`
+- [ ] Commit 1: everything else naming the module: `web/package.json`'s `gen:api`, `docs/installation.md`, `docs/accounts.md`, `docs/manual-testing.md`, the README and CLAUDE.md (its layout section and the "flat, no `__init__.py`" rule)
+- [ ] Commit 2, the subpackages: pure `git mv` into the target with an `__init__.py` in each folder and the imports rewritten, no code changed, so the review is files that only moved
+- [ ] Commit 2: `[project.scripts] audible-sync = "audible_sync.cli:main"` and `__main__.py`, so the CLI is `audible-sync run`, `login` and `reset-password`
+- [ ] An autouse fixture in `tests/conftest.py` pointing `src.database.DB_FILE` at a temp file by default, so a patch target the rename misses cannot write to the real database
+- [ ] Later, separate commits: `run_pipeline` out of `cli.py` into `pipeline/run.py` (the scheduler imports it from the CLI module today); `BasePath` and the web app serving out of `api/app.py`
+- [ ] Checked: ruff, pytest and the web checks; `gen:api` gives a byte-identical `openapi.json`; no `src.` left in a string (a `caplog` on a logger that no longer exists lets a test pass while checking nothing); `data/audible_sync.db` unchanged by the test run; the image built from `git archive` runs in the test container, `/api/health` answers and a sync completes; `git log --follow` on a moved file still shows its history
+
+### To decide
+
+- The package name: `audible_sync` proposed
+- `python -m src.main ...` stops working, which a script or a cron job using it (`reset-password` from the docs, say) would notice: a line in the release notes, or a `src/main.py` shim that forwards and warns for one release. Proposed: the release notes, since the image's own command changes with it and `compose.yml` does not name the module
+- The version: 3.1.0, since the CLI changes
+- The build backend: `uv_build`, the toolchain already in use, or `hatchling`
 
 ## Milestone 5: Wishlist and Catalogue Search
 

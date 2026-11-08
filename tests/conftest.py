@@ -107,3 +107,17 @@ def make_settings(**overrides) -> Settings:
     `Settings.from_ini` still raises here.
     """
     return replace(Settings(), **overrides)
+
+
+def mark_downloaded(book_id: int, encoding_format: str | None = None, **paths) -> None:
+    """
+    Take a stored book to `downloaded` as a run would: claim it, then record it.
+
+    For tests that need a downloaded book rather than to test the transition, which
+    `mark_book_downloaded` only allows to the run holding the claim.
+    """
+    from src import database
+
+    claim = database.claim_book_for_download(book_id)
+    assert claim is not None, "the book could not be claimed"
+    assert database.mark_book_downloaded(book_id, encoding_format, claim=claim, **paths)

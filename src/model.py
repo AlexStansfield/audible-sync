@@ -311,6 +311,8 @@ class Account:
     name: str
     country_code: str
     customer_name: str | None = None
+    # Amazon's id for the customer whose login this is; kept when the credentials go
+    customer_id: str | None = None
     auth: dict[str, Any] | None = None
     enabled: bool = True
     monitor_existing: bool = True
@@ -338,6 +340,7 @@ class Account:
             name=data.get("name") or "",
             country_code=data.get("country_code") or "",
             customer_name=data.get("customer_name"),
+            customer_id=data.get("customer_id"),
             auth=json.loads(auth) if auth else None,
             enabled=bool(data.get("enabled", 1)),
             monitor_existing=bool(data.get("monitor_existing", 1)),

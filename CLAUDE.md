@@ -10,7 +10,7 @@ What the code cannot tell you: decisions, gotchas and how to test. For what a fu
 | **Entry points** | `python -m src.service` (the service); `python -m src.main` (one sync and exit, plus `login` and `reset-password`) |
 | **Database** | SQLite (`data/audible_sync.db`), which also holds the live settings |
 | **Secrets** | Encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/crypto.py`) |
-| **Backend** | FastAPI + uvicorn; `src/api.py` routes, `src/schemas.py` the contract |
+| **Backend** | FastAPI + uvicorn; `src/api.py` puts together the routes of `src/api_*.py`, one module per area; `src/schemas.py` the contract |
 | **Web app** | `web/`: Vite, React 19, TypeScript, TanStack Query, Biome, Vitest; served by the service from `web/dist`. Spec in `docs/design/DESIGN.md` |
 | **Checks** | `uv run ruff format .`, `uv run ruff check .`, `uv run pytest`; in `web/`: `npm run lint`, `typecheck`, `test`, `build`, and `npm run gen:api` after an API change |
 | **CI** | The same on every push and PR to `dev` and `main`, plus a stale-types check on `web/openapi.json` and `web/src/api/schema.d.ts`. Images are built on `v*` tags |
@@ -32,7 +32,7 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules: `service` (wiring) → `api` + `schemas`, `scheduler` + `runstate` → `main.run_pipeline` (also the CLI) → `settings`, `audible_client`, `sync`, `downloader` (→ `naming`, `encoding`, `progress`). Beside those: `accounts` (credentials), `audible_login`, `library` (per-book actions), `webauth`, `apitoken`, `crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `notify`, `openapi_export`.
+Modules: `service` (wiring) → `api` (→ `api_auth`, `api_sync`, `api_settings`, `api_system`, `api_accounts`, `api_books`) + `schemas`, `scheduler` + `runstate` → `main.run_pipeline` (also the CLI) → `settings`, `audible_client`, `sync`, `downloader` (→ `naming`, `encoding`, `progress`). Beside those: `accounts` (credentials), `audible_login`, `library` (per-book actions), `webauth`, `apitoken`, `crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `notify`, `openapi_export`.
 
 **Import rules, which exist to avoid cycles:**
 
@@ -40,6 +40,7 @@ Modules: `service` (wiring) → `api` + `schemas`, `scheduler` + `runstate` → 
 - `crypto` is a leaf and must never import `database` (so `encrypt_stored_secrets` lives in `database`)
 - `database` must never import `settings` or `accounts` (so its accounts migration only creates a placeholder, which a login fills in)
 - `apitoken` is its own module because `api` needs `regenerate` and cannot import `service`
+- The `api_*` modules never import `api`, which includes them: each exposes a function that builds its router from what it is given (scheduler, run state, token), and a route patched in a test is patched on its own module (`api_accounts.authenticator_for`, `api_settings.send_webhook`)
 - The client module is `audible_client.py`, not `audible.py`, which would shadow the dependency. Do not bring that name back
 - `tqdm` is imported in `progress.py` and nowhere else
 
@@ -68,7 +69,7 @@ All observed; the API is undocumented.
 - **Outcomes:** `partial` means the sync completed and the downloads did not all succeed; `failed` that the sync itself raised; `cancelled` someone stopped it; `aborted` it stopped itself. All but `failed` count as the **cursor**, which is the run's *start*, so anything added while reading is picked up next time
 - **One account failing does not stop the others.** The first error is raised again at the end so a CLI run exits non-zero. Each account is read again at its turn, since the list can be hours old
 - **`device_in_use`:** a run marks the account before reading it, and a login that replaces its credentials then stores them at once and deregisters the old device only when the run ends; deregistering at once ended the run `aborted`. The run stays on the old device meanwhile, which may be why they signed in, so its refusals park books after the login's requeue: leaving `device_in_use` queues them again. A later token write-back cannot overwrite the new device either (`replace_account_auth_if_unchanged`). In memory, so a CLI login beside the service is not covered
-- **Claims:** `get_books_to_download` and `claim_book_for_download` must agree on "abandoned" (`STALE_CLAIM_SECONDS`), or a killed run's book stays `downloading` forever. The queue offers generously; the claim decides, book by book
+- **Claims:** `get_books_to_download` and `claim_book_for_download` must agree on "abandoned" (`STALE_CLAIM_SECONDS`), or a killed run's book stays `downloading` forever. The queue offers generously; the claim decides, book by book. A claim is a token that every outcome (`mark_book_*`, `release_book`) must present, and it is cleared with the outcome: "abandoned" is a guess from the clock, and a run still alive past it would otherwise overwrite the outcome of the run that reclaimed its book. Tests that only need a downloaded book use `conftest.mark_downloaded`
 - **`mark_book_failed` decides inside the UPDATE**, from the attempts the claim counted, so nothing can race a read. `max_attempts` has no "unlimited": retrying forever is the bug it exists to fix
 - **The failure arms in `download_books` are ordered:** `LicenseError` subclasses `RuntimeError` and must sit above `except Exception`. Credentials errors and cancels **release** the book without charging an attempt, and stop the run
 - **A refused licence uses no `max-download` slot** (one POST, nothing downloaded), or refused titles at the head of the queue starve the rest. So `max_consecutive_failures` is the breaker: one bad day would otherwise mean a licence request per queued book
@@ -111,7 +112,7 @@ All observed; the API is undocumented.
 ## Accounts and login
 
 - **An account is one marketplace login, not a person.** `library` is keyed `(account_id, asin)`; a credential-less placeholder (the migration's) is legal and skipped
-- **One login, one account:** `store_login` gives the oldest holder of the same `user_id` + marketplace the new credentials, since a second row would file every book again. The lock covers this process only: the id is in the encrypted blob, so the database cannot enforce it. A login not saying whose it is never matches. Duplicates from before are left alone
+- **One login, one account:** `store_login` gives the account holding the same `user_id` + marketplace the new credentials, since a second row would file every book again. The id is kept in the clear as `accounts.customer_id` with a partial unique index on it and the marketplace, so the rule holds across processes (a CLI login beside the service: a refused insert means look again) and for an account whose credentials cannot be read (a lost key: signing in restores it rather than adding another). Clearing credentials keeps it. A login not saying whose it is never matches. `backfill_customer_ids` fills it in at start; of duplicates from before, the oldest gets it, the rest are left alone with a warning and may still sign in on their own row
 - **`replace_account_auth` stores first and nothing raises after that**, then deregisters. Deregistering first left a failed store with two dead devices. It refuses another customer's login (`AnotherCustomer`) and another account's (`LoginAlreadyHeld`), leaving the working device alone; on any exception the caller discards the new device, or nothing would ever hold it
 - **Requeueing:** the new device is the moment to retry licence-refused books, but `requeue_unavailable` skips titles Audible withdrew, which are a guaranteed refusal feeding the breaker
 - **Device code is the default login**, because the browser flow depends on the user's browser (Amazon refused a desktop one on 2026-10-31). It is the protocol of mkb79/Audible PR #914; once released, the library's client can replace the three functions in `audible_login.py`
@@ -202,7 +203,6 @@ uv run python -c "import sqlite3; c=sqlite3.connect('data/audible_sync.db'); pri
 
 ## Known issues
 
-- Unguarded `mark_book_*`, a `customer_id` column, and splitting `src/api.py` are in `todo.md`
 - `requirements.txt` drifts if `uv lock` runs without re-exporting
 - Two books rendering to one name are filed side by side with ` [{asin}]`; the template is what needs disambiguating
 - Activity's offset paging can skip runs removed between pages; a cursor would need the API's help

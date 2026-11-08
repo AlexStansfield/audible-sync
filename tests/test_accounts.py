@@ -7,7 +7,7 @@ import pytest
 from audible import Authenticator
 
 import src.database as database
-from src import accounts
+from src import accounts, crypto
 from src.accounts import (
     AccountGone,
     AnotherCustomer,
@@ -77,7 +77,7 @@ def test_display_name_without_a_customer_name():
 
 
 def test_persist_auth_if_changed_writes_only_a_changed_blob(db):
-    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     account = database.get_account(account_id)
     auth = authenticator_for(account)
 
@@ -92,7 +92,7 @@ def test_persist_auth_if_changed_writes_only_a_changed_blob(db):
 
 def test_persist_auth_if_changed_leaves_credentials_a_re_login_replaced(db):
     """A run must not write its refreshed old device back over a re-login made while it ran."""
-    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     snapshot = database.get_account(account_id)
     auth = authenticator_for(snapshot)
     database.save_account_auth(account_id, {**AUTH_BLOB, "refresh_token": "Atnr|new-device"})
@@ -143,14 +143,14 @@ def test_replace_account_auth_keeps_the_account_and_stores_the_new_credentials(d
 
 def test_replace_account_auth_queues_the_books_the_old_device_was_refused(db, monkeypatch, caplog):
     """A new device is exactly the moment to try the licence-refused books again."""
-    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     other = database.add_account("Other", "us", auth=None)
     database.update_books(account_id, [make_book("B001"), make_book("B002", is_consumable=False)])
     database.update_books(other, [make_book("B001")])
     for account in (account_id, other):
         book = database.get_book_by_asin("B001", account_id=account)
-        database.claim_book_for_download(book.id)
-        database.mark_book_unavailable(book.id, "Denied")
+        claim = database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied", claim=claim)
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: _Deregistering())
 
     with caplog.at_level(logging.INFO):
@@ -166,7 +166,7 @@ def test_replace_account_auth_queues_the_books_the_old_device_was_refused(db, mo
 
 def test_replace_account_auth_refuses_an_account_deleted_while_the_login_ran(db, monkeypatch):
     """A login takes minutes; the account it was started for may be gone by the end."""
-    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     stale = database.get_account(account_id)
     database.delete_account(account_id)
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
@@ -187,7 +187,9 @@ def test_replace_account_auth_refuses_when_the_account_goes_before_the_write(db,
 
 def test_replace_account_auth_deregisters_the_device_stored_now_not_the_one_read_earlier(db, monkeypatch):
     """Another login may have replaced the credentials since this one started."""
-    account_id = database.add_account("Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|first"})
+    account_id = database.add_account(
+        "Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|first"}, customer_id="u1"
+    )
     stale = database.get_account(account_id)
     database.save_account_auth(account_id, {**AUTH_BLOB, "access_token": "Atna|second"})
     seen = []
@@ -201,7 +203,7 @@ def test_replace_account_auth_deregisters_the_device_stored_now_not_the_one_read
 
 
 def test_replace_account_auth_goes_ahead_when_the_old_device_cannot_deregister(db, monkeypatch, caplog):
-    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: _Deregistering(RuntimeError("throttled")))
 
     replace_account_auth(
@@ -213,7 +215,7 @@ def test_replace_account_auth_goes_ahead_when_the_old_device_cannot_deregister(d
 
 
 def test_replace_account_auth_can_skip_deregistering(db, monkeypatch):
-    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("must not deregister"))
 
     replace_account_auth(
@@ -233,7 +235,7 @@ def test_replace_account_auth_on_an_account_that_had_none(db, monkeypatch):
 
 
 def test_replace_account_auth_refuses_another_marketplaces_login(db, monkeypatch):
-    account_id = database.add_account("Alex (US)", "us", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex (US)", "us", auth=dict(AUTH_BLOB), customer_id="u1")
     monkeypatch.setattr(accounts, "authenticator_for", lambda account: pytest.fail("nothing is deregistered"))
 
     with pytest.raises(ValueError, match="US account"):
@@ -297,6 +299,82 @@ def test_store_login_gives_the_account_holding_the_login_new_credentials(db, mon
     assert deregistered == ["Atna|old"]
 
 
+def test_store_login_records_whose_login_it_is(db):
+    stored = accounts.store_login(_login(user_id="u7"))
+
+    assert database.get_account(stored.account_id).customer_id == "u7"
+
+
+def test_store_login_finds_the_account_whose_credentials_cannot_be_read(db, monkeypatch):
+    """
+    After a lost key the account reads as needing a login. Its customer is in the clear,
+    so signing in again restores it, rather than adding a second account that would
+    download the whole library again.
+    """
+    deregistered = _deregistered(monkeypatch)
+    first = accounts.store_login(_login(access_token="Atna|old"))
+    database.update_books(first.account_id, [make_book("B001", id=None)])
+    crypto.configure(crypto.generate_key())
+    database._undecryptable_logged.clear()
+    assert database.get_account(first.account_id).needs_login
+
+    second = accounts.store_login(_login(access_token="Atna|new"))
+
+    assert second.account_id == first.account_id and second.replaced
+    assert [a.id for a in database.get_accounts()] == [first.account_id]
+    assert database.get_account(first.account_id).auth["access_token"] == "Atna|new"
+    # Its old device cannot be read to deregister, so it is left alone
+    assert deregistered == []
+
+
+def test_store_login_stores_on_an_account_another_process_added_meanwhile(db, monkeypatch):
+    """A CLI login beside the service: the lock is this process's, the index is everyone's."""
+    _deregistered(monkeypatch)
+    real_lookup = accounts.get_account_by_customer
+    looks = []
+
+    def racing_lookup(customer_id, country_code):
+        looks.append(customer_id)
+        if len(looks) == 1:
+            # The other process stores the same login just after this one looked
+            database.add_account("Added elsewhere", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
+            return None
+        return real_lookup(customer_id, country_code)
+
+    monkeypatch.setattr(accounts, "get_account_by_customer", racing_lookup)
+
+    stored = accounts.store_login(_login(access_token="Atna|new"), name="Mine")
+
+    assert stored.replaced is True
+    assert [a.name for a in database.get_accounts()] == ["Added elsewhere"]
+    assert database.get_account(stored.account_id).auth["access_token"] == "Atna|new"
+
+
+def test_replace_account_auth_refuses_a_login_another_process_stored_meanwhile(db, monkeypatch):
+    _deregistered(monkeypatch)
+    placeholder = database.add_account("Audible", "", auth=None)
+    monkeypatch.setattr(accounts, "get_account_by_customer", lambda *a: None)
+    database.add_account("Added elsewhere", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
+
+    with pytest.raises(LoginAlreadyHeld, match="already holds this Audible login"):
+        replace_account_auth(database.get_account(placeholder), _login())
+
+    assert database.get_account(placeholder).needs_login
+
+
+def test_another_customer_is_refused_even_when_the_credentials_cannot_be_read(db, monkeypatch):
+    deregistered = _deregistered(monkeypatch)
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
+    crypto.configure(crypto.generate_key())
+    database._undecryptable_logged.clear()
+
+    with pytest.raises(AnotherCustomer):
+        replace_account_auth(database.get_account(account_id), _login(user_id="someone-else"))
+
+    assert database.get_account(account_id).customer_id == "u1"
+    assert deregistered == []
+
+
 def _save_fails(monkeypatch):
     def locked(account_id, auth, **kw):
         raise sqlite3.OperationalError("database is locked")
@@ -308,7 +386,7 @@ def _save_fails(monkeypatch):
 def test_a_failed_store_leaves_the_old_device_working(db, monkeypatch, through):
     """It still holds the account: deregistering it first would leave the account with nothing."""
     deregistered = _deregistered(monkeypatch)
-    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     _save_fails(monkeypatch)
 
     with pytest.raises(sqlite3.OperationalError):
@@ -322,7 +400,7 @@ def test_a_failed_store_leaves_the_old_device_working(db, monkeypatch, through):
 
 
 def test_the_old_device_is_deregistered_only_after_the_new_one_is_stored(db, monkeypatch):
-    account_id = database.add_account("Alex", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"})
+    account_id = database.add_account("Alex", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"}, customer_id="u1")
     stored_then = []
     monkeypatch.setattr(
         Authenticator,
@@ -338,7 +416,7 @@ def test_the_old_device_is_deregistered_only_after_the_new_one_is_stored(db, mon
 def test_a_failed_requeue_does_not_read_as_the_login_not_stored(db, monkeypatch, caplog):
     """The caller discards the new device on an exception, and that device is now the account's."""
     _deregistered(monkeypatch)
-    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
 
     def locked(account_id):
         raise sqlite3.OperationalError("database is locked")
@@ -353,7 +431,7 @@ def test_a_failed_requeue_does_not_read_as_the_login_not_stored(db, monkeypatch,
 @pytest.mark.parametrize("through", ["store_login", "replace_account_auth"])
 def test_other_logins_are_not_held_up_while_the_old_device_is_deregistered(db, monkeypatch, through):
     """Amazon can be slow, and a login waiting on the lock holds its own cancel up too."""
-    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     locked = []
     monkeypatch.setattr(Authenticator, "deregister_device", lambda self: locked.append(accounts._store_lock.locked()))
 
@@ -367,7 +445,7 @@ def test_other_logins_are_not_held_up_while_the_old_device_is_deregistered(db, m
 
 def test_replace_account_auth_refuses_a_login_another_account_holds(db, monkeypatch):
     deregistered = _deregistered(monkeypatch)
-    holder = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    holder = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
     placeholder = database.add_account("Audible", "", auth=None)
 
     with pytest.raises(LoginAlreadyHeld, match=r"Alex \(UK\) already holds this Audible login"):
@@ -381,18 +459,20 @@ def test_replace_account_auth_refuses_a_login_another_account_holds(db, monkeypa
 def test_replace_account_auth_lets_a_duplicate_sign_in_on_its_own_row(db, monkeypatch):
     """Rows from before the rule: each must still be able to get working credentials."""
     _deregistered(monkeypatch)
-    database.add_account("First", "uk", auth=dict(AUTH_BLOB))
-    second = database.add_account("Second", "uk", auth=dict(AUTH_BLOB))
+    database.add_account("First", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
+    second = database.add_account("Second", "uk", auth=dict(AUTH_BLOB))  # a duplicate from before the rule
 
     replace_account_auth(database.get_account(second), _login(access_token="Atna|new"))
 
     assert database.get_account(second).auth["access_token"] == "Atna|new"
+    # The customer stays with the account holding it, which the index allows only once
+    assert database.get_account(second).customer_id is None
 
 
 def test_replace_account_auth_refuses_another_customer_and_leaves_the_device_working(db, monkeypatch):
     """Its library is that customer's: the wrong login would ask for its books and never fetch its own."""
     deregistered = _deregistered(monkeypatch)
-    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_name="Alex")
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_name="Alex", customer_id="u1")
 
     with pytest.raises(AnotherCustomer, match="different Amazon login from the one Alex belongs to"):
         replace_account_auth(database.get_account(account_id), _login(user_id="someone-else"))
@@ -419,7 +499,7 @@ def test_replace_account_auth_takes_a_login_when_the_account_does_not_say_whose_
 
 def test_replace_account_auth_takes_a_login_that_does_not_say_whose_it_is(db, monkeypatch):
     _deregistered(monkeypatch)
-    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
 
     replace_account_auth(
         database.get_account(account_id), Authenticator.from_dict({**AUTH_BLOB, "customer_info": {"name": "Alex"}})
@@ -470,14 +550,14 @@ def test_store_login_adds_an_account_for_another_customer_or_marketplace(db, oth
 
 def test_store_login_matches_the_marketplace_whatever_its_case(db, monkeypatch):
     _deregistered(monkeypatch)
-    account_id = database.add_account("Alex", "UK", auth=dict(AUTH_BLOB))
+    account_id = database.add_account("Alex", "UK", auth=dict(AUTH_BLOB), customer_id="u1")
 
     assert accounts.store_login(_login()) == StoredLogin(account_id, replaced=True)
 
 
 @pytest.mark.parametrize("customer_info", [{}, {"name": "Alex"}, None])
 def test_store_login_adds_an_account_when_the_login_does_not_say_whose_it_is(db, customer_info):
-    database.add_account("Alex", "uk", auth=dict(AUTH_BLOB))
+    database.add_account("Alex", "uk", auth=dict(AUTH_BLOB), customer_id="u1")
 
     stored = accounts.store_login(Authenticator.from_dict({**AUTH_BLOB, "customer_info": customer_info}))
 
@@ -565,7 +645,9 @@ def test_a_login_during_a_run_on_the_account_waits_to_deregister_the_old_device(
 
 def test_replacing_an_account_during_its_run_waits_too(db, monkeypatch):
     deregistered = _deregistered(monkeypatch)
-    account_id = database.add_account("Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"})
+    account_id = database.add_account(
+        "Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"}, customer_id="u1"
+    )
 
     with accounts.device_in_use(account_id):
         replace_account_auth(database.get_account(account_id), _login(access_token="Atna|new"))
@@ -636,8 +718,9 @@ def _parked_book(account_id, asin="B001"):
     """A book the old device was refused a licence for."""
     database.update_books(account_id, [make_book(asin, id=None)])
     book = database.get_book_by_asin(asin, account_id=account_id)
-    assert database.claim_book_for_download(book.id)
-    database.mark_book_unavailable(book.id, "Audible did not grant a license")
+    claim = database.claim_book_for_download(book.id)
+    assert claim
+    database.mark_book_unavailable(book.id, "Audible did not grant a license", claim=claim)
     return book.id
 
 
@@ -669,7 +752,9 @@ def test_those_books_are_queued_even_when_the_old_device_is_kept(db, monkeypatch
 
 def test_sign_in_again_keeping_the_old_device_queues_those_books_too(db, monkeypatch):
     deregistered = _deregistered(monkeypatch)
-    account_id = database.add_account("Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"})
+    account_id = database.add_account(
+        "Alex (UK)", "uk", auth={**AUTH_BLOB, "access_token": "Atna|old"}, customer_id="u1"
+    )
 
     with accounts.device_in_use(account_id):
         replace_account_auth(

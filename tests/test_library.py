@@ -8,7 +8,7 @@ import src.database as database
 from src import library
 from src.library import BookBusy, audio_path_for, delete_book_files, delete_download, redownload, refresh, retry
 from src.model import BookStatus
-from tests.conftest import ACCOUNT_ID, make_book, make_settings
+from tests.conftest import ACCOUNT_ID, make_book, make_settings, mark_downloaded
 
 FIXTURE_M4B = Path(__file__).parent / "fixtures" / "silence.m4b"
 
@@ -152,7 +152,7 @@ def _stored(tmp_path, **columns):
     book, settings, _ = _filed_book(tmp_path)
     database.update_books(ACCOUNT_ID, [book])
     stored = database.get_book_by_asin(book.asin)
-    database.mark_book_downloaded(
+    mark_downloaded(
         stored.id,
         "m4b",
         file_path=book.file_path,
@@ -334,13 +334,13 @@ def _shelf(*asins, monitored=True):
 
 
 def _fail(book_id):
-    database.claim_book_for_download(book_id)
-    database.mark_book_failed(book_id, "boom", max_attempts=1)
+    claim = database.claim_book_for_download(book_id)
+    database.mark_book_failed(book_id, "boom", max_attempts=1, claim=claim)
 
 
 def _park(book_id):
-    database.claim_book_for_download(book_id)
-    database.mark_book_unavailable(book_id, "Denied")
+    claim = database.claim_book_for_download(book_id)
+    database.mark_book_unavailable(book_id, "Denied", claim=claim)
 
 
 def test_bulk_monitor_counts_only_the_waiting_books_as_queued(db, tmp_path):
@@ -541,8 +541,8 @@ def test_the_queue_is_the_books_the_run_would_take(db):
     a1, a2, a3 = (database.get_book_by_asin(a, account_id=account_id).id for a in ("A1", "A2", "A3"))
     database.set_monitored(a1, False)  # not wanted
     database.claim_book_for_download(a2)  # a live run holds it
-    database.claim_book_for_download(a3)
-    database.mark_book_failed(a3, "boom", max_attempts=1)  # gave up
+    claim = database.claim_book_for_download(a3)
+    database.mark_book_failed(a3, "boom", claim=claim, max_attempts=1)  # gave up
 
     queue = library.next_run_queue(make_settings())
 

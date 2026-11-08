@@ -15,6 +15,7 @@ from src.audible_client import Audible
 from src.audible_login import MARKETPLACES, LoginFailed, discard_device, login_interactively, login_with_code
 from src.crypto import load_secret_key
 from src.database import (
+    backfill_customer_ids,
     count_unreadable_secrets,
     encrypt_stored_secrets,
     finish_sync_run,
@@ -238,6 +239,7 @@ def _prepare() -> Settings:
     # stores or reads credentials needs it
     crypto.configure(load_secret_key())
     encrypt_stored_secrets()
+    backfill_customer_ids()
     _warn_about_another_key()
     return settings
 

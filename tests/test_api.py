@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 import src.database as database
 from src import api as api_module
+from src import api_accounts, api_books, api_settings, webauth
 from src import audible_login as login_module
-from src import webauth
 from src.api import create_app, read_version
 from src.apitoken import ApiToken
 from src.audible_login import PendingLogins
@@ -682,7 +682,7 @@ def test_delete_account_can_deregister_the_device_first(api, monkeypatch):
         def deregister_device(self):
             calls.append("deregistered")
 
-    monkeypatch.setattr(api_module, "authenticator_for", lambda account: FakeAuthenticator())
+    monkeypatch.setattr(api_accounts, "authenticator_for", lambda account: FakeAuthenticator())
 
     api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"})
 
@@ -698,7 +698,7 @@ def test_delete_account_still_removes_it_when_deregistering_fails(api, monkeypat
         def deregister_device(self):
             raise RuntimeError("token expired")
 
-    monkeypatch.setattr(api_module, "authenticator_for", lambda account: FakeAuthenticator())
+    monkeypatch.setattr(api_accounts, "authenticator_for", lambda account: FakeAuthenticator())
 
     response = api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"})
 
@@ -709,7 +709,7 @@ def test_delete_account_still_removes_it_when_deregistering_fails(api, monkeypat
 
 def test_delete_account_does_not_try_to_deregister_one_without_credentials(api, monkeypatch):
     account_id = database.add_account("Pending", "us", auth=None)
-    monkeypatch.setattr(api_module, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
+    monkeypatch.setattr(api_accounts, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
 
     assert api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"}).status_code == 200
 
@@ -831,8 +831,8 @@ def test_a_login_says_how_many_parked_books_it_queued(api, monkeypatch, through)
     account_id = first["account"]["id"]
     assert first["requeued"] == 0
     (refused, _) = _shelve(account_id, make_book("B001"), make_book("B002", is_consumable=False))
-    database.claim_book_for_download(refused.id)
-    database.mark_book_unavailable(refused.id, "Denied")
+    claim = database.claim_book_for_download(refused.id)
+    database.mark_book_unavailable(refused.id, "Denied", claim=claim)
 
     api.amazon.polls = [registered_response()]
     start = {"account_id": account_id} if through == "account_id" else {}
@@ -1052,7 +1052,7 @@ def test_login_with_a_code_can_replace_an_existing_accounts_credentials(api, mon
     _shelve(account_id, make_book("B001"))
     replaced = []
     monkeypatch.setattr(
-        api_module,
+        api_accounts,
         "replace_account_auth",
         _recording_replace(replaced),
     )
@@ -1211,7 +1211,7 @@ def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeyp
     account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
     replaced = []
     monkeypatch.setattr(
-        api_module,
+        api_accounts,
         "replace_account_auth",
         _recording_replace(replaced),
     )
@@ -1228,7 +1228,7 @@ def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeyp
 # --- books ---------------------------------------------------------------------------
 
 from src.model import BookStatus  # noqa: E402
-from tests.conftest import make_book  # noqa: E402
+from tests.conftest import make_book, mark_downloaded  # noqa: E402
 
 
 def _shelve(account_id, *books, **kwargs):
@@ -1319,7 +1319,7 @@ def _downloaded(api, tmp_path, status=BookStatus.DOWNLOADED):
     audio, cover = folder / "Title.m4b", folder / "Title_cover.jpg"
     audio.write_bytes(b"a")
     cover.write_bytes(b"\xff\xd8cover")
-    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio), cover_path=str(cover))
+    mark_downloaded(book.id, "m4b", file_path=str(audio), cover_path=str(cover))
     if status is not BookStatus.DOWNLOADED:
         database.claim_book_for_download(book.id) if status is BookStatus.DOWNLOADING else None
     return database.get_book(book.id), audio, cover
@@ -1367,8 +1367,8 @@ def test_book_actions_404_for_an_unknown_book(api, action):
 
 def test_retry_queues_a_failed_book(api):
     (book,) = _shelve(_account(), make_book("B001"))
-    database.claim_book_for_download(book.id)
-    database.mark_book_failed(book.id, "boom", max_attempts=1)
+    claim = database.claim_book_for_download(book.id)
+    database.mark_book_failed(book.id, "boom", max_attempts=1, claim=claim)
 
     response = api.post(f"/api/books/{book.id}/retry", headers=AUTH)
 
@@ -1388,8 +1388,8 @@ def test_retry_refuses_a_downloaded_book(api, tmp_path):
 
 
 def _park(book):
-    database.claim_book_for_download(book.id)
-    database.mark_book_unavailable(book.id, "Denied")
+    claim = database.claim_book_for_download(book.id)
+    database.mark_book_unavailable(book.id, "Denied", claim=claim)
 
 
 def test_retry_unavailable_queues_the_parked_books_of_one_account(api):
@@ -1433,8 +1433,8 @@ def test_retry_unavailable_rejects_an_unknown_field(api):
 
 def test_bulk_by_ids(api):
     waiting, failed = _shelve(_account(), make_book("B001"), make_book("B002"), monitor_new=False)
-    database.claim_book_for_download(failed.id)
-    database.mark_book_failed(failed.id, "boom", max_attempts=1)
+    claim = database.claim_book_for_download(failed.id)
+    database.mark_book_failed(failed.id, "boom", max_attempts=1, claim=claim)
 
     response = api.post(
         "/api/books/bulk", json={"action": "monitor", "ids": [waiting.id, failed.id, 999]}, headers=AUTH
@@ -1509,7 +1509,7 @@ def test_bulk_needs_auth(api):
 def test_refresh_re_reads_the_book(api, monkeypatch):
     (book,) = _shelve(_account(), make_book("B001", "Old"))
     monkeypatch.setattr(
-        api_module.library,
+        api_books.library,
         "refresh",
         lambda b: database.update_books(b.account_id, [make_book("B001", "New")]) or database.get_book(b.id),
     )
@@ -1525,7 +1525,7 @@ def test_refresh_reports_audible_trouble_as_a_502(api, monkeypatch):
     def down(b):
         raise RuntimeError("timeout")
 
-    monkeypatch.setattr(api_module.library, "refresh", down)
+    monkeypatch.setattr(api_books.library, "refresh", down)
 
     response = api.post(f"/api/books/{book.id}/refresh", headers=AUTH)
 
@@ -1605,10 +1605,8 @@ def test_stats(api, tmp_path, monkeypatch):
     _shelve(other, make_book("B002"), make_book("B003"), monitor_new=False)
     audio = tmp_path / "a.m4b"
     audio.write_bytes(b"x" * 1234)
-    database.mark_book_downloaded(book.id, "m4b", file_path=str(audio))
-    database.mark_book_downloaded(
-        database.get_book_by_asin("B002", account_id=other).id, "m4b", file_path=str(tmp_path / "gone.m4b")
-    )
+    mark_downloaded(book.id, "m4b", file_path=str(audio))
+    mark_downloaded(database.get_book_by_asin("B002", account_id=other).id, "m4b", file_path=str(tmp_path / "gone.m4b"))
     monkeypatch.setattr(database, "_utcnow", lambda: "2026-09-12T10:00:00+00:00")
     database.finish_sync_run(database.start_sync_run(account_id), outcome="success")
 
@@ -1636,8 +1634,8 @@ def test_stats_count_the_retryable_unavailable_books_and_the_monitored_by_status
         account_id, make_book("B001"), make_book("B002", is_consumable=False), make_book("B003")
     )
     for book in (refused, withdrawn, unwanted):
-        database.claim_book_for_download(book.id)
-        database.mark_book_unavailable(book.id, "Denied")
+        claim = database.claim_book_for_download(book.id)
+        database.mark_book_unavailable(book.id, "Denied", claim=claim)
     database.set_monitored(unwanted.id, False)
 
     body = api.get("/api/stats", headers=AUTH).json()
@@ -1661,7 +1659,7 @@ def test_stats_on_an_empty_database(api):
 
 def test_webhook_test_sends_to_the_configured_url(api, monkeypatch):
     sent = []
-    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append((url, payload["event"])))
+    monkeypatch.setattr(api_settings, "send_webhook", lambda url, payload: sent.append((url, payload["event"])))
     api.put("/api/settings", headers=AUTH, json={"webhook_url": "https://hooks/configured"})
 
     response = api.post("/api/settings/webhook/test", headers=AUTH, json={})
@@ -1673,7 +1671,7 @@ def test_webhook_test_sends_to_the_configured_url(api, monkeypatch):
 
 def test_webhook_test_can_try_a_url_before_saving_it(api, monkeypatch):
     sent = []
-    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append(url))
+    monkeypatch.setattr(api_settings, "send_webhook", lambda url, payload: sent.append(url))
 
     api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/try"})
 
@@ -1691,7 +1689,7 @@ def test_webhook_test_reports_a_failure(api, monkeypatch):
     def down(url, payload):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(api_module, "send_webhook", down)
+    monkeypatch.setattr(api_settings, "send_webhook", down)
 
     response = api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/x"})
 
