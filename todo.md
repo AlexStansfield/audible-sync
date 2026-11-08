@@ -150,6 +150,52 @@ A quick release of fixes before Milestone 5: a followed podcast no longer ends u
 - [x] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
 - [x] Remove `database.update_book_accessories`, which nothing calls
 
+## Milestone 4.6: Source layout
+
+Restructure `src/` the way a Python project usually is, before Milestone 5 adds the wishlist and the catalogue: a named package inside `src/` (the "src layout"), with its modules grouped by area. One PR from `dev` once 4.5 is released, and nothing in it changes behaviour.
+
+### Target
+
+```
+src/audible_sync/
+  __init__.py
+  __main__.py            python -m audible_sync -> cli.main
+  cli.py                 main.py
+  service.py
+  settings.py  paths.py  model.py  database.py  library.py  system.py  logbuffer.py
+  audible_api/           client.py (audible_client)  login.py (audible_login)  accounts.py
+  pipeline/              sync.py  downloader.py  naming.py  encoding.py  progress.py
+                         scheduler.py  runstate.py  notify.py
+  security/              crypto.py  webauth.py  apitoken.py
+  api/                   app.py (api.py)  schemas.py  openapi_export.py
+    routes/              auth.py  sync.py  settings.py  system.py  accounts.py  books.py (the api_* modules)
+```
+
+- `tests/` stays flat; only its imports change
+- `database.py` stays one module: tests point its `DB_FILE` at a temp file, so splitting it is a task of its own
+- `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: this is a service in an image, not a library on PyPI. `REPO_ROOT` becomes `parents[2]` and is still `/app`
+- `audible_api/`, not `audible/`: with absolute imports it would not shadow the dependency, but it would read as if it did
+
+### Tasks
+
+- [ ] Commit 1, the named package (mechanical): `git mv src/*.py src/audible_sync/` with an `__init__.py`; `pyproject.toml` gets a `[build-system]` and loses pytest's `pythonpath = ["."]`, ruff's `known-first-party` becomes `audible_sync`; `uv lock` and re-export `requirements.txt`
+- [ ] Commit 1: rewrite `from src.`, `import src.` and `from src import`, and every string naming a module: monkeypatch targets (`"src.database.DB_FILE"`, `"src.audible_client._PAGE_SIZE"`, `"src.apitoken"` and the rest), `caplog` logger names (`logger="src.downloader"` and four more), and the `getLogger("src.main"/"src.service")` of the two entry modules
+- [ ] Commit 1: `paths.REPO_ROOT` to `parents[2]` and `tests/test_paths.py` with it
+- [ ] Commit 1: the Dockerfile: `uv sync --locked --no-dev --no-install-project` before `COPY . .` and `uv sync --locked --no-dev` after it, and `CMD` `python -m audible_sync.service`
+- [ ] Commit 1: everything else naming the module: `web/package.json`'s `gen:api`, `docs/installation.md`, `docs/accounts.md`, `docs/manual-testing.md`, the README and CLAUDE.md (its layout section and the "flat, no `__init__.py`" rule)
+- [ ] Commit 2, the subpackages: pure `git mv` into the target with an `__init__.py` in each folder and the imports rewritten, no code changed, so the review is files that only moved
+- [ ] Commit 2: `[project.scripts] audible-sync = "audible_sync.cli:main"` and `__main__.py`, so the CLI is `audible-sync run`, `login` and `reset-password`
+- [ ] An autouse fixture in `tests/conftest.py` pointing `src.database.DB_FILE` at a temp file by default, so a patch target the rename misses cannot write to the real database
+- [ ] Later, separate commits: `run_pipeline` out of `cli.py` into `pipeline/run.py` (the scheduler imports it from the CLI module today); `BasePath` and the web app serving out of `api/app.py`
+- [ ] Checked: ruff, pytest and the web checks; `gen:api` gives a byte-identical `openapi.json`; no `src.` left in a string (a `caplog` on a logger that no longer exists lets a test pass while checking nothing); `data/audible_sync.db` unchanged by the test run; the image built from `git archive` runs in the test container, `/api/health` answers and a sync completes; `git log --follow` on a moved file still shows its history
+
+### To decide
+
+- The package name: `audible_sync` proposed
+- `python -m src.main ...` stops working, which a script or a cron job using it (`reset-password` from the docs, say) would notice: a line in the release notes, or a `src/main.py` shim that forwards and warns for one release. Proposed: the release notes, since the image's own command changes with it and `compose.yml` does not name the module
+- The version: 3.1.0, since the CLI changes
+- The build backend: `uv_build`, the toolchain already in use, or `hatchling`
+
 ## Milestone 5: Wishlist and Catalogue Search
 
 Manage the Audible wishlist from the web app: search the catalogue, add books and remove them. Both are part of the API as well, so another application can read the wishlist and look books up with the bearer token. The web app also becomes installable as a PWA.
