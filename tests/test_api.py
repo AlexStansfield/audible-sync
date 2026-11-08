@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 
 import src.database as database
 from src import api as api_module
+from src import api_accounts, api_books, api_settings, webauth
 from src import audible_login as login_module
-from src import webauth
 from src.api import create_app, read_version
 from src.apitoken import ApiToken
 from src.audible_login import PendingLogins
@@ -682,7 +682,7 @@ def test_delete_account_can_deregister_the_device_first(api, monkeypatch):
         def deregister_device(self):
             calls.append("deregistered")
 
-    monkeypatch.setattr(api_module, "authenticator_for", lambda account: FakeAuthenticator())
+    monkeypatch.setattr(api_accounts, "authenticator_for", lambda account: FakeAuthenticator())
 
     api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"})
 
@@ -698,7 +698,7 @@ def test_delete_account_still_removes_it_when_deregistering_fails(api, monkeypat
         def deregister_device(self):
             raise RuntimeError("token expired")
 
-    monkeypatch.setattr(api_module, "authenticator_for", lambda account: FakeAuthenticator())
+    monkeypatch.setattr(api_accounts, "authenticator_for", lambda account: FakeAuthenticator())
 
     response = api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"})
 
@@ -709,7 +709,7 @@ def test_delete_account_still_removes_it_when_deregistering_fails(api, monkeypat
 
 def test_delete_account_does_not_try_to_deregister_one_without_credentials(api, monkeypatch):
     account_id = database.add_account("Pending", "us", auth=None)
-    monkeypatch.setattr(api_module, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
+    monkeypatch.setattr(api_accounts, "authenticator_for", lambda account: pytest.fail("nothing to deregister"))
 
     assert api.delete(f"/api/accounts/{account_id}", headers=AUTH, params={"deregister": "true"}).status_code == 200
 
@@ -1052,7 +1052,7 @@ def test_login_with_a_code_can_replace_an_existing_accounts_credentials(api, mon
     _shelve(account_id, make_book("B001"))
     replaced = []
     monkeypatch.setattr(
-        api_module,
+        api_accounts,
         "replace_account_auth",
         _recording_replace(replaced),
     )
@@ -1211,7 +1211,7 @@ def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeyp
     account_id = _account(auth={"locale_code": "uk", "access_token": "Atna|old"})
     replaced = []
     monkeypatch.setattr(
-        api_module,
+        api_accounts,
         "replace_account_auth",
         _recording_replace(replaced),
     )
@@ -1509,7 +1509,7 @@ def test_bulk_needs_auth(api):
 def test_refresh_re_reads_the_book(api, monkeypatch):
     (book,) = _shelve(_account(), make_book("B001", "Old"))
     monkeypatch.setattr(
-        api_module.library,
+        api_books.library,
         "refresh",
         lambda b: database.update_books(b.account_id, [make_book("B001", "New")]) or database.get_book(b.id),
     )
@@ -1525,7 +1525,7 @@ def test_refresh_reports_audible_trouble_as_a_502(api, monkeypatch):
     def down(b):
         raise RuntimeError("timeout")
 
-    monkeypatch.setattr(api_module.library, "refresh", down)
+    monkeypatch.setattr(api_books.library, "refresh", down)
 
     response = api.post(f"/api/books/{book.id}/refresh", headers=AUTH)
 
@@ -1659,7 +1659,7 @@ def test_stats_on_an_empty_database(api):
 
 def test_webhook_test_sends_to_the_configured_url(api, monkeypatch):
     sent = []
-    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append((url, payload["event"])))
+    monkeypatch.setattr(api_settings, "send_webhook", lambda url, payload: sent.append((url, payload["event"])))
     api.put("/api/settings", headers=AUTH, json={"webhook_url": "https://hooks/configured"})
 
     response = api.post("/api/settings/webhook/test", headers=AUTH, json={})
@@ -1671,7 +1671,7 @@ def test_webhook_test_sends_to_the_configured_url(api, monkeypatch):
 
 def test_webhook_test_can_try_a_url_before_saving_it(api, monkeypatch):
     sent = []
-    monkeypatch.setattr(api_module, "send_webhook", lambda url, payload: sent.append(url))
+    monkeypatch.setattr(api_settings, "send_webhook", lambda url, payload: sent.append(url))
 
     api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/try"})
 
@@ -1689,7 +1689,7 @@ def test_webhook_test_reports_a_failure(api, monkeypatch):
     def down(url, payload):
         raise RuntimeError("connection refused")
 
-    monkeypatch.setattr(api_module, "send_webhook", down)
+    monkeypatch.setattr(api_settings, "send_webhook", down)
 
     response = api.post("/api/settings/webhook/test", headers=AUTH, json={"url": "https://hooks/x"})
 

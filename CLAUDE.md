@@ -10,7 +10,7 @@ What the code cannot tell you: decisions, gotchas and how to test. For what a fu
 | **Entry points** | `python -m src.service` (the service); `python -m src.main` (one sync and exit, plus `login` and `reset-password`) |
 | **Database** | SQLite (`data/audible_sync.db`), which also holds the live settings |
 | **Secrets** | Encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/crypto.py`) |
-| **Backend** | FastAPI + uvicorn; `src/api.py` routes, `src/schemas.py` the contract |
+| **Backend** | FastAPI + uvicorn; `src/api.py` puts together the routes of `src/api_*.py`, one module per area; `src/schemas.py` the contract |
 | **Web app** | `web/`: Vite, React 19, TypeScript, TanStack Query, Biome, Vitest; served by the service from `web/dist`. Spec in `docs/design/DESIGN.md` |
 | **Checks** | `uv run ruff format .`, `uv run ruff check .`, `uv run pytest`; in `web/`: `npm run lint`, `typecheck`, `test`, `build`, and `npm run gen:api` after an API change |
 | **CI** | The same on every push and PR to `dev` and `main`, plus a stale-types check on `web/openapi.json` and `web/src/api/schema.d.ts`. Images are built on `v*` tags |
@@ -32,7 +32,7 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules: `service` (wiring) → `api` + `schemas`, `scheduler` + `runstate` → `main.run_pipeline` (also the CLI) → `settings`, `audible_client`, `sync`, `downloader` (→ `naming`, `encoding`, `progress`). Beside those: `accounts` (credentials), `audible_login`, `library` (per-book actions), `webauth`, `apitoken`, `crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `notify`, `openapi_export`.
+Modules: `service` (wiring) → `api` (→ `api_auth`, `api_sync`, `api_settings`, `api_system`, `api_accounts`, `api_books`) + `schemas`, `scheduler` + `runstate` → `main.run_pipeline` (also the CLI) → `settings`, `audible_client`, `sync`, `downloader` (→ `naming`, `encoding`, `progress`). Beside those: `accounts` (credentials), `audible_login`, `library` (per-book actions), `webauth`, `apitoken`, `crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `notify`, `openapi_export`.
 
 **Import rules, which exist to avoid cycles:**
 
@@ -40,6 +40,7 @@ Modules: `service` (wiring) → `api` + `schemas`, `scheduler` + `runstate` → 
 - `crypto` is a leaf and must never import `database` (so `encrypt_stored_secrets` lives in `database`)
 - `database` must never import `settings` or `accounts` (so its accounts migration only creates a placeholder, which a login fills in)
 - `apitoken` is its own module because `api` needs `regenerate` and cannot import `service`
+- The `api_*` modules never import `api`, which includes them: each exposes a function that builds its router from what it is given (scheduler, run state, token), and a route patched in a test is patched on its own module (`api_accounts.authenticator_for`, `api_settings.send_webhook`)
 - The client module is `audible_client.py`, not `audible.py`, which would shadow the dependency. Do not bring that name back
 - `tqdm` is imported in `progress.py` and nowhere else
 
@@ -202,7 +203,6 @@ uv run python -c "import sqlite3; c=sqlite3.connect('data/audible_sync.db'); pri
 
 ## Known issues
 
-- Splitting `src/api.py` is in `todo.md`
 - `requirements.txt` drifts if `uv lock` runs without re-exporting
 - Two books rendering to one name are filed side by side with ` [{asin}]`; the template is what needs disambiguating
 - Activity's offset paging can skip runs removed between pages; a cursor would need the API's help
