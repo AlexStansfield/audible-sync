@@ -189,7 +189,7 @@ src/audible_sync/
 - [x] Commit 2: `[project.scripts] audible-sync = "audible_sync.cli:main"` and `__main__.py`, so the CLI is `audible-sync run`, `login` and `reset-password`
 - [x] An autouse fixture in `tests/conftest.py` pointing `src.database.DB_FILE` at a temp file by default, so a patch target the rename misses cannot write to the real database
 - [ ] Later, separate commits: `run_pipeline` out of `cli.py` into `pipeline/run.py` (the scheduler imports it from the CLI module today); `BasePath` and the web app serving out of `api/app.py`
-- [ ] Checked: ruff, pytest and the web checks; `gen:api` gives a byte-identical `openapi.json`; no `src.` left in a string (a `caplog` on a logger that no longer exists lets a test pass while checking nothing); `data/audible_sync.db` unchanged by the test run; the image built from `git archive` runs in the test container, `/api/health` answers and a sync completes; `git log --follow` on a moved file still shows its history
+- [x] Checked: ruff, pytest and the web checks; `gen:api` gives a byte-identical `openapi.json`; no `src.` left in a string (a `caplog` on a logger that no longer exists lets a test pass while checking nothing); `data/audible_sync.db` unchanged by the test run; the image built from `git archive` runs in the test container, `/api/health` answers and a sync completes; `git log --follow` on a moved file still shows its history (2026-11-09: run #54 in the test container, success)
 
 ### Decided (2026-11-09)
 
