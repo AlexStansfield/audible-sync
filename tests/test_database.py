@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -63,6 +64,7 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "last_attempt_at",
         "claim_token",
         "description",
+        "claim_renewed_at",
     }
 
 
@@ -424,6 +426,55 @@ def test_download_queue_agrees_with_the_claim_about_what_is_stale(db):
     assert [book.asin for book in offered] == ["B001"]
     assert database.claim_book_for_download(_id("B001")) is not None
     assert database.get_book_by_asin("B001").attempts == 2
+
+
+def test_a_renewed_claim_is_neither_offered_nor_taken_however_old_the_claim(db):
+    """A book taking longer than the stale cutoff is still being worked on while its claim is renewed."""
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    assert database.renew_claim(_id("B001"), claim=claim) is True
+
+    assert database.get_books_to_download() == []
+    assert database.claim_book_for_download(_id("B001")) is None
+
+
+def test_a_claim_whose_renewals_stopped_is_abandoned_like_any_other(db):
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+    database.renew_claim(_id("B001"), claim=claim)
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00", claim_renewed_at="2020-01-02T00:00:00+00:00")
+
+    assert [book.asin for book in database.get_books_to_download()] == ["B001"]
+    assert database.claim_book_for_download(_id("B001")) is not None
+
+
+def test_a_new_claim_does_not_inherit_the_old_ones_renewal(db):
+    """The reclaim starts the clock again from its own claim, not from the renewal before it."""
+    _claimable()
+    first = database.claim_book_for_download(_id("B001"))
+    database.renew_claim(_id("B001"), claim=first)
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00", claim_renewed_at="2020-01-02T00:00:00+00:00")
+
+    database.claim_book_for_download(_id("B001"))
+
+    with closing(sqlite3.connect(database.DB_FILE)) as conn:
+        assert conn.execute("SELECT claim_renewed_at FROM library").fetchone()[0] is None
+
+
+@pytest.mark.parametrize("status", ["waiting_download", "downloaded"])
+def test_only_a_held_claim_can_be_renewed(db, status):
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+
+    assert database.renew_claim(_id("B001"), claim="not-the-claim") is False
+    if status == "downloaded":
+        database.mark_book_downloaded(_id("B001"), "m4b", claim=claim)
+    else:
+        database.release_book(_id("B001"), claim=claim)
+    # Recorded or handed back: the claim is over
+    assert database.renew_claim(_id("B001"), claim=claim) is False
 
 
 @pytest.mark.parametrize("status", ["downloaded", "failed", "unavailable"])

@@ -21,6 +21,12 @@ DB_FILE = str(REPO_ROOT / "data" / "audible_sync.db")
 # short enough that a crashed run recovers on the next scheduler tick rather than by hand.
 STALE_CLAIM_SECONDS = 6 * 60 * 60
 
+# Whether a `downloading` row counts as abandoned: neither the claim nor its last renewal
+# (`renew_claim`) is newer than the cutoff bound to the `?`. A NULL counts as abandoned,
+# or such a row would never be picked up by anything again. Shared by the queue and the
+# claim, which must agree on it.
+_ABANDONED = "(COALESCE(claim_renewed_at, last_attempt_at) IS NULL OR COALESCE(claim_renewed_at, last_attempt_at) < ?)"
+
 
 def _get_connection() -> sqlite3.Connection:
     """
@@ -232,6 +238,7 @@ def _migrate_schema(conn):
         "file_path": "TEXT",
         "claim_token": "TEXT",
         "description": "TEXT",
+        "claim_renewed_at": "TEXT",
     }
 
     for column, column_type in new_columns.items():
@@ -266,7 +273,7 @@ _LIBRARY_COLUMNS = (
     "is_finished", "percent_complete", "date_added", "release_date", "cover_url", "status",
     "monitored", "file_path", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
     "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at", "claim_token",
-    "description",
+    "description", "claim_renewed_at",
 )  # fmt: skip
 
 
@@ -358,6 +365,9 @@ def _library_ddl() -> str:
             -- The claim a run holds while `downloading`, which every outcome must present
             -- (`claim_book_for_download`); NULL otherwise
             claim_token TEXT,
+            -- When the run holding the claim last said it is still working on the book
+            -- (`renew_claim`); NULL until it first does
+            claim_renewed_at TEXT,
             -- The publisher's summary, HTML as Audible gives it; NULL until a sync reads it
             description TEXT,
             UNIQUE (account_id, asin)
@@ -512,7 +522,7 @@ def get_books_to_download(*, account_id: int | None = None, stale_after: int = S
     a row a live run holds is offered here and then simply fails to claim. That is the
     same race the claim already settles, and the reason this can afford to be generous.
 
-    `last_attempt_at` is not in the `(status, date_added)` index, but the `downloading`
+    The claim times are not in the `(status, date_added)` index, but the `downloading`
     rows are a handful at most, so the extra test costs nothing.
 
     Args:
@@ -521,11 +531,10 @@ def get_books_to_download(*, account_id: int | None = None, stale_after: int = S
     Returns:
         Books to attempt, oldest `date_added` first
     """
-    sql = """
+    sql = f"""
         SELECT * FROM library
          WHERE monitored = 1
-           AND (status = ?
-                OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
+           AND (status = ? OR (status = ? AND {_ABANDONED}))
     """
     params: tuple = (BookStatus.WAITING_DOWNLOAD, BookStatus.DOWNLOADING, _stale_cutoff(stale_after))
     if account_id is not None:
@@ -631,9 +640,11 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
     while a manual run is still going - cannot both take the same book: the second
     matches no rows, because the first has already moved it out of `waiting_download`.
 
-    A row abandoned in `downloading` by a process that died is claimable again once its
-    `last_attempt_at` is older than `stale_after`. A NULL timestamp counts as stale too,
-    since such a row would otherwise never be picked up by anything again.
+    A row abandoned in `downloading` by a process that died is claimable again once both
+    its claim (`last_attempt_at`) and the claim's last renewal (`renew_claim`) are older
+    than `stale_after`. A NULL timestamp counts as stale too, since such a row would
+    otherwise never be picked up by anything again. A run renews its claim while it
+    works, so a book that takes longer than `stale_after` is not taken over under it.
 
     The claim is a fresh random token, stored on the row and handed back, which every
     outcome (`mark_book_downloaded`, `mark_book_failed`, `mark_book_unavailable`,
@@ -653,15 +664,15 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
     token = secrets.token_hex(16)
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            """
+            f"""
             UPDATE library
                SET status = ?,
                    attempts = attempts + 1,
                    last_attempt_at = ?,
-                   claim_token = ?
+                   claim_token = ?,
+                   claim_renewed_at = NULL
              WHERE id = ?
-               AND (status = ?
-                    OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
+               AND (status = ? OR (status = ? AND {_ABANDONED}))
             """,
             (
                 BookStatus.DOWNLOADING,
@@ -681,6 +692,23 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
 # Every outcome's WHERE: the row is still this claim's. `claim_token` is cleared with
 # the outcome, so a claim records one outcome at most.
 _HELD = f"id = ? AND status = '{BookStatus.DOWNLOADING}' AND claim_token = ?"
+
+
+def renew_claim(book_id: int, *, claim: str) -> bool:
+    """
+    Say that the run holding this claim is still working on the book, so it is not
+    taken for abandoned (see `claim_book_for_download`).
+
+    Only the holder can renew: False once the claim has been recorded, released or
+    taken over, which tells the caller to stop renewing.
+    """
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            f"UPDATE library SET claim_renewed_at = ? WHERE {_HELD}",
+            (_utcnow(), book_id, claim),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
 
 
 def mark_book_failed(
