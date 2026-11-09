@@ -194,9 +194,9 @@ function ForgotCard({ onBack }: { onBack: () => void }) {
       </p>
       <code className={styles.command}>{RESET_COMMAND}</code>
       <p className={styles.small}>
-        Outside Docker it is <code>audible-sync reset-password</code>. Then sign in with the new password and
-        choose your own under Your sign-in. Every browser, this one included, is signed out. Add <code>--username</code>{" "}
-        to put the username back to admin as well.
+        Outside Docker it is <code>audible-sync reset-password</code>. Then sign in with the new password and choose
+        your own under Your sign-in. Every browser, this one included, is signed out. Add <code>--username</code> to put
+        the username back to admin as well.
       </p>
       <button type="button" className="btn btn-secondary btn-tall" onClick={onBack}>
         Back to sign in
