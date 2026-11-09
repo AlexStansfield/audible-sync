@@ -30,7 +30,7 @@ The web app's first password is printed in the log, once:
 docker compose logs audible-sync | grep "Web app sign-in"
 ```
 
-Open `http://localhost:8080`, sign in as `admin` with that password, and go to **Accounts → Add account**. You get a five-letter code to enter at `amazon.co.uk/code` (your marketplace's) on any device; the app never sees your Amazon password. When it says Connected, press **Sync now**; after that the service syncs every six hours.
+Open `http://localhost:8080`, sign in as `admin` with that password, and go to **Accounts → Add account**. You get a five-letter code to enter at `amazon.co.uk/code` (your marketplace's) on any device; the app never sees your Amazon password. When it says Connected, press **Sync now**; after that the service syncs every six hours, and once a day re-reads every book's details from Audible (**Refresh all from Audible** does it at any time, and `audible-sync --full` from the command line).
 
 ## Documentation
 

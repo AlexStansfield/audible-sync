@@ -1,7 +1,7 @@
 info:
   name: A run's books
   type: http
-  seq: 5
+  seq: 6
 http:
   method: GET
   url: "{{baseUrl}}/api/sync/runs/:id/books"

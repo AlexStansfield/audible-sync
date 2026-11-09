@@ -10,3 +10,4 @@ settings:
   encodeUrl: true
 docs: |
   202 when a run starts, 409 while one is in flight. Works with the schedule disabled.
+  No body: an ordinary run. See "Start a full refresh" for one that re-reads every library.

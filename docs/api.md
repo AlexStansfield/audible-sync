@@ -10,10 +10,10 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `GET /api/auth/me` | `username` and `generated_password` (still using the generated one) |
 | `PUT /api/auth/username` | Change the username; needs `current_password` (`403` when wrong) |
 | `PUT /api/auth/password` | Change the password (12 characters or more); needs `current_password`. Every other session is signed out |
-| `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer) and the last run |
-| `POST /api/sync` | Start a run now; `409` if one is already running |
+| `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer, and `full_refresh` when it re-reads every library in full) and the last run |
+| `POST /api/sync` | Start a run now; `409` if one is already running. With `{"full": true}` a full refresh: after reading new purchases it re-reads each account's whole library, bringing every book's title, authors, series, cover, description and availability up to date. Without a body, an ordinary run - which is a full refresh anyway for an account whose last one is more than a day old while `daily_full_refresh` is on |
 | `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |
-| `GET /api/sync/runs?limit=&offset=&account_id=` | Run history, newest first, with a `total`; optionally one account's |
+| `GET /api/sync/runs?limit=&offset=&account_id=` | Run history, newest first, with a `total`; optionally one account's. `full_refresh` says whether a run read the whole library: one asked for or due, an account's first sync, or one made to while a withdrawn title is parked |
 | `GET /api/sync/runs/{id}` | One run |
 | `GET /api/sync/runs/{id}/books` | The run's books in three lists - `downloaded` (with size and time), `failed` and `refused` (with the error) - each in the order the run finished them; `recorded: false` for a run from before the per-book records |
 | `GET /api/settings` | Every runtime setting |
@@ -23,15 +23,15 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `PATCH /api/accounts/{id}` | Rename or enable/disable an account; a disabled account is skipped by the sync |
 | `DELETE /api/accounts/{id}?deregister=true` | Remove an account with its library rows and run history; files on disk stay. `deregister` also removes the device from Amazon's device list first (best effort) |
 | `GET /api/books?account_id=&status=&monitored=&q=&sort=&order=&page=&page_size=` | The library, paged (`items`, `total`, `page`, `page_size`). `q` matches title, author or series; `sort` is `date_added` (default), `title`, `author`, `release_date` or `downloaded_at` |
-| `GET /api/books/{id}` | One book, with `primary_series` (the series it is filed under) worked out |
-| `PATCH /api/books/{id}` | `{"monitored": bool}`: whether the book is wanted. An unmonitored book is never queued |
+| `GET /api/books/{id}` | One book, with `primary_series` (the series it is filed under) worked out, and its `description`: the publisher's summary as plain text, its paragraphs separated by a blank line - never HTML. Empty when Audible has none, or until a sync has read it (a full refresh reads it for every book). The list leaves it out |
+| `PATCH /api/books/{id}` | `{"monitored": bool}`: whether the book is wanted. An unmonitored book is never queued. Answers with the book as `GET` does |
 | `POST /api/books/{id}/delete-files` | Remove the audio, PDF, cover and annotations (and folders left empty) and unmonitor the book, so it stays deleted |
 | `POST /api/books/{id}/redownload` | Remove the files and queue the book afresh, attempts reset |
 | `POST /api/books/{id}/retry` | Queue a failed or parked book again, keeping any files; `409` for a downloaded book (use redownload) |
 | `GET /api/queue?limit=` | What the next run will download, in order: each enabled account that can log in, oldest purchase first, up to `max-download` per account. `items` (`position`, `account_id`, `book`), `total` planned, `waiting` in those accounts in all, and `max_download`. A plan from the queue as it stands: a licence Audible refuses uses no slot, so a run reaches further down; a withdrawn title the run's sync restores takes a slot; and during a run the list starts with what that run has left |
 | `POST /api/books/bulk` | `{"action", "ids" or "filter"}`: `monitor`, `unmonitor`, `retry` or `delete_files` on the books selected, or on everything a filter (`account_id`, `status`, `monitored`, `q`, as on `GET /api/books`) matches. Returns `updated`, `queued` and `skipped` with a reason each (`busy`, `downloaded`, `withdrawn`, `no_files`, `not_found`, `error`) |
 | `POST /api/books/retry-unavailable` | `{"account_id"?}`: queue every parked book Audible still reports consumable again, for one account or all; returns `requeued`. For the day every licence was refused rather than one retired title - a re-login does this for its account by itself. Titles Audible withdrew are left to the sync, which restores them when they are offered again |
-| `POST /api/books/{id}/refresh` | Re-read the book's details from Audible; `502` if Audible does not answer |
+| `POST /api/books/{id}/refresh` | Re-read the book's details from Audible, its description included; `502` if Audible does not answer |
 | `GET /api/books/{id}/cover` | The cover image: the downloaded file, or a redirect to Audible's copy before that |
 | `POST /api/settings/webhook/test` | `{"url"?}`: send a sample event to `url`, or to the configured webhook; `502` with the reason if it fails |
 | `GET /api/settings/api-token` | The API token masked to its last four characters (`last4`), and its `source`: `env` (`AUDIBLE_SYNC_API_TOKEN`) or `stored` |

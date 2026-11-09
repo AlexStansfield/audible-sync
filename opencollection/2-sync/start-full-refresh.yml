@@ -1,0 +1,20 @@
+info:
+  name: Start a full refresh
+  type: http
+  seq: 2
+http:
+  method: POST
+  url: "{{baseUrl}}/api/sync"
+  body:
+    type: json
+    data: |-
+      {
+        "full": true
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  A run that, after reading new purchases, re-reads each account's whole library, so every
+  book's title, authors, series, cover, description and availability is brought up to date.
+  202 when it starts, 409 while a run is in flight. The run history marks it `full_refresh`.
