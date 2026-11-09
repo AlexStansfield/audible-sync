@@ -154,7 +154,6 @@ def build(config: ServiceConfig):
     # lives encrypted in the settings table
     crypto.configure(load_secret_key())
     encrypt_stored_secrets()
-    backfill_customer_ids()
 
     api_token = resolve_api_token(config.api_token)
     ensure_web_user()
@@ -163,6 +162,8 @@ def build(config: ServiceConfig):
     # alone and cannot be read back, or copied into a bug report, from the Logs screen
     log_buffer = RingBufferHandler(LOG_BUFFER_LINES)
     logging.getLogger().addHandler(log_buffer)
+    # Past the buffer, so its warning about duplicate accounts reaches the Logs screen
+    backfill_customer_ids()
 
     if (config.web_dir / "index.html").is_file():
         logger.info("Serving the web app from %s", config.web_dir)

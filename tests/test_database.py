@@ -1379,6 +1379,57 @@ def test_backfill_customer_ids_leaves_unreadable_credentials_for_a_later_start(d
     assert _customer_ids()[account_id] == "u1"
 
 
+def test_backfill_customer_ids_names_the_newer_account_whichever_holds_the_customer(db, caplog):
+    """A login while the key was lost added a second account, which took the customer."""
+    secret_key = crypto.generate_key()
+    crypto.configure(secret_key)
+    original = database.add_account("Original", "uk", auth=_login_blob())
+    crypto.configure(crypto.generate_key())  # the key was lost
+    database._undecryptable_logged.clear()
+    added = database.add_account("Added", "uk", auth=_login_blob(), customer_id="u1")
+    crypto.configure(secret_key)  # and found again
+
+    assert database.backfill_customer_ids() == 0
+
+    assert f"Accounts {original} and {added} hold the same Audible login" in caplog.text
+    assert f"remove account {added}, the newer" in caplog.text
+
+
+def test_backfill_customer_ids_leaves_a_customer_another_process_stored_meanwhile(db, monkeypatch):
+    """A refused write is another process's login landing between the read and the write; a start goes on."""
+    account_id = database.add_account("Alex (UK)", "uk", auth=_login_blob())
+    read = database._account_from_row
+
+    def read_while_a_login_lands(row):
+        database.add_account("Added", "uk", auth=_login_blob(), customer_id="u1")
+        monkeypatch.setattr(database, "_account_from_row", read)
+        return read(row)
+
+    monkeypatch.setattr(database, "_account_from_row", read_while_a_login_lands)
+
+    assert database.backfill_customer_ids() == 0
+
+    assert _customer_ids()[account_id] is None
+
+
+def test_deleting_the_account_holding_a_customer_hands_it_to_a_duplicate(db):
+    """Otherwise a login before the next start finds no account and adds a third."""
+    first = database.add_account("First", "uk", auth=_login_blob())
+    second = database.add_account("Second", "uk", auth=_login_blob())
+    database.backfill_customer_ids()
+
+    database.delete_account(first)
+
+    assert database.get_account_by_customer("u1", "uk").id == second
+
+
+def test_customer_id_of_treats_an_empty_id_as_none():
+    assert database.customer_id_of({"user_id": "u1"}) == "u1"
+    assert database.customer_id_of({"user_id": ""}) is None
+    assert database.customer_id_of({}) is None
+    assert database.customer_id_of(None) is None
+
+
 def test_init_db_makes_the_file_owner_only(db):
     import stat
 
