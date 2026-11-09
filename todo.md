@@ -1,8 +1,8 @@
 # Todo
 
-List of tasks to complete by phases
+The roadmap. From Milestone 5 on, a milestone is split into the releases that ship it, each with its summary, requirements and tasks; the milestones before it are kept as they were done. A version number is settled when its release is cut, so a fix release in between or a change of order only renames a heading.
 
-## Milestone 1: Library Sync, Download and Decrypt
+## Milestone 1: Library Sync, Download and Decrypt (v0.1.0)
 
 ### Requirements
 
@@ -32,7 +32,7 @@ List of tasks to complete by phases
 - [x] Add Docker Compose file to run container
 - [x] Add github action to build image and push to repo
 
-## Milestone 2: Download Progress, Metadata and OGA Encoding
+## Milestone 2: Download Progress, Metadata and OGA Encoding (v1.0.0)
 
 ### Requirements
 
@@ -55,7 +55,7 @@ List of tasks to complete by phases
 - [x] Encode books to OGA instead of M4B if configured
 - [x] Name m4b/oga files based on metadata
 
-## Milestone 3: API Service
+## Milestone 3: API Service (v2.0.0)
 
 ### Requirements
 
@@ -87,7 +87,7 @@ List of tasks to complete by phases
 - [x] Second review fixes (2026-11-01): `PUT /api/settings` refuses `null` for a setting that cannot be unset (it locked the API out of its own settings); rejected credentials record the run as aborted saying to log in again, not as a failed book; a failed token write-back no longer leaves the run row `running`; a withdrawn book that is already downloaded no longer forces a full library re-read every run; a book action that loses the race with a run's claim is a 409, not a silent success
 - [x] Known issues from the review (2026-11-01): `DELETE /api/accounts/{id}` is a 409 while the run is on that account, and a run skips an account removed since it began; a confirmed login whose account was deleted, or that cannot be stored, fails and deregisters the new device (API and CLI); a `200` that is not JSON no longer kills a device-code login's poll; a book refresh stores the token it renewed; the CLI warns when it holds another key than the one the stored secrets were written with; the API token is logged in full only on the start that generates it; the CLI `login`'s `print` recorded as the exception to the logging rule
 
-## Milestone 4: Web App Frontend
+## Milestone 4: Web App Frontend (v3.0.0)
 
 A web application that exposes a UI to the API allowing you to login to audible, view your library, manage your sync settings and sync books
 
@@ -135,7 +135,7 @@ The design and spec are in [`docs/design/`](docs/design/DESIGN.md).
 - [x] The code sign-in from the web app against Amazon, end to end (Sign in again in the test container, 2026-11-02: the code confirmed, a new device registered, the old one deregistered, the account kept its id and library)
 - [x] Backend: one account per Audible login. A login an account already holds (the same `customer_info.user_id` and marketplace) gives that account new credentials and keeps its library, rather than adding a second row that would download and file the same books
 
-## Milestone 4.5: Fixes
+## Milestone 4.5: Fixes (v3.0.1, v3.0.2)
 
 A quick release of fixes before Milestone 5: a followed podcast no longer ends up in the library as a failed book, and the items carried over from Milestones 3 and 4.
 
@@ -150,9 +150,9 @@ A quick release of fixes before Milestone 5: a followed podcast no longer ends u
 - [x] Trim CLAUDE.md (about 24,600 words, loaded into every session) to what the code cannot say: decisions, gotchas and test patterns. Much of it retells the code line by line, which is why it goes stale
 - [x] Remove `database.update_book_accessories`, which nothing calls
 - [x] Backend (from the 2026-11-09 review of `dev`): the start-up warning about duplicate accounts named the account it was filling as the newer, whichever was; a login landing in another process between the backfill's read and write failed the start; the warning was logged before the Logs screen's buffer was attached, so it only reached `docker logs`; and removing the account holding a customer left a duplicate without it until the next start, so a login meanwhile added a third account. The customer-id lookup now lives in one place and treats an empty id as none
-- [ ] Backend: renew a claim while its book downloads. `last_attempt_at` is written once, at the claim, so a book taking over `STALE_CLAIM_SECONDS` (6 h) is reclaimable while still in progress, and a second process downloads and files it at the same time. The claim token only settles whose outcome is kept. A heartbeat (touch `last_attempt_at`, guarded on the claim, every few minutes from `_stream_to_file` and around the ffmpeg pass) would stop the double download itself
+- Moved to v3.2.0: renew a claim while its book downloads
 
-## Milestone 4.6: Source layout
+## Milestone 4.6: Source layout (v3.1.0)
 
 Restructure `src/` the way a Python project usually is, before Milestone 5 adds the wishlist and the catalogue: a named package inside `src/` (the "src layout"), with its modules grouped by area. One PR from `dev` once 4.5 is released, and nothing in it changes behaviour.
 
@@ -199,7 +199,62 @@ src/audible_sync/
 
 ## Milestone 5: Wishlist and Catalogue Search
 
-Manage the Audible wishlist from the web app: search the catalogue, add books and remove them. Both are part of the API as well, so another application can read the wishlist and look books up with the bearer token. The web app also becomes installable as a PWA.
+Manage the Audible wishlist from the web app: search the catalogue, add books and remove them. Both are part of the API as well, so another application can read the wishlist and look books up with the bearer token. On the way, each library book gets its description and a full refresh from Audible, and the web app becomes installable as a PWA.
+
+Three releases, in this order: the descriptions and the full refresh first, since they need no design work and the catalogue's books reuse the description's cleaning; the PWA next, so the service worker is settled before two new screens exist; the wishlist and the search last, the largest, whose designs can be done while the first is built.
+
+## v3.2.0: Book descriptions and full refresh
+
+Each library book keeps its description from Audible, shown on its page, in the API and written into its files, and every book's data can be refreshed from Audible: by hand, and once a day by default. Also the claim heartbeat left over from Milestone 4.5, which touches the same download code.
+
+### Requirements
+
+- Each library book's description: kept with the book, shown on its page, in the API and written into its files
+- Refresh every book's data from Audible: by hand with a button, and once a day when a setting is on
+- A download that takes longer than `STALE_CLAIM_SECONDS` is never taken over by a second process while it is still running
+
+### What the Audible API gives
+
+- **The description** is `publisher_summary`, HTML, in the `product_extended_attrs` response group; `product_desc`, despite its name, carries only the title and subtitle. The library endpoint returns it as well (50 of 50 books on a page in 2026-11-08's check), as does `editorial_reviews`, a list of review quotes in HTML. The group made a page of 50 books 289 KiB instead of 201 KiB
+
+### Tasks
+
+- [ ] Backend: the library's descriptions: `product_extended_attrs` in `RESPONSE_GROUPS`, `publisher_summary` stored in a new `description` column that `update_books` refreshes on every sync (publishers edit them), and the books already stored get theirs from the first full refresh (below). The same field and the same cleaning as the catalogue's book
+- [ ] Backend: a full refresh: a run that re-reads each account's whole library (`audible.get_library(None)`) after its incremental fetch, so `update_books` brings every stored book's data up to date: title, authors, series, cover, description, availability. It is a run like any other, not an action of its own, so it has a run record, cannot overlap another run and can be cancelled. The re-read the parked books already trigger becomes the same step. It counts towards neither `books_seen` nor `books_added`, as now. A run says whether it was one
+- [ ] Backend: `POST /api/sync` takes an optional `{"full": true}`, and the CLI `--full`; `scheduler.trigger` passes it to the run
+- [ ] Backend: a `daily-full-refresh` setting (on by default; `_PARSERS`, `config.ini`, `docs/configuration.md`): when on, a scheduled run is a full refresh if the account's last one is more than a day old. Kept per account, so an account added later or one that failed is not skipped, and a manual full refresh counts
+- [ ] Backend: the description in `GET /api/books/{id}`, as HTML reduced to a safe set of tags (paragraphs, line breaks, emphasis, lists) or as plain text, never Audible's HTML as it came
+- [ ] Backend: the description written into the files as plain text: M4B's `description` tag; in Ogg Opus not `DESCRIPTION`, which FFmpeg makes of the `comment` carrying the ASIN that `read_embedded_asin` reads, so another key such as `SYNOPSIS`. A file already downloaded only gets it when downloaded again
+- [ ] Web: the description on the Book page, folded to a few lines with Show more
+- [ ] Web: Refresh all from Audible beside Sync now on the Dashboard, which starts a full refresh (disabled during a run, like Sync now); the daily full refresh as a switch in Settings' Schedule section; a full refresh marked as such in Activity
+- [ ] Backend: renew a claim while its book downloads. `last_attempt_at` is written once, at the claim, so a book taking over `STALE_CLAIM_SECONDS` (6 h) is reclaimable while still in progress, and a second process downloads and files it at the same time. The claim token only settles whose outcome is kept. A heartbeat (touch `last_attempt_at`, guarded on the claim, every few minutes from `_stream_to_file` and around the ffmpeg pass) would stop the double download itself
+- [ ] Docs: the description and the full refresh in `docs/api.md` and `opencollection/` (`GET /api/books/{id}`, `POST /api/sync`'s `full`); `--full` in the README; CLAUDE.md
+- [ ] Checked live: a full refresh from the button and from the daily setting each re-read the whole library once per account, and a book edited in the database by hand is put back by it
+- [ ] Checked live: after the first full refresh every library book with a summary on Audible has its description; a new download carries it in M4B and in Ogg Opus, and its ASIN is still read back from the file
+- [ ] Checked live: a download taking longer than a few minutes renews its claim, and a second process does not take the book
+
+- Later, not in this release: a refresh changes the database only. A book whose title, author or series changed stays in its old folder with its old tags until it is downloaded again; renaming and re-tagging files on disk would be a feature of its own
+
+## v3.3.0: Installable web app (PWA)
+
+The web app can be installed on a phone or a desktop, opening in its own window, at the root and under a base path.
+
+### Requirements
+
+- Install the web app on a phone or a desktop (PWA)
+- A new build is offered, never swapped under an open page; nothing under `api/` is ever cached
+
+### Tasks
+
+- [ ] Web: PWA - a web app manifest (name, short name, `display: standalone`, the theme's colours, icons at 192 and 512 px with a maskable one, an `apple-touch-icon`), its `start_url` and `scope` relative, so one build installs at the root and under `AUDIBLE_SYNC_BASE_PATH`
+- [ ] Web: PWA - a service worker that caches the app shell (`index.html` and the build's hashed `assets/`) and never anything under `api/`. A new build is offered as "Update available" rather than swapped under an open page; with the service down the shell still loads and shows Cannot reach Audible Sync
+- [ ] Backend: PWA - serve the manifest and the service worker with the right content type and `no-cache` (only `assets/` is `immutable`), at the root and under a base path
+- [ ] Docs: in the installation guide, that a browser offers Install only over https or on `localhost`, so a plain http address on a LAN stays an ordinary page; CLAUDE.md
+- [ ] Checked live: the app installed on a phone over https, at the root and under a base path, and updated by a new build; with the service stopped it opens on Cannot reach Audible Sync
+
+## v3.4.0: Wishlist and catalogue search
+
+The wishlist of every account in one list, a search of the Audible catalogue, and adding and removing books, in the web app and in the API for other applications to use.
 
 ### Requirements
 
@@ -207,9 +262,11 @@ Manage the Audible wishlist from the web app: search the catalogue, add books an
 - Search the Audible catalogue by the filters its API offers
 - Add a book to the wishlist and remove one
 - The wishlist and the catalogue search in the API, for other applications to use: the wishlist as a list to read, the catalogue as a source of audiobook data
-- Install the web app on a phone or a desktop (PWA)
-- Each library book's description: kept with the book, shown on its page, in the API and written into its files
-- Refresh every book's data from Audible: by hand with a button, and once a day when a setting is on
+
+### To decide
+
+- Which marketplace the catalogue search uses when there are several accounts
+- Whether to offer author search and lookup, from the little Audible has on authors
 
 ### What the Audible API gives
 
@@ -221,7 +278,6 @@ Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocu
 - **A series** ASIN is itself a product that lists its books with their positions
 - **Authors are thin**: an id and a name, no biography or picture, and the same author can carry two ids (one on a book, another in the search suggestions)
 - **Plus**: every result carries its `plans`, so whether a book is included in the membership costs nothing extra. The Plus catalogue itself cannot be listed in the UK (the `plan` filter does not accept its plan name), so there is no browsing it
-- **The description** is `publisher_summary`, HTML, in the `product_extended_attrs` response group; `product_desc`, despite its name, carries only the title and subtitle. The library endpoint returns it as well (50 of 50 books on a page in 2026-11-08's check), as does `editorial_reviews`, a list of review quotes in HTML. The group made a page of 50 books 289 KiB instead of 201 KiB
 - **The catalogue answers without credentials.** What only Audible Sync can add is what an account knows: owned, on the wishlist, included in Plus, the member price
 
 ### Tasks
@@ -232,23 +288,9 @@ Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocu
 - [ ] Backend: `GET /api/wishlist`: every account's or one's, paged and sorted (date added, title, release date), each book saying whether a library already holds it
 - [ ] Backend: `POST /api/wishlist` (`account_id`, `asin`) and `DELETE /api/wishlist/{account_id}/{asin}`: Audible first, then the table. A book the account owns is refused; one already there, or already gone, is said from the table, since Audible does not say; 409 when the account needs a sign-in, 502 when Audible does not answer
 - [ ] Backend: `GET /api/catalog/search` (the account whose marketplace to search, `keywords`, `title`, `author`, `narrator`, `category_id`, `sort`, `page`), `GET /api/catalog/books/{asin}`, `GET /api/catalog/series/{asin}` and `GET /api/catalog/categories`. Every book is marked owned, wishlisted and included in Plus, with the member price. Answers are cached for a few minutes, so a client that polls does not become a stream of requests to Audible in the account's name
-- [ ] Backend: the wishlist's and the catalogue's response models, made to be read by another application as well as the web app: the ASIN as the key of every book; the title, description, cover, release date, language as a code, genres, rating, narrators, length in seconds, abridged or not, and the series with positions; no ISBN, since Audible has none. To decide: which marketplace answers when there are several accounts, and whether to offer author search and lookup from the little Audible has
-- [ ] Backend: the library's descriptions: `product_extended_attrs` in `RESPONSE_GROUPS`, `publisher_summary` stored in a new `description` column that `update_books` refreshes on every sync (publishers edit them), and the books already stored get theirs from the first full refresh (below). The same field and the same cleaning as the catalogue's book
-- [ ] Backend: a full refresh: a run that re-reads each account's whole library (`audible.get_library(None)`) after its incremental fetch, so `update_books` brings every stored book's data up to date: title, authors, series, cover, description, availability. It is a run like any other, not an action of its own, so it has a run record, cannot overlap another run and can be cancelled. The re-read the parked books already trigger becomes the same step. It counts towards neither `books_seen` nor `books_added`, as now. A run says whether it was one
-- [ ] Backend: `POST /api/sync` takes an optional `{"full": true}`, and the CLI `--full`; `scheduler.trigger` passes it to the run
-- [ ] Backend: a `daily-full-refresh` setting (on by default; `_PARSERS`, `config.ini`, `docs/configuration.md`): when on, a scheduled run is a full refresh if the account's last one is more than a day old. Kept per account, so an account added later or one that failed is not skipped, and a manual full refresh counts
-- [ ] Backend: the description in `GET /api/books/{id}`, as HTML reduced to a safe set of tags (paragraphs, line breaks, emphasis, lists) or as plain text, never Audible's HTML as it came
-- [ ] Backend: the description written into the files as plain text: M4B's `description` tag; in Ogg Opus not `DESCRIPTION`, which FFmpeg makes of the `comment` carrying the ASIN that `read_embedded_asin` reads, so another key such as `SYNOPSIS`. A file already downloaded only gets it when downloaded again
-- [ ] Web: the description on the Book page, folded to a few lines with Show more
-- [ ] Web: Refresh all from Audible beside Sync now on the Dashboard, which starts a full refresh (disabled during a run, like Sync now); the daily full refresh as a switch in Settings' Schedule section; a full refresh marked as such in Activity
-- [ ] Later, not in this milestone: a refresh changes the database only. A book whose title, author or series changed stays in its old folder with its old tags until it is downloaded again; renaming and re-tagging files on disk would be a feature of its own
+- [ ] Backend: the wishlist's and the catalogue's response models, made to be read by another application as well as the web app: the ASIN as the key of every book; the title, description, cover, release date, language as a code, genres, rating, narrators, length in seconds, abridged or not, and the series with positions; no ISBN, since Audible has none.
 - [ ] Web: the Wishlist page: every account's books in one list with the account filter and the sort in the URL, Remove with its confirmation, a marker on a book a library already holds, and a refresh from Audible
 - [ ] Web: the Search page: the filters in the URL, results with the owned, wishlisted and Plus markers and the member price, Add to wishlist and Remove on each (the account chosen when there are several), paging that stops where Audible's clamp does
 - [ ] Web: both pages in the sidebar and the phone's drawer, and their paths in the base path's reserved segments (`_RESERVED_SEGMENTS`, which a test checks against `web/src/app/routes.tsx`)
-- [ ] Web: PWA - a web app manifest (name, short name, `display: standalone`, the theme's colours, icons at 192 and 512 px with a maskable one, an `apple-touch-icon`), its `start_url` and `scope` relative, so one build installs at the root and under `AUDIBLE_SYNC_BASE_PATH`
-- [ ] Web: PWA - a service worker that caches the app shell (`index.html` and the build's hashed `assets/`) and never anything under `api/`. A new build is offered as "Update available" rather than swapped under an open page; with the service down the shell still loads and shows Cannot reach Audible Sync
-- [ ] Backend: PWA - serve the manifest and the service worker with the right content type and `no-cache` (only `assets/` is `immutable`), at the root and under a base path
-- [ ] Docs: `docs/api.md` for the wishlist and the catalogue; the requests in `opencollection/`; the README; CLAUDE.md; and in the installation guide, that a browser offers Install only over https or on `localhost`, so a plain http address on a LAN stays an ordinary page
-- [ ] Checked live: a full refresh from the button and from the daily setting each re-read the whole library once per account, and a book edited in the database by hand is put back by it
-- [ ] Checked live: after the first full refresh every library book with a summary on Audible has its description; a new download carries it in M4B and in Ogg Opus, and its ASIN is still read back from the file
-- [ ] Checked live: a book added from Search appears in Audible's own wishlist and one removed leaves it; the Wishlist page matches Audible's for two accounts; the wishlist and catalogue endpoints with the bearer token alone; the app installed on a phone over https, at the root and under a base path, and updated by a new build
+- [ ] Docs: `docs/api.md` for the wishlist and the catalogue; the requests in `opencollection/`; the README; CLAUDE.md
+- [ ] Checked live: a book added from Search appears in Audible's own wishlist and one removed leaves it; the Wishlist page matches Audible's for two accounts; the wishlist and catalogue endpoints with the bearer token alone
