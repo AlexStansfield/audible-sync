@@ -1,7 +1,7 @@
 """
 The shapes the API speaks: request bodies and responses.
 
-Pydantic models rather than the dataclasses in `src.model`, because these are the
+Pydantic models rather than the dataclasses in `audible_sync.model`, because these are the
 contract the web app codes against and they can differ from the storage shapes - a
 book will carry its primary series, a run its account name - without either side
 bending to the other. Anything that maps straight from a dataclass uses
@@ -13,10 +13,10 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from src.library import BulkAction, SkipReason
-from src.model import BookStatus, SyncOutcome
-from src.runstate import RunStage
-from src.webauth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
+from audible_sync.library import BulkAction, SkipReason
+from audible_sync.model import BookStatus, SyncOutcome
+from audible_sync.runstate import RunStage
+from audible_sync.webauth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
 
 
 class Health(BaseModel):
@@ -30,7 +30,7 @@ class Message(BaseModel):
     status: str
 
 
-# Capped here as well as in `src.webauth`, so an endpoint that needs no sign-in never
+# Capped here as well as in `audible_sync.webauth`, so an endpoint that needs no sign-in never
 # hashes a password of any length a client cares to send. The username cap
 # is loose: `webauth` enforces the real one when it is set.
 Password = Annotated[str, Field(max_length=MAX_PASSWORD_LENGTH)]

@@ -9,22 +9,22 @@ import httpx
 from audible import Authenticator
 from fastapi import APIRouter, HTTPException
 
-from src.accounts import (
+from audible_sync.accounts import (
     authenticator_for,
     check_marketplace,
     replace_account_auth,
     store_login,
 )
-from src.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, LoginNotStored, PendingLogins
-from src.database import (
+from audible_sync.audible_login import MARKETPLACES, BrowserLogin, CodeLogin, LoginFailed, LoginNotStored, PendingLogins
+from audible_sync.database import (
     delete_account,
     get_account,
     get_accounts,
     update_account,
 )
-from src.model import Account, StoredLogin
-from src.runstate import RunState
-from src.schemas import (
+from audible_sync.model import Account, StoredLogin
+from audible_sync.runstate import RunState
+from audible_sync.schemas import (
     AccountOut,
     AccountUpdate,
     LoginComplete,

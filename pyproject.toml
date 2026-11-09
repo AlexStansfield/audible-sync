@@ -14,6 +14,10 @@ dependencies = [
     "uvicorn[standard]>=0.52.4",
 ]
 
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14"]
+build-backend = "uv_build"
+
 [dependency-groups]
 dev = [
     "httpx2>=2.12.0",
@@ -40,8 +44,9 @@ select = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["src", "tests"]
+known-first-party = ["audible_sync", "tests"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# For `from tests.conftest import ...`; the package itself is imported from the install
 pythonpath = ["."]

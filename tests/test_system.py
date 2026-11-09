@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src import system
+from audible_sync import system
 
 VERSION = "ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers\nbuilt with gcc 14\n"
 ENCODERS = """Encoders:

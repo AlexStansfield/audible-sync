@@ -6,7 +6,7 @@ password that the service logs once (`ensure_admin`), the way it logs a generate
 token. The username and a flag saying the generated password is still in use are kept
 in the settings table under keys `Settings.from_db` does not know, so they never show
 in `GET /api/settings`; the password hash is kept there too, **encrypted** with the
-process's key like the other secrets (`src.crypto`).
+process's key like the other secrets (`audible_sync.crypto`).
 
 A browser signs in once and is then known by an HTTP-only cookie holding a random
 session token. The database keeps only the token's SHA-256, so a copy of the database
@@ -26,8 +26,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from src import crypto
-from src.database import (
+from audible_sync import crypto
+from audible_sync.database import (
     WEB_PASSWORD_SETTING,
     add_session,
     delete_expired_sessions,

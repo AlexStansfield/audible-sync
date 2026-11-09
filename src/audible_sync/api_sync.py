@@ -6,17 +6,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
-from src.database import (
+from audible_sync.database import (
     count_sync_runs,
     get_accounts,
     get_run_books,
     get_sync_run,
     get_sync_runs,
 )
-from src.model import RunBookOutcome
-from src.runstate import RunState
-from src.scheduler import Scheduler
-from src.schemas import (
+from audible_sync.model import RunBookOutcome
+from audible_sync.runstate import RunState
+from audible_sync.scheduler import Scheduler
+from audible_sync.schemas import (
     Message,
     RunBookOut,
     RunBooks,
@@ -24,7 +24,7 @@ from src.schemas import (
     SyncRunList,
     SyncRunOut,
 )
-from src.settings import Settings
+from audible_sync.settings import Settings
 
 
 def router(*, scheduler: Scheduler, state: RunState) -> APIRouter:

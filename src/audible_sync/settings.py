@@ -9,9 +9,9 @@ the truth - editable at runtime through the API, with no restart.
 
 Every route produces the same frozen `Settings` object, so a value is parsed, anchored
 and validated exactly once. Every path is anchored against the repo root (see
-`src.paths`), so the process can be started from any working directory.
+`audible_sync.paths`), so the process can be started from any working directory.
 
-Note this module must never import `src.downloader`: the downloader imports
+Note this module must never import `audible_sync.downloader`: the downloader imports
 `Settings`, so the reverse edge would be a circular import.
 """
 
@@ -22,10 +22,10 @@ from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
-from src.database import get_settings, has_settings, save_settings
-from src.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
-from src.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
-from src.paths import REPO_ROOT, resolve_path
+from audible_sync.database import get_settings, has_settings, save_settings
+from audible_sync.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
+from audible_sync.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
+from audible_sync.paths import REPO_ROOT, resolve_path
 
 logger = logging.getLogger(__name__)
 

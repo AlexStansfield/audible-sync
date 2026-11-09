@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from src.model import Book
-from src.naming import (
+from audible_sync.model import Book
+from audible_sync.naming import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_FOLDER_TEMPLATE,
     book_output_paths,

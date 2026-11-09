@@ -3,15 +3,15 @@ The HTTP API, built for the web app that is Milestone 4.
 
 `create_app` takes the scheduler and run state it serves rather than building them, so
 a test can hand it fakes and the service can hand it the real ones. The routes are one
-module per area, `src.api_*`, each a function building its router from what it needs;
+module per area, `audible_sync.api_*`, each a function building its router from what it needs;
 this module puts them together behind the authentication, and serves the web app. Every endpoint is
 a plain `def`: FastAPI runs those in a threadpool, which is what the SQLite calls in
-`src.database` (one connection per call) need, and keeps the event loop free for the
+`audible_sync.database` (one connection per call) need, and keeps the event loop free for the
 polling the UI will do.
 
 Everything under `/api` except `/api/health`, `/api/auth/login` and `/api/auth/logout`
 needs either `Authorization: Bearer <token>` - scripts and the CLI - or the session
-cookie the web app gets from signing in (`src.webauth`).
+cookie the web app gets from signing in (`audible_sync.webauth`).
 Errors are `{"detail": ...}` throughout, which is FastAPI's own shape, so the client
 has one error format to handle.
 """
@@ -33,7 +33,7 @@ from pydantic import ValidationError
 from starlette.routing import Match
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from src import (
+from audible_sync import (
     api_accounts,
     api_auth,
     api_books,
@@ -42,16 +42,16 @@ from src import (
     api_system,
     webauth,
 )
-from src.apitoken import ApiToken
-from src.audible_login import PendingLogins
-from src.logbuffer import RingBufferHandler
-from src.paths import REPO_ROOT
-from src.runstate import RunState
-from src.scheduler import Scheduler
-from src.schemas import (
+from audible_sync.apitoken import ApiToken
+from audible_sync.audible_login import PendingLogins
+from audible_sync.logbuffer import RingBufferHandler
+from audible_sync.paths import REPO_ROOT
+from audible_sync.runstate import RunState
+from audible_sync.scheduler import Scheduler
+from audible_sync.schemas import (
     Health,
 )
-from src.webauth import SESSION_COOKIE, LoginThrottle
+from audible_sync.webauth import SESSION_COOKIE, LoginThrottle
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +166,7 @@ def create_app(
 
     @app.exception_handler(ValueError)
     async def _value_error(_request: Request, error: ValueError) -> JSONResponse:
-        # Every validator in `src.settings` raises ValueError with a message meant to
+        # Every validator in `audible_sync.settings` raises ValueError with a message meant to
         # be read, so it is the body of the 422 rather than a generic one. Pydantic's
         # own errors are ValueErrors too, and one reaching here means a response did
         # not fit its schema - a bug, which must surface as a 500 rather than a 422.

@@ -1,5 +1,5 @@
-import src.progress as progress_module
-from src.progress import NullProgress, TqdmProgress
+import audible_sync.progress as progress_module
+from audible_sync.progress import NullProgress, TqdmProgress
 
 
 class FakeBar:

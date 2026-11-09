@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from mutagen.mp4 import MP4
 
-from src.encoding import (
+from audible_sync.encoding import (
     DEFAULT_BITRATE,
     DEFAULT_FORMAT,
     chapter_tags,

@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-from src.accounts import authenticator_for, persist_auth_if_changed
-from src.audible_client import Audible
-from src.database import (
+from audible_sync.accounts import authenticator_for, persist_auth_if_changed
+from audible_sync.audible_client import Audible
+from audible_sync.database import (
     clear_book_files,
     get_account,
     get_accounts,
@@ -25,10 +25,10 @@ from src.database import (
     set_monitored,
     update_books,
 )
-from src.encoding import output_extension, read_embedded_asin
-from src.model import Book, BookStatus
-from src.naming import book_output_paths
-from src.settings import Settings
+from audible_sync.encoding import output_extension, read_embedded_asin
+from audible_sync.model import Book, BookStatus
+from audible_sync.naming import book_output_paths
+from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
 

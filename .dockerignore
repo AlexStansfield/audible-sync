@@ -31,7 +31,6 @@
 **/secrets.dev.yaml
 **/values.dev.yaml
 LICENSE
-README.md
 
 # Never part of the image: the runtime data, the library itself (gigabytes), local
 # environments, credentials and local test setups

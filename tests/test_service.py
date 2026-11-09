@@ -4,11 +4,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import src.database as database
-from src import crypto, service, webauth
-from src.apitoken import resolve_api_token
-from src.logbuffer import RingBufferHandler
-from src.service import ServiceConfig
+import audible_sync.database as database
+from audible_sync import crypto, service, webauth
+from audible_sync.apitoken import resolve_api_token
+from audible_sync.logbuffer import RingBufferHandler
+from audible_sync.service import ServiceConfig
 
 
 @pytest.fixture
@@ -102,7 +102,7 @@ def test_the_duplicate_account_warning_reaches_the_logs_endpoint(db, monkeypatch
 
 
 def test_the_first_start_creates_the_web_user_and_logs_its_password_once(db, caplog):
-    caplog.set_level(logging.INFO, logger="src.service")
+    caplog.set_level(logging.INFO, logger="audible_sync.service")
 
     service.ensure_web_user()
     (password,) = [r.args[1] for r in caplog.records if "Web app sign-in" in r.getMessage()]

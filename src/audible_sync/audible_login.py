@@ -43,7 +43,7 @@ from audible.localization import LOCALE_TEMPLATES, Locale
 from audible.login import build_oauth_url, create_code_verifier
 from audible.register import register
 
-from src.model import StoredLogin
+from audible_sync.model import StoredLogin
 
 logger = logging.getLogger(__name__)
 

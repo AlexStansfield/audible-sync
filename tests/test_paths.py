@@ -1,10 +1,10 @@
 from pathlib import Path
 
-from src.paths import REPO_ROOT, resolve_path
+from audible_sync.paths import REPO_ROOT, resolve_path
 
 
 def test_repo_root_is_the_directory_containing_src():
-    assert (REPO_ROOT / "src" / "paths.py").is_file()
+    assert (REPO_ROOT / "src" / "audible_sync" / "paths.py").is_file()
     assert (REPO_ROOT / "pyproject.toml").is_file()
 
 

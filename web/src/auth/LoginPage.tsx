@@ -15,7 +15,7 @@ import { MAX_PASSWORD_LENGTH } from "../lib/password";
 import styles from "./auth.module.css";
 import { useForgetSession } from "./RequireAuth";
 
-export const RESET_COMMAND = "docker compose exec audible-sync uv run --no-sync python -m src.main reset-password";
+export const RESET_COMMAND = "docker compose exec audible-sync uv run --no-sync python -m audible_sync.main reset-password";
 
 /** "Try again in 4 minutes" from a Retry-After of seconds. */
 export function waitText(retryAfter: string | null): string {
@@ -194,7 +194,7 @@ function ForgotCard({ onBack }: { onBack: () => void }) {
       </p>
       <code className={styles.command}>{RESET_COMMAND}</code>
       <p className={styles.small}>
-        Outside Docker it is <code>python -m src.main reset-password</code>. Then sign in with the new password and
+        Outside Docker it is <code>python -m audible_sync.main reset-password</code>. Then sign in with the new password and
         choose your own under Your sign-in. Every browser, this one included, is signed out. Add <code>--username</code>{" "}
         to put the username back to admin as well.
       </p>

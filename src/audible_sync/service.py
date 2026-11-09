@@ -1,5 +1,5 @@
 """
-The background service: `python -m src.service`.
+The background service: `python -m audible_sync.service`.
 
 Reads the host-level configuration from the environment (things that are about the
 process rather than about syncing - where to listen, the API token, CORS), prepares the
@@ -23,7 +23,7 @@ Environment:
                                set it behind a reverse proxy that serves https, where
                                the service itself only ever sees http
     AUDIBLE_SYNC_SECRET_KEY    The key the stored credentials and API token are
-                               encrypted with (see `src/crypto.py`). If unset, the
+                               encrypted with (see `src/audible_sync/crypto.py`). If unset, the
                                key file is used, generated on the first start
     AUDIBLE_SYNC_SECRET_KEY_FILE  Where that key file is; default `secrets/secret.key`
 """
@@ -38,20 +38,20 @@ from pathlib import Path
 
 import uvicorn
 
-from src import crypto, webauth
-from src.api import create_app, normalise_base_path
-from src.apitoken import resolve_api_token
-from src.crypto import load_secret_key
-from src.database import backfill_customer_ids, encrypt_stored_secrets, init_db
-from src.logbuffer import RingBufferHandler
-from src.main import configure_logging, run_pipeline
-from src.paths import REPO_ROOT, resolve_path
-from src.runstate import RunState, StateProgress
-from src.scheduler import Scheduler
-from src.settings import Settings, seed_settings_from_ini
+from audible_sync import crypto, webauth
+from audible_sync.api import create_app, normalise_base_path
+from audible_sync.apitoken import resolve_api_token
+from audible_sync.crypto import load_secret_key
+from audible_sync.database import backfill_customer_ids, encrypt_stored_secrets, init_db
+from audible_sync.logbuffer import RingBufferHandler
+from audible_sync.main import configure_logging, run_pipeline
+from audible_sync.paths import REPO_ROOT, resolve_path
+from audible_sync.runstate import RunState, StateProgress
+from audible_sync.scheduler import Scheduler
+from audible_sync.settings import Settings, seed_settings_from_ini
 
 # Run as `python -m`, this module is `__main__`; name the logger after the module anyway
-logger = logging.getLogger("src.service" if __name__ == "__main__" else __name__)
+logger = logging.getLogger("audible_sync.service" if __name__ == "__main__" else __name__)
 
 # Kept in the settings table under a key `Settings.from_db` does not know, so it is
 # stored beside the rest but never appears in `GET /api/settings`
@@ -133,7 +133,7 @@ def ensure_web_user() -> None:
     user = webauth.current_user()
     logger.warning(
         "Web app sign-in: user %s, password %s - sign in and choose your own; it is not logged again "
-        "(forgotten, it is reset with: python -m src.main reset-password)",
+        "(forgotten, it is reset with: python -m audible_sync.main reset-password)",
         user.username if user else webauth.DEFAULT_USERNAME,
         password,
     )

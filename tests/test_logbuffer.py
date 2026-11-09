@@ -2,7 +2,7 @@ import logging
 
 import pytest
 
-from src.logbuffer import RingBufferHandler
+from audible_sync.logbuffer import RingBufferHandler
 
 
 @pytest.fixture

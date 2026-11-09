@@ -4,9 +4,9 @@ from dataclasses import replace
 
 import pytest
 
-from src import crypto
-from src.model import Account, Book
-from src.settings import Settings
+from audible_sync import crypto
+from audible_sync.model import Account, Book
+from audible_sync.settings import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -116,7 +116,7 @@ def mark_downloaded(book_id: int, encoding_format: str | None = None, **paths) -
     For tests that need a downloaded book rather than to test the transition, which
     `mark_book_downloaded` only allows to the run holding the claim.
     """
-    from src import database
+    from audible_sync import database
 
     claim = database.claim_book_for_download(book_id)
     assert claim is not None, "the book could not be claimed"

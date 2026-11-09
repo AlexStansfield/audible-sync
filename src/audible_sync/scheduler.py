@@ -19,9 +19,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from src.database import latest_sync_run_start
-from src.runstate import RunStage, RunState
-from src.settings import Settings
+from audible_sync.database import latest_sync_run_start
+from audible_sync.runstate import RunStage, RunState
+from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
 

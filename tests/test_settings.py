@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
-import src.database as database
-from src.paths import REPO_ROOT
-from src.settings import (
+import audible_sync.database as database
+from audible_sync.paths import REPO_ROOT
+from audible_sync.settings import (
     DB_SETTING_KEYS,
     Settings,
     seed_settings_from_ini,

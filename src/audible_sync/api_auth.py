@@ -6,14 +6,14 @@ The web app's own sign-in: signing in and out, and the signed-in user's name and
 
 from fastapi import APIRouter, HTTPException, Request, Response
 
-from src import webauth
-from src.schemas import (
+from audible_sync import webauth
+from audible_sync.schemas import (
     Me,
     PasswordChange,
     SignIn,
     UsernameChange,
 )
-from src.webauth import SESSION_COOKIE, LoginThrottle
+from audible_sync.webauth import SESSION_COOKIE, LoginThrottle
 
 
 def _me() -> Me:

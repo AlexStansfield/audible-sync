@@ -7,23 +7,23 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 
-from src import crypto, database, system
-from src.database import (
+from audible_sync import crypto, database, system
+from audible_sync.database import (
     downloaded_file_paths,
     get_accounts,
     get_sync_runs,
     library_stats,
 )
-from src.logbuffer import RingBufferHandler
-from src.scheduler import Scheduler
-from src.schemas import (
+from audible_sync.logbuffer import RingBufferHandler
+from audible_sync.scheduler import Scheduler
+from audible_sync.schemas import (
     AccountStats,
     DiskOut,
     LogList,
     Stats,
     SystemInfo,
 )
-from src.settings import Settings
+from audible_sync.settings import Settings
 
 
 def router(*, scheduler: Scheduler, log_buffer: RingBufferHandler | None, version: str) -> APIRouter:

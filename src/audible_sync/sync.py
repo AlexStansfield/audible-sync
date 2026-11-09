@@ -4,8 +4,8 @@ from typing import NamedTuple
 
 from audible.exceptions import NotFoundError
 
-from src.audible_client import Audible
-from src.database import (
+from audible_sync.audible_client import Audible
+from audible_sync.database import (
     delete_undownloaded_book,
     latest_date_added,
     latest_successful_sync_start,
@@ -13,7 +13,7 @@ from src.database import (
     undownloaded_books_without_length,
     update_books,
 )
-from src.model import Account
+from audible_sync.model import Account
 
 logger = logging.getLogger(__name__)
 

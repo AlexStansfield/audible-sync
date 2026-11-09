@@ -8,18 +8,18 @@ import pytest
 from audible import Authenticator
 from fastapi.testclient import TestClient
 
-import src.database as database
-from src import api as api_module
-from src import api_accounts, api_books, api_settings, webauth
-from src import audible_login as login_module
-from src.api import create_app, read_version
-from src.apitoken import ApiToken
-from src.audible_login import PendingLogins
-from src.logbuffer import RingBufferHandler
-from src.model import StoredLogin, SyncOutcome
-from src.paths import REPO_ROOT
-from src.runstate import RunStage, RunState
-from src.settings import Settings
+import audible_sync.database as database
+from audible_sync import api as api_module
+from audible_sync import api_accounts, api_books, api_settings, webauth
+from audible_sync import audible_login as login_module
+from audible_sync.api import create_app, read_version
+from audible_sync.apitoken import ApiToken
+from audible_sync.audible_login import PendingLogins
+from audible_sync.logbuffer import RingBufferHandler
+from audible_sync.model import StoredLogin, SyncOutcome
+from audible_sync.paths import REPO_ROOT
+from audible_sync.runstate import RunStage, RunState
+from audible_sync.settings import Settings
 from tests.test_accounts import AUTH_BLOB
 from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
 
@@ -1227,7 +1227,7 @@ def test_browser_login_can_replace_an_existing_accounts_credentials(api, monkeyp
 
 # --- books ---------------------------------------------------------------------------
 
-from src.model import BookStatus  # noqa: E402
+from audible_sync.model import BookStatus  # noqa: E402
 from tests.conftest import make_book, mark_downloaded  # noqa: E402
 
 
@@ -1776,7 +1776,7 @@ def test_nothing_is_served_without_a_build(db, tmp_path):
 
 from types import SimpleNamespace  # noqa: E402
 
-from src import system  # noqa: E402
+from audible_sync import system  # noqa: E402
 
 
 def test_the_token_is_shown_masked(api):
@@ -2038,7 +2038,7 @@ def test_a_post_to_a_page_of_the_app_is_a_404(web):
 
 # --- served under a base path behind a reverse proxy ----------------------------------
 
-from src.api import normalise_base_path  # noqa: E402
+from audible_sync.api import normalise_base_path  # noqa: E402
 
 BASE = "/audible-sync"
 

@@ -13,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from src.model import Account, SyncRun
+from audible_sync.model import Account, SyncRun
 
 logger = logging.getLogger(__name__)
 

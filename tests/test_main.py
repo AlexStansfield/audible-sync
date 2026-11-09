@@ -4,15 +4,15 @@ import threading
 
 import pytest
 
-from src import accounts as accounts_module
-from src import main as main_module
-from src.accounts import LoginAlreadyHeld
-from src.audible_login import LoginFailed
-from src.downloader import DownloadStats
-from src.main import configure_logging, main, run_pipeline
-from src.model import Account, StoredLogin, SyncOutcome
-from src.runstate import RunStage, RunState
-from src.sync import SyncResult
+from audible_sync import accounts as accounts_module
+from audible_sync import main as main_module
+from audible_sync.accounts import LoginAlreadyHeld
+from audible_sync.audible_login import LoginFailed
+from audible_sync.downloader import DownloadStats
+from audible_sync.main import configure_logging, main, run_pipeline
+from audible_sync.model import Account, StoredLogin, SyncOutcome
+from audible_sync.runstate import RunStage, RunState
+from audible_sync.sync import SyncResult
 from tests.conftest import make_account, make_settings
 
 
@@ -341,7 +341,7 @@ def test_run_pipeline_gives_every_account_its_turn_then_raises_the_first_error(t
 
 def test_run_pipeline_skips_an_account_removed_after_the_run_began(tmp_path, monkeypatch, caplog):
     """The list is read once; an account deleted while an earlier one runs must not be synced."""
-    caplog.set_level(logging.INFO, logger="src.main")
+    caplog.set_level(logging.INFO, logger="audible_sync.main")
     calls = {"removed": {2}}
     _patch_pipeline(monkeypatch, calls, accounts=[make_account(id=1), make_account(id=2, name="Gone")])
 

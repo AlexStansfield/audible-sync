@@ -1,7 +1,7 @@
 """
 The library: listing books, the per-book and bulk actions, the download queue and covers.
 
-The rules the actions follow are `src.library`'s; these routes map its refusals to HTTP.
+The rules the actions follow are `audible_sync.library`'s; these routes map its refusals to HTTP.
 """
 
 import logging
@@ -11,9 +11,9 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, RedirectResponse
 
-from src import library
-from src.api_accounts import account_or_404
-from src.database import (
+from audible_sync import library
+from audible_sync.api_accounts import account_or_404
+from audible_sync.database import (
     BOOK_SORT_COLUMNS,
     book_ids_matching,
     get_book,
@@ -21,8 +21,8 @@ from src.database import (
     requeue_unavailable,
     set_monitored,
 )
-from src.model import BookStatus
-from src.schemas import (
+from audible_sync.model import BookStatus
+from audible_sync.schemas import (
     BookAction,
     BookList,
     BookOut,
@@ -35,7 +35,7 @@ from src.schemas import (
     Requeued,
     RetryUnavailable,
 )
-from src.settings import Settings
+from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
 

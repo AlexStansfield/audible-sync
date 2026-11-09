@@ -1,9 +1,9 @@
 """
-Write the API's OpenAPI schema to a file: `python -m src.openapi_export web/openapi.json`.
+Write the API's OpenAPI schema to a file: `python -m audible_sync.openapi_export web/openapi.json`.
 
 The web app's TypeScript types are generated from this file (`npm run gen:api` in
 `web/`), and CI regenerates both and fails when they differ from what is committed, so
-the client cannot drift from `src/schemas.py`. The app is built with stand-ins: nothing
+the client cannot drift from `src/audible_sync/schemas.py`. The app is built with stand-ins: nothing
 is started, no database or key is touched, and no server has to be running.
 """
 
@@ -11,9 +11,9 @@ import json
 import sys
 from pathlib import Path
 
-from src.api import create_app
-from src.apitoken import ApiToken
-from src.runstate import RunState
+from audible_sync.api import create_app
+from audible_sync.apitoken import ApiToken
+from audible_sync.runstate import RunState
 
 # A constant rather than pyproject's version, so a release bump does not make the
 # committed schema stale; nothing generated from it reads the version
@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> None:
     """Write the schema to the one path given, sorted and indented so a diff reads cleanly."""
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 1:
-        raise SystemExit("usage: python -m src.openapi_export OUTPUT.json")
+        raise SystemExit("usage: python -m audible_sync.openapi_export OUTPUT.json")
     Path(args[0]).write_text(json.dumps(openapi_schema(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 

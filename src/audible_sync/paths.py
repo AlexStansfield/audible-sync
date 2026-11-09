@@ -9,8 +9,9 @@ happened to be launched from.
 
 from pathlib import Path
 
-# The directory containing `src/`, i.e. the repository root (`/app` in the image).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+# The repository root (`/app` in the image), two levels above this package's folder. The
+# project is installed editable (uv's default), so this file stays under the checkout.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def resolve_path(value: str | Path) -> Path:

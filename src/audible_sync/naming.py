@@ -11,7 +11,7 @@ that are not part of a series.
 import re
 from pathlib import Path
 
-from src.model import Book
+from audible_sync.model import Book
 
 # Characters that are invalid in file names on Windows/SMB shares (plus control chars).
 # '/' and '\\' are handled separately so they can be replaced rather than dropped.

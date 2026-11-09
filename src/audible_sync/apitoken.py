@@ -13,8 +13,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Literal
 
-from src import crypto
-from src.database import API_TOKEN_SETTING, get_settings, save_settings
+from audible_sync import crypto
+from audible_sync.database import API_TOKEN_SETTING, get_settings, save_settings
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ leaves the migration of old rows to `database.encrypt_stored_secrets`.
 
 Module state on purpose: one key per process, configured once at start by the entry
 points (`main._prepare`, `service.build`) after logging is up, and read by
-`src.database` whenever a secret is written or read. Tests configure a fresh key per
+`audible_sync.database` whenever a secret is written or read. Tests configure a fresh key per
 test through the autouse fixture in `tests/conftest.py`.
 """
 
@@ -34,7 +34,7 @@ from typing import Literal
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from src.paths import REPO_ROOT, resolve_path
+from audible_sync.paths import REPO_ROOT, resolve_path
 
 logger = logging.getLogger(__name__)
 

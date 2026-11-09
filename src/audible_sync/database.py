@@ -7,9 +7,9 @@ import stat
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
-from src import crypto
-from src.model import Account, Book, BookStatus, RunBook, RunBookOutcome, SyncOutcome, SyncRun
-from src.paths import REPO_ROOT
+from audible_sync import crypto
+from audible_sync.model import Account, Book, BookStatus, RunBook, RunBookOutcome, SyncOutcome, SyncRun
+from audible_sync.paths import REPO_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ def init_db():
     """)
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sync_run_books_run ON sync_run_books(run_id)")
     # Runtime settings as text, one row per key. Seeded from config.ini on the first run
-    # and changed through the API after that; `src.settings` owns the parsing.
+    # and changed through the API after that; `audible_sync.settings` owns the parsing.
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -131,7 +131,7 @@ def init_db():
         )
     """)
     # Web app sign-ins. `id` is the SHA-256 of the cookie's token, never the token, so
-    # a copy of the database cannot be used to take over a session (`src.webauth`).
+    # a copy of the database cannot be used to take over a session (`audible_sync.webauth`).
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
@@ -1265,13 +1265,13 @@ def count_sync_runs(*, account_id: int | None = None) -> int:
 
 # --- accounts ------------------------------------------------------------------
 # One row per marketplace login. The credentials are stored as the JSON of
-# `Authenticator.to_dict()`, encrypted with the process's secret key (`src.crypto`);
-# `src.accounts` is the only thing that builds an `Authenticator` from the decoded
+# `Authenticator.to_dict()`, encrypted with the process's secret key (`audible_sync.crypto`);
+# `audible_sync.accounts` is the only thing that builds an `Authenticator` from the decoded
 # blob, this layer keeps the text and does the encrypting.
 
 # The settings-table key the API token is stored under, encrypted like the credentials
 API_TOKEN_SETTING = "api_token"
-# ... and the web app password's hash (`src.webauth`)
+# ... and the web app password's hash (`audible_sync.webauth`)
 WEB_PASSWORD_SETTING = "web_password"
 
 # Accounts whose credentials do not decrypt, logged once per process rather than on
@@ -1591,7 +1591,7 @@ def delete_account(account_id: int) -> None:
 
 
 # --- settings ------------------------------------------------------------------
-# Text in, text out: `src.settings` is the only reader and writer, and it owns the
+# Text in, text out: `audible_sync.settings` is the only reader and writer, and it owns the
 # parsing, the defaults and the validation. Keeping this layer typeless means a value
 # the running build cannot parse is still stored and read back rather than lost.
 
@@ -1632,7 +1632,7 @@ def has_settings() -> bool:
 
 
 # --- sessions ------------------------------------------------------------------
-# Web app sign-ins, keyed by the hash of the cookie's token. `src.webauth` owns the
+# Web app sign-ins, keyed by the hash of the cookie's token. `audible_sync.webauth` owns the
 # lifetimes and the hashing; this layer stores and compares the ISO 8601 text.
 
 

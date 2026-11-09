@@ -2,8 +2,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-import src.database as database
-from src import crypto, webauth
+import audible_sync.database as database
+from audible_sync import crypto, webauth
 
 NOW = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
 PASSWORD = "correct horse battery"
@@ -87,7 +87,7 @@ def test_the_password_hash_is_stored_encrypted(db):
 
 
 def test_the_user_never_shows_as_a_setting(db):
-    from src.settings import Settings
+    from audible_sync.settings import Settings
 
     webauth.ensure_admin()
 

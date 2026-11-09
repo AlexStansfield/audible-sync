@@ -11,8 +11,8 @@ import httpx
 from audible.aescipher import decrypt_voucher_from_licenserequest
 from audible.exceptions import AuthFlowError, NoRefreshToken, NotFoundError, Unauthorized
 
-from src.audible_client import Audible
-from src.database import (
+from audible_sync.audible_client import Audible
+from audible_sync.database import (
     claim_book_for_download,
     get_books_to_download,
     mark_book_downloaded,
@@ -21,7 +21,7 @@ from src.database import (
     record_run_book,
     release_book,
 )
-from src.encoding import (
+from audible_sync.encoding import (
     DEFAULT_BITRATE,
     DEFAULT_FORMAT,
     chapter_tags,
@@ -31,11 +31,11 @@ from src.encoding import (
     read_embedded_asin,
     write_m4b_extra_tags,
 )
-from src.model import Book, BookStatus, RunBookOutcome
-from src.naming import book_output_paths, sanitize_filename, temp_book_folder
-from src.progress import NullProgress, Progress
-from src.runstate import RunState
-from src.settings import Settings
+from audible_sync.model import Book, BookStatus, RunBookOutcome
+from audible_sync.naming import book_output_paths, sanitize_filename, temp_book_folder
+from audible_sync.progress import NullProgress, Progress
+from audible_sync.runstate import RunState
+from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +114,7 @@ def _stream_to_file(
     The bytes go to a sibling `.part` file that is renamed once the stream ends, so
     an interrupted run cannot leave a truncated file that looks complete.
 
-    Progress goes wherever the caller says (see `src.progress`) rather than to a bar
+    Progress goes wherever the caller says (see `audible_sync.progress`) rather than to a bar
     this function owns: a terminal wants `tqdm`, a service wants something its front
     end can read. `finish` runs even when the stream fails, so a failed download does
     not leave a bar open across the next one.
@@ -503,7 +503,7 @@ def decrypt_aaxc(
         book_data: Optional book to generate metadata from
         cover_path: Optional path to cover image to embed
         chapters: Optional list of chapter dictionaries to embed
-        encoding_format: Output format, a key of ``src.encoding.FORMATS``
+        encoding_format: Output format, a key of ``audible_sync.encoding.FORMATS``
         bitrate: Opus bitrate in kbps, ignored for ``m4b``
 
     Returns:
@@ -859,7 +859,7 @@ def download_books(
     untouched - stopping a run is not the book's fault any more than an expired token
     is. The decrypt step is not interruptible, so a cancel that lands during ffmpeg
     waits for that one book. `state` is where the book in hand and the queue position
-    are reported (see `src.runstate`); it defaults to one nobody reads.
+    are reported (see `audible_sync.runstate`); it defaults to one nobody reads.
 
     Books are processed independently. A retryable failure is logged, recorded against
     the book and returned to the queue; once a book has used `settings.max_attempts` it
@@ -871,7 +871,7 @@ def download_books(
     every remaining book would fail the same way, and it is not this book's fault.
 
     `settings` carries the download and audiobook folders, the naming templates
-    that control where each book is filed (see src.naming for the placeholder
+    that control where each book is filed (see audible_sync.naming for the placeholder
     syntax), the output format - m4b (stream copy) or oga (Opus at the
     configured bitrate) - `max_attempts`, and `max_download`, the optional cap on how
     many books a single run takes on. The queue is walked until that many books have
@@ -888,7 +888,7 @@ def download_books(
     and walking the rest of the queue would only repeat the refusal for every title.
     None never stops.
 
-    `progress` is where byte progress for each transfer is reported; see `src.progress`.
+    `progress` is where byte progress for each transfer is reported; see `audible_sync.progress`.
 
     `run_id` is the `sync_runs` row each book is recorded against (`sync_run_books`): a
     book downloaded, failed or refused a licence gets a row, with its size and time or

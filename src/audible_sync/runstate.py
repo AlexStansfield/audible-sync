@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from src.model import Book
+from audible_sync.model import Book
 
 
 class RunStage(StrEnum):

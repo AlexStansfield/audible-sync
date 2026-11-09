@@ -2,7 +2,7 @@ import logging
 
 import audible
 
-from src.model import Book, sort_series
+from audible_sync.model import Book, sort_series
 
 logger = logging.getLogger(__name__)
 

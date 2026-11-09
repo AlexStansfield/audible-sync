@@ -4,13 +4,13 @@ Accounts: one Audible marketplace login each, credentials kept in the database.
 The `audible` library's `Authenticator` is built from and saved as a dict
 (`from_dict`/`to_dict`), which is exactly what the `accounts.auth` column holds, so an
 account's credentials round-trip without a file. This module is the only thing that
-encodes or decodes them; `src.database` just keeps the text.
+encodes or decodes them; `audible_sync.database` just keeps the text.
 
 An account with no credentials (`auth` NULL) is allowed on purpose. The migration that
 introduced accounts creates one when it has to rebuild a pre-accounts library, and a
 login can later be invalidated; either way the pipeline skips it and the API reports
 it as needing a login, rather than the whole service refusing to start. The way in is
-always a login (`src.audible_login`): a new account, or `replace_account_auth` for one
+always a login (`audible_sync.audible_login`): a new account, or `replace_account_auth` for one
 that has none or whose registration stopped working.
 """
 
@@ -23,7 +23,7 @@ from typing import Any
 
 from audible import Authenticator
 
-from src.database import (
+from audible_sync.database import (
     add_account,
     customer_id_of,
     get_account,
@@ -32,7 +32,7 @@ from src.database import (
     requeue_unavailable,
     save_account_auth,
 )
-from src.model import Account, StoredLogin
+from audible_sync.model import Account, StoredLogin
 
 logger = logging.getLogger(__name__)
 
