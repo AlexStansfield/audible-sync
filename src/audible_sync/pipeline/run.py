@@ -7,6 +7,7 @@ configures anything on import, so a host process is not surprised.
 
 import logging
 import threading
+from datetime import UTC, datetime
 
 from audible_sync.audible_api.accounts import (
     authenticator_for,
@@ -20,6 +21,7 @@ from audible_sync.database import (
     get_accounts,
     get_sync_run,
     init_db,
+    latest_full_refresh_start,
     mark_account_synced,
     start_sync_run,
 )
@@ -32,6 +34,25 @@ from audible_sync.pipeline.sync import sync_library
 from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
+
+
+# How old an account's last full refresh may be before a run is one, with the daily
+# full refresh on
+def _full_refresh_due(account_id: int, settings: Settings, now: datetime | None = None) -> bool:
+    """
+    Whether the daily full refresh is on and this account has not had one today (UTC).
+
+    A calendar day rather than 24 hours since the last: each account's run starts later
+    by however long the accounts before it took, so with a daily schedule "a day since"
+    would fall a few minutes short and the refresh would skip to the day after.
+    """
+    if not settings.daily_full_refresh:
+        return False
+    last = latest_full_refresh_start(account_id)
+    if last is None:
+        return True
+    now = now or datetime.now(UTC)
+    return datetime.fromisoformat(last).astimezone(UTC).date() < now.astimezone(UTC).date()
 
 
 def _outcome(stats: DownloadStats) -> SyncOutcome:
@@ -58,6 +79,7 @@ def run_pipeline(
     *,
     state: RunState | None = None,
     cancel: threading.Event | None = None,
+    full: bool = False,
 ) -> None:
     """
     Sync every account's library and download everything waiting, in one pass.
@@ -80,6 +102,8 @@ def run_pipeline(
             `audible_sync.pipeline.runstate`). Defaults to one nobody reads
         cancel: Event that stops the run once set; checked between accounts and,
             within an account, only during the download half (see `run_account`)
+        full: Re-read every account's whole library, a full refresh, whether or not
+            the daily one is due
     """
     settings.create_folders()
     init_db()
@@ -112,7 +136,7 @@ def run_pipeline(
                 continue
 
             try:
-                run_account(account, settings, progress=progress, state=state, cancel=cancel)
+                run_account(account, settings, progress=progress, state=state, cancel=cancel, full=full)
             except Exception as error:
                 logger.exception("Run failed for %s", account.name)
                 first_error = first_error or error
@@ -128,6 +152,7 @@ def run_account(
     *,
     state: RunState | None = None,
     cancel: threading.Event | None = None,
+    full: bool = False,
 ) -> None:
     """
     One account's pass: sync its library, then download what it has waiting.
@@ -141,16 +166,23 @@ def run_account(
     `cancel` is only honoured during the download half: the sync is seconds and the
     downloads are hours, and a run that has read the library through still counts as
     a cursor (see `SyncOutcome`).
+
+    With `full`, or with the daily full refresh due (`_full_refresh_due`), the sync
+    re-reads the whole library (see `sync_library`), and the run row says so: a full
+    refresh is a run like any other, so it cannot overlap another and can be cancelled.
+    An account's first sync is one too, and the row says that at the end.
     """
     state = state or RunState()
-    run_id = start_sync_run(account.id)
-    state.begin(run_id)
+    full = full or _full_refresh_due(account.id, settings)
+    run_id = start_sync_run(account.id, full_refresh=full)
+    state.begin(run_id, full_refresh=full)
     state.set_account({"id": account.id, "name": account.name, "country_code": account.country_code})
     # Held outside the try so a run that raises still records what it managed. `synced`
     # is whether the library was read through: a failure after that point must not hold
     # the cursor back, or every later run would re-read from an ever older cursor.
     synced = False
     books_seen = books_added = 0
+    full_refresh: bool | None = None
     audible: Audible | None = None
 
     try:
@@ -158,7 +190,9 @@ def run_account(
             audible = Audible(authenticator_for(account))
 
             state.set_stage(RunStage.SYNCING)
-            books_seen, books_added = sync_library(audible, account, auto_monitor_new=settings.auto_monitor_new)
+            books_seen, books_added, full_refresh = sync_library(
+                audible, account, auto_monitor_new=settings.auto_monitor_new, full=full
+            )
             synced = True
             mark_account_synced(account.id)
             logger.info("%d books synced to database for %s", books_added, account.name)
@@ -174,6 +208,7 @@ def run_account(
                 books_seen=books_seen,
                 books_added=books_added,
                 error=f"{type(error).__name__}: {error}",
+                full_refresh=full_refresh,
             )
             raise
         finally:
@@ -194,6 +229,7 @@ def run_account(
             books_downloaded=stats.succeeded,
             books_failed=stats.failed,
             error=_run_error(stats, settings),
+            full_refresh=full_refresh,
         )
     finally:
         # The row is closed on every path above, so what is sent is the final record

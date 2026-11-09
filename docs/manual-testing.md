@@ -64,3 +64,11 @@ A quick local version with no Audible access is a scratch database with an accou
 
 - [ ] Follow a podcast on Audible and run a sync: no new book appears and the run has nothing to say about it. A show stored by an earlier version is removed by the next sync, with a line in the log, whether it is still followed or not
 - [ ] Sign in again on an account while a run is downloading on it: the run carries on and ends as it would have, the log says the previous device waits for the run, and once the run has ended the device is deregistered (it leaves Amazon's device list) and any book it was refused meanwhile is back in the queue
+
+## Since v3.1.0
+
+- [x] Refresh all from Audible on the Dashboard: the run card says Refreshing all while it reads, the log reads the whole library once per account, Activity marks the run Full refresh, and a book's title edited in the database by hand is put back
+- [x] With `daily-full-refresh` on, the first scheduled run after the upgrade is a full refresh for every account, and the next one only on the next day (UTC); with it off, no run is one unless asked for. A run that re-reads the library because a withdrawn title is parked is not marked as one
+- [x] After the first full refresh every book with a summary on Audible shows it on its Book page, folded with Show more when long, at desktop and 390px and in both themes
+- [x] A new download carries the description: `ffprobe -show_format` shows `description` in the M4B, and with `format = oga` `SYNOPSIS` among the stream tags beside `comment=ASIN: ...`; the ASIN is still read back from the file (`library.audio_path_for` finds it)
+- [x] A download taking longer than a few minutes renews its claim (`claim_renewed_at` moves every five minutes while `last_attempt_at` stays), and with `STALE_CLAIM_SECONDS` made short a second process does not take the book (checked 2026-11-09)

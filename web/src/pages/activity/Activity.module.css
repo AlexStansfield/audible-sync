@@ -95,6 +95,13 @@
   padding-right: 20px;
 }
 
+/* An outcome and, on a full refresh, its marker */
+.outcome {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .toggle {
   display: flex;
   align-items: center;

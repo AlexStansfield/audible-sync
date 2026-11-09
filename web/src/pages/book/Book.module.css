@@ -112,6 +112,48 @@
   text-decoration: none;
 }
 
+.description {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 72ch;
+}
+
+.descriptionText {
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.descriptionText p,
+.descriptionText ul,
+.descriptionText ol {
+  margin: 0 0 0.7em;
+}
+
+.descriptionText > :last-child {
+  margin-bottom: 0;
+}
+
+.descriptionText ul,
+.descriptionText ol {
+  padding-left: 1.4em;
+}
+
+.descriptionText strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Four lines, then Show more. A height rather than line-clamp, which does not reach
+   into the paragraphs and lists the description is made of */
+.folded {
+  max-height: calc(1.55em * 4);
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
 .details {
   margin: 4px 0 0;
   display: grid;

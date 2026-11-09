@@ -92,6 +92,16 @@ function Header({ status, firstRun }: { status: Status | undefined; firstRun: bo
               Next run <strong>{formatClock(scheduler.next_run_at)}</strong> ({nextRunText(scheduler.next_run_at)})
             </span>
           )}
+          <button
+            type="button"
+            className="btn btn-secondary"
+            // Like Sync now, nothing to press while a run is going: it would be refused
+            disabled={running || start.isPending}
+            title="Re-read every book's details from Audible: titles, authors, series, covers, descriptions and availability"
+            onClick={() => start.mutate({ full: true })}
+          >
+            Refresh all from Audible
+          </button>
           {running ? (
             <button
               type="button"
@@ -210,6 +220,8 @@ function RunCard({ run }: { run: RunSnapshot }) {
             </>
           ) : run.stage === "cancelling" ? (
             "Stopping after the current step"
+          ) : run.full_refresh ? (
+            "Reading the whole library from Audible"
           ) : (
             "Reading the library from Audible"
           )}

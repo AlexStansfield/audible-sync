@@ -72,6 +72,7 @@ export function run(overrides: Partial<SyncRun> = {}): SyncRun {
     books_failed: 0,
     error: null,
     books_recorded: true,
+    full_refresh: false,
     ...overrides,
   };
 }
@@ -112,6 +113,7 @@ export function settings(overrides: Partial<S["SettingsOut"]> = {}): S["Settings
     max_attempts: 3,
     max_consecutive_failures: null,
     auto_monitor_new: true,
+    daily_full_refresh: true,
     download_folder: "/app/data/downloads",
     audiobook_folder: "/audiobooks",
     folder_template: "{author}/[{series}/][{sequence} - ]{title}",

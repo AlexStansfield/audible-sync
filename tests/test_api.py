@@ -35,6 +35,7 @@ class FakeScheduler:
     def __init__(self, *, running=False):
         self.running = running
         self.triggered = 0
+        self.full = []
         self.cancelled = 0
         self.woken = 0
         self.started = 0
@@ -46,10 +47,11 @@ class FakeScheduler:
     def stop(self):
         self.stopped += 1
 
-    def trigger(self):
+    def trigger(self, *, full=False):
         if self.running:
             return False
         self.triggered += 1
+        self.full.append(full)
         return True
 
     def cancel(self):
@@ -379,6 +381,24 @@ def test_start_sync_triggers_the_scheduler(api):
     assert response.status_code == 202
     assert response.json() == {"status": "started"}
     assert api.scheduler.triggered == 1
+    # Without a body it is an ordinary run
+    assert api.scheduler.full == [False]
+
+
+@pytest.mark.parametrize(("body", "full"), [({"full": True}, True), ({"full": False}, False), ({}, False)])
+def test_start_sync_asks_for_a_full_refresh_when_told_to(api, body, full):
+    response = api.post("/api/sync", headers=AUTH, json=body)
+
+    assert response.status_code == 202
+    assert api.scheduler.full == [full]
+
+
+@pytest.mark.parametrize("body", [{"full": "yes please"}, {"fulll": True}])
+def test_start_sync_refuses_a_body_it_does_not_understand(api, body):
+    response = api.post("/api/sync", headers=AUTH, json=body)
+
+    assert response.status_code == 422
+    assert api.scheduler.triggered == 0
 
 
 def test_start_sync_is_a_conflict_while_one_is_running(api):
@@ -454,6 +474,7 @@ def test_get_run(api, monkeypatch):
         "books_failed": 0,
         "error": None,
         "books_recorded": True,
+        "full_refresh": False,
     }
 
 
@@ -1268,6 +1289,58 @@ def test_list_books_pages_and_filters(api):
 )
 def test_list_books_rejects_bad_parameters(api, params):
     assert api.get("/api/books", headers=AUTH, params=params).status_code == 422
+
+
+def test_get_book_gives_the_description_as_plain_text(api):
+    account_id = _account()
+    (book,) = _shelve(
+        account_id, make_book("B001", description="<p>A <b>tale</b> &amp; more.</p><script>x()</script><p>Two.</p>")
+    )
+
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert body["description"] == "A tale & more.\n\nTwo."
+    # And with its formatting, rebuilt from the allow-list: no script, nothing else of Audible's
+    assert body["description_html"] == "<p>A <strong>tale</strong> &amp; more.</p><p>Two.</p>"
+
+
+def test_get_book_without_a_description_gives_an_empty_one(api):
+    (book,) = _shelve(_account(), make_book("B001", description=None))
+
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert (body["description"], body["description_html"]) == ("", "")
+
+
+def test_the_book_list_leaves_the_description_out(api):
+    _shelve(_account(), make_book("B001", description="<p>Long.</p>"))
+
+    (item,) = api.get("/api/books", headers=AUTH).json()["items"]
+
+    assert "description" not in item
+    assert "description_html" not in item
+
+
+def test_patch_gives_the_description_too(api):
+    (book,) = _shelve(_account(), make_book("B001", description="<p>Told.</p>"))
+
+    body = api.patch(f"/api/books/{book.id}", headers=AUTH, json={"monitored": False}).json()
+
+    assert body["description"] == "Told."
+
+
+def test_refresh_gives_the_description_it_read(api, monkeypatch):
+    (book,) = _shelve(_account(), make_book("B001", description=None))
+    monkeypatch.setattr(
+        api_books.library,
+        "refresh",
+        lambda b: (
+            database.update_books(b.account_id, [make_book("B001", description="<p>New.</p>")])
+            or database.get_book(b.id)
+        ),
+    )
+
+    assert api.post(f"/api/books/{book.id}/refresh", headers=AUTH).json()["description"] == "New."
 
 
 def test_get_book_carries_the_series_it_files_under(api):

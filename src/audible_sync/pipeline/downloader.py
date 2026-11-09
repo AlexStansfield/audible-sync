@@ -1,9 +1,12 @@
 import json
 import logging
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import NamedTuple
 
@@ -20,6 +23,7 @@ from audible_sync.database import (
     mark_book_unavailable,
     record_run_book,
     release_book,
+    renew_claim,
 )
 from audible_sync.model import Book, BookStatus, RunBookOutcome
 from audible_sync.pipeline.encoding import (
@@ -48,6 +52,47 @@ _http_client: httpx.Client | None = None
 
 class LicenseError(RuntimeError):
     """Audible would not grant a download license for a book."""
+
+
+# How often a run renews the claim on the book it is working on. Far inside
+# `STALE_CLAIM_SECONDS`, so a few missed renewals (a locked database) do not lose it.
+CLAIM_RENEW_SECONDS = 5 * 60
+
+
+@contextmanager
+def _renewing_claim(book_id: int, claim: str) -> Iterator[None]:
+    """
+    Renew the claim on a book every `CLAIM_RENEW_SECONDS` for as long as the block runs.
+
+    Without it a book taking longer than `STALE_CLAIM_SECONDS` - a slow CDN, a long Opus
+    encode - reads as abandoned while it is still in progress, and a second process
+    (a CLI run beside the service) downloads and files it at the same time. The claim
+    token settles whose outcome is kept, but not the double download.
+
+    A thread rather than calls from the download loop, so the FFmpeg pass, which cannot
+    report progress, is covered as well. It stops when the block ends, and once a
+    renewal is refused: the claim is no longer this run's.
+    """
+    stop = threading.Event()
+
+    def renew() -> None:
+        while not stop.wait(CLAIM_RENEW_SECONDS):
+            try:
+                if not renew_claim(book_id, claim=claim):
+                    logger.warning("Book %d is no longer this run's to download; no longer renewing its claim", book_id)
+                    return
+            except sqlite3.Error:
+                # A locked or busy database: the next renewal is minutes away and
+                # the claim hours from going stale
+                logger.warning("Could not renew the claim on book %d, trying again", book_id, exc_info=True)
+
+    thread = threading.Thread(target=renew, name=f"claim-{book_id}", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join()
 
 
 class SyncCancelled(Exception):
@@ -413,11 +458,22 @@ def generate_metadata(book: Book) -> dict:
     # ASIN as comment for reference
     metadata["comment"] = f"ASIN: {asin}"
 
+    # The publisher's summary as plain text. Under `description` here, which the MP4
+    # muxer writes as `desc`; `decrypt_aaxc` renames it for Ogg (see `_OGG_DESCRIPTION`)
+    if description := book.description_text:
+        metadata["description"] = description
+
     # Media type
     metadata["media_type"] = "audiobook"
 
     logger.debug("Generated metadata: %s", metadata)
     return metadata
+
+
+# In Ogg, FFmpeg writes the `comment` key - the ASIN, which `read_embedded_asin` reads
+# back - as the DESCRIPTION vorbis comment, and a `description` key would be a second
+# DESCRIPTION beside it. So the summary goes under SYNOPSIS, as in Vorbis comment usage.
+_OGG_DESCRIPTION = "synopsis"
 
 
 def _escape_ffmetadata(value) -> str:
@@ -526,6 +582,8 @@ def decrypt_aaxc(
 
     if encoding_format == "oga":
         tags = dict(metadata) if metadata else {}
+        if "description" in tags:
+            tags[_OGG_DESCRIPTION] = tags.pop("description")
         if chapters:
             tags.update(chapter_tags(chapters))
             logger.info("Embedding %d chapters as vorbis comments", len(chapters))
@@ -961,7 +1019,8 @@ def download_books(
         started = time.monotonic()
 
         try:
-            filed = _process_book(downloader, book, temp_dir, settings, claim)
+            with _renewing_claim(book.id, claim):
+                filed = _process_book(downloader, book, temp_dir, settings, claim)
             _record(run_id, book, RunBookOutcome.DOWNLOADED, started, bytes=_file_size(filed))
             succeeded += 1
             attempted += 1

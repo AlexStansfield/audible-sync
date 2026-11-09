@@ -21,6 +21,12 @@ DB_FILE = str(REPO_ROOT / "data" / "audible_sync.db")
 # short enough that a crashed run recovers on the next scheduler tick rather than by hand.
 STALE_CLAIM_SECONDS = 6 * 60 * 60
 
+# Whether a `downloading` row counts as abandoned: neither the claim nor its last renewal
+# (`renew_claim`) is newer than the cutoff bound to the `?`. A NULL counts as abandoned,
+# or such a row would never be picked up by anything again. Shared by the queue and the
+# claim, which must agree on it.
+_ABANDONED = "(COALESCE(claim_renewed_at, last_attempt_at) IS NULL OR COALESCE(claim_renewed_at, last_attempt_at) < ?)"
+
 
 def _get_connection() -> sqlite3.Connection:
     """
@@ -99,7 +105,11 @@ def init_db():
             error TEXT,
             -- 1 on runs that record their books in sync_run_books; 0 on runs from
             -- before there was that table, so "no books" and "not recorded" differ
-            books_recorded BOOLEAN NOT NULL DEFAULT 0
+            books_recorded BOOLEAN NOT NULL DEFAULT 0,
+            -- 1 on a full refresh, which read the account's whole library rather than
+            -- what was purchased since the last run: asked for or due, or the account's
+            -- first sync
+            full_refresh BOOLEAN NOT NULL DEFAULT 0
         )
     """)
     # One row per book a run took on and finished with: downloaded, failed, or refused
@@ -227,6 +237,8 @@ def _migrate_schema(conn):
         "monitored": "BOOLEAN NOT NULL DEFAULT 1",
         "file_path": "TEXT",
         "claim_token": "TEXT",
+        "description": "TEXT",
+        "claim_renewed_at": "TEXT",
     }
 
     for column, column_type in new_columns.items():
@@ -246,6 +258,10 @@ def _migrate_schema(conn):
     if "books_recorded" not in run_columns:
         # Every existing run predates the per-book records, hence the default 0
         cursor.execute("ALTER TABLE sync_runs ADD COLUMN books_recorded BOOLEAN NOT NULL DEFAULT 0")
+    if "full_refresh" not in run_columns:
+        # Not known for the runs before; none of them counts as one, so the first run
+        # after the upgrade is a full refresh while the daily one is on
+        cursor.execute("ALTER TABLE sync_runs ADD COLUMN full_refresh BOOLEAN NOT NULL DEFAULT 0")
 
     conn.commit()
 
@@ -257,6 +273,7 @@ _LIBRARY_COLUMNS = (
     "is_finished", "percent_complete", "date_added", "release_date", "cover_url", "status",
     "monitored", "file_path", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
     "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at", "claim_token",
+    "description", "claim_renewed_at",
 )  # fmt: skip
 
 
@@ -348,6 +365,11 @@ def _library_ddl() -> str:
             -- The claim a run holds while `downloading`, which every outcome must present
             -- (`claim_book_for_download`); NULL otherwise
             claim_token TEXT,
+            -- When the run holding the claim last said it is still working on the book
+            -- (`renew_claim`); NULL until it first does
+            claim_renewed_at TEXT,
+            -- The publisher's summary, HTML as Audible gives it; NULL until a sync reads it
+            description TEXT,
             UNIQUE (account_id, asin)
         )
     """
@@ -403,6 +425,7 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
             monitor_new,
             book.has_pdf,
             book.is_consumable,
+            book.description,
             # Bound for the CASE in the conflict clause below
             BookStatus.WAITING_DOWNLOAD,
             BookStatus.UNAVAILABLE,
@@ -423,8 +446,8 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
             """
             INSERT INTO library (account_id, asin, title, subtitle, authors, narrators, series, genres,
                                  length, is_finished, percent_complete, date_added, release_date,
-                                 cover_url, status, monitored, has_pdf, is_consumable)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 cover_url, status, monitored, has_pdf, is_consumable, description)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, asin) DO UPDATE SET
                 title = excluded.title,
                 subtitle = excluded.subtitle,
@@ -439,6 +462,9 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
                 cover_url = excluded.cover_url,
                 has_pdf = excluded.has_pdf,
                 is_consumable = excluded.is_consumable,
+                -- Publishers edit them, so every read refreshes it; a response without
+                -- the field leaves the one stored rather than forgetting it
+                description = COALESCE(excluded.description, library.description),
                 -- The only status the sync may change, in either direction. A book
                 -- Audible has withdrawn leaves the queue; one it has offered again
                 -- rejoins it, which is how a restored Plus title comes back on its own.
@@ -496,7 +522,7 @@ def get_books_to_download(*, account_id: int | None = None, stale_after: int = S
     a row a live run holds is offered here and then simply fails to claim. That is the
     same race the claim already settles, and the reason this can afford to be generous.
 
-    `last_attempt_at` is not in the `(status, date_added)` index, but the `downloading`
+    The claim times are not in the `(status, date_added)` index, but the `downloading`
     rows are a handful at most, so the extra test costs nothing.
 
     Args:
@@ -505,11 +531,10 @@ def get_books_to_download(*, account_id: int | None = None, stale_after: int = S
     Returns:
         Books to attempt, oldest `date_added` first
     """
-    sql = """
+    sql = f"""
         SELECT * FROM library
          WHERE monitored = 1
-           AND (status = ?
-                OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
+           AND (status = ? OR (status = ? AND {_ABANDONED}))
     """
     params: tuple = (BookStatus.WAITING_DOWNLOAD, BookStatus.DOWNLOADING, _stale_cutoff(stale_after))
     if account_id is not None:
@@ -615,9 +640,11 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
     while a manual run is still going - cannot both take the same book: the second
     matches no rows, because the first has already moved it out of `waiting_download`.
 
-    A row abandoned in `downloading` by a process that died is claimable again once its
-    `last_attempt_at` is older than `stale_after`. A NULL timestamp counts as stale too,
-    since such a row would otherwise never be picked up by anything again.
+    A row abandoned in `downloading` by a process that died is claimable again once both
+    its claim (`last_attempt_at`) and the claim's last renewal (`renew_claim`) are older
+    than `stale_after`. A NULL timestamp counts as stale too, since such a row would
+    otherwise never be picked up by anything again. A run renews its claim while it
+    works, so a book that takes longer than `stale_after` is not taken over under it.
 
     The claim is a fresh random token, stored on the row and handed back, which every
     outcome (`mark_book_downloaded`, `mark_book_failed`, `mark_book_unavailable`,
@@ -637,15 +664,15 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
     token = secrets.token_hex(16)
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            """
+            f"""
             UPDATE library
                SET status = ?,
                    attempts = attempts + 1,
                    last_attempt_at = ?,
-                   claim_token = ?
+                   claim_token = ?,
+                   claim_renewed_at = NULL
              WHERE id = ?
-               AND (status = ?
-                    OR (status = ? AND (last_attempt_at IS NULL OR last_attempt_at < ?)))
+               AND (status = ? OR (status = ? AND {_ABANDONED}))
             """,
             (
                 BookStatus.DOWNLOADING,
@@ -665,6 +692,23 @@ def claim_book_for_download(book_id: int, *, stale_after: int = STALE_CLAIM_SECO
 # Every outcome's WHERE: the row is still this claim's. `claim_token` is cleared with
 # the outcome, so a claim records one outcome at most.
 _HELD = f"id = ? AND status = '{BookStatus.DOWNLOADING}' AND claim_token = ?"
+
+
+def renew_claim(book_id: int, *, claim: str) -> bool:
+    """
+    Say that the run holding this claim is still working on the book, so it is not
+    taken for abandoned (see `claim_book_for_download`).
+
+    Only the holder can renew: False once the claim has been recorded, released or
+    taken over, which tells the caller to stop renewing.
+    """
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(
+            f"UPDATE library SET claim_renewed_at = ? WHERE {_HELD}",
+            (_utcnow(), book_id, claim),
+        )
+        conn.commit()
+    return cursor.rowcount == 1
 
 
 def mark_book_failed(
@@ -1096,18 +1140,20 @@ def downloaded_file_paths(*, account_id: int | None = None) -> list[str]:
 _CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED, SyncOutcome.ABORTED)
 
 
-def start_sync_run(account_id: int | None = None) -> int:
+def start_sync_run(account_id: int | None = None, *, full_refresh: bool = False) -> int:
     """
     Open a run row for one account and return its id.
 
     Written before anything is fetched, so a run that is killed leaves a row that is
     still `running` with no `finished_at` - the record that tells a run which died half
-    way from one that completed and found nothing.
+    way from one that completed and found nothing. `full_refresh` is whether the run
+    sets out to be a full refresh; `finish_sync_run` records whether it was one.
     """
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            "INSERT INTO sync_runs (account_id, started_at, outcome, books_recorded) VALUES (?, ?, ?, 1)",
-            (account_id, _utcnow(), SyncOutcome.RUNNING),
+            "INSERT INTO sync_runs (account_id, started_at, outcome, books_recorded, full_refresh) "
+            "VALUES (?, ?, ?, 1, ?)",
+            (account_id, _utcnow(), SyncOutcome.RUNNING, full_refresh),
         )
         conn.commit()
         return cursor.lastrowid
@@ -1122,6 +1168,7 @@ def finish_sync_run(
     books_downloaded: int = 0,
     books_failed: int = 0,
     error: str | None = None,
+    full_refresh: bool | None = None,
 ) -> None:
     """
     Close a run row with its outcome and counters.
@@ -1135,6 +1182,9 @@ def finish_sync_run(
         books_downloaded: Books downloaded, decrypted and filed
         books_failed: Books that were tried and did not finish
         error: The exception that stopped the run, if one did
+        full_refresh: Whether the run was a full refresh (an account's first sync is,
+            unasked); None leaves what `start_sync_run` recorded, which is what a run that
+            failed before reading says
     """
     with closing(_get_connection()) as conn:
         conn.execute(
@@ -1146,10 +1196,11 @@ def finish_sync_run(
                 books_added = ?,
                 books_downloaded = ?,
                 books_failed = ?,
-                error = ?
+                error = ?,
+                full_refresh = COALESCE(?, full_refresh)
             WHERE id = ?
             """,
-            (_utcnow(), outcome, books_seen, books_added, books_downloaded, books_failed, error, run_id),
+            (_utcnow(), outcome, books_seen, books_added, books_downloaded, books_failed, error, full_refresh, run_id),
         )
         conn.commit()
 
@@ -1178,6 +1229,27 @@ def latest_successful_sync_start(account_id: int | None = None) -> str | None:
             SELECT MAX(started_at) FROM sync_runs
              WHERE outcome IN ({placeholders})
                AND account_id IS ?
+            """,
+            (*_CURSOR_OUTCOMES, account_id),
+        ).fetchone()[0]
+
+
+def latest_full_refresh_start(account_id: int) -> str | None:
+    """
+    When one account's last full refresh that read the library through started, or None.
+
+    What the daily full refresh is due from. Kept per account, so an account added later
+    or one whose refresh failed is not skipped because another's ran; a run that failed
+    before reading does not count, and one asked for by hand does, like any other.
+    """
+    placeholders = ", ".join("?" for _ in _CURSOR_OUTCOMES)
+    with closing(_get_connection()) as conn:
+        return conn.execute(
+            f"""
+            SELECT MAX(started_at) FROM sync_runs
+             WHERE outcome IN ({placeholders})
+               AND account_id = ?
+               AND full_refresh = 1
             """,
             (*_CURSOR_OUTCOMES, account_id),
         ).fetchone()[0]

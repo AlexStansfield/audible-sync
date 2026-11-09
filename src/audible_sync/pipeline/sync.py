@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from audible.exceptions import NotFoundError
+from audible.exceptions import NotFoundError, RequestError, Unauthorized
 
 from audible_sync.audible_api.client import Audible
 from audible_sync.database import (
@@ -29,6 +29,10 @@ class SyncResult(NamedTuple):
 
     books_seen: int
     books_added: int
+    # Whether this was a full refresh: one asked for, or the account's first sync. The
+    # re-read for a parked book reads everything too, but is not one: with a withdrawn
+    # title parked for good it happens on every run, and would mark them all
+    full_refresh: bool
 
 
 def _api_timestamp(moment: datetime) -> str:
@@ -89,12 +93,21 @@ def _remove_stored_podcasts(audible: Audible, account_id: int) -> None:
             logger.info("Removed podcast %s (%s) from the library: podcasts are not downloaded", book.asin, book.title)
 
 
-def sync_library(audible: Audible, account: Account, *, auto_monitor_new: bool = True) -> SyncResult:
+def sync_library(
+    audible: Audible, account: Account, *, auto_monitor_new: bool = True, full: bool = False
+) -> SyncResult:
     """
     Fetch new books from Audible into one account's library.
 
     The first run fetches everything; later runs fetch only what was purchased since
     the previous run started (see `_sync_cursor`).
+
+    With `full`, or while a book is parked as withdrawn (`needs_consumability_refresh`),
+    the whole library is read again after that fetch: a full refresh, which brings every
+    stored book's data up to date - title, authors, series, cover, description and
+    availability - since `update_books` refreshes what Audible owns on every book it is
+    given. The incremental fetch still comes first, so a new purchase follows
+    `auto_monitor_new` rather than `monitor_existing`.
 
     Whether a book inserted by this run is wanted depends on which fetch found it. The
     first, full fetch is the account's back catalogue, and the choice made when the
@@ -102,9 +115,10 @@ def sync_library(audible: Audible, account: Account, *, auto_monitor_new: bool =
     fetch finds is a new purchase and follows `auto_monitor_new`. A book already in
     the library keeps whatever the user set.
 
-    Returns how many books the incremental fetch read and how many of them were new.
-    The availability refresh pass below counts towards neither: it re-reads the whole
-    library, so folding it in would report the library size as this run's work.
+    Returns how many books the incremental fetch read and how many of them were new,
+    and whether it was a full refresh (see `SyncResult`). The full re-read counts
+    towards neither number: folding it in would report the library size as this run's
+    work.
     """
     purchased_after = _sync_cursor(account.id)
     if purchased_after is None:
@@ -116,15 +130,32 @@ def sync_library(audible: Audible, account: Account, *, auto_monitor_new: bool =
 
     library = audible.get_library(purchased_after)
     books_added = update_books(account.id, library, monitor_new=monitor_new)
+    full_refresh = purchased_after is None
 
-    if purchased_after is not None and needs_consumability_refresh(account.id):
+    if not full_refresh and (full or needs_consumability_refresh(account.id)):
         # An incremental fetch never re-reads a book already in the library, so on its
-        # own it can never notice that Audible has offered a withdrawn Plus title again
-        # (or withdrawn one that was fine). Re-reading the whole library is one extra
-        # request per 1000 titles and only happens while something is actually parked.
-        logger.info("Re-reading the full library to refresh availability")
-        update_books(account.id, audible.get_library(None), monitor_new=monitor_new)
+        # own it never sees a publisher's edit, nor Audible offering a withdrawn Plus
+        # title again (or withdrawing one that was fine). Re-reading the whole library is
+        # one extra request per 1000 titles. Inserting with `monitor_new` only matters
+        # for a book bought between the two reads, which is a new purchase like the rest.
+        if full:
+            logger.info("Re-reading the full library for %s to refresh every book", account.name)
+        else:
+            logger.info("Re-reading the full library for %s to refresh availability", account.name)
+        try:
+            whole = audible.get_library(None)
+        except Unauthorized:
+            raise
+        except RequestError:
+            # The new purchases are stored already: a failed re-read must not cost the
+            # run its downloads. Not recorded as a full refresh, so one stays due
+            logger.warning(
+                "Could not re-read the full library for %s; trying again next run", account.name, exc_info=True
+            )
+        else:
+            update_books(account.id, whole, monitor_new=monitor_new)
+            full_refresh = full
 
     _remove_stored_podcasts(audible, account.id)
 
-    return SyncResult(books_seen=len(library), books_added=books_added)
+    return SyncResult(books_seen=len(library), books_added=books_added, full_refresh=full_refresh)

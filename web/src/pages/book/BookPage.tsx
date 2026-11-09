@@ -32,7 +32,7 @@ import styles from "./Book.module.css";
 import { type BookActionName, useBookAction, useMaxAttempts, useMonitor } from "./queries";
 import { attemptsText, fileRows, formatLabel, listeningText, problem, seriesLabel, transferText } from "./text";
 
-type Book = components["schemas"]["BookOut"];
+type Book = components["schemas"]["BookDetail"];
 type RunSnapshot = components["schemas"]["RunSnapshot"];
 type Account = components["schemas"]["AccountOut"];
 
@@ -189,6 +189,7 @@ function BookDetail({
             {book.subtitle && <p className={styles.subtitle}>{book.subtitle}</p>}
           </div>
           <Credits book={book} />
+          <Description key={book.id} html={book.description_html} />
 
           <dl className={styles.details}>
             <Detail term="Series">{series ?? "—"}</Detail>
@@ -401,6 +402,56 @@ function Credits({ book }: { book: Book }) {
       {book.authors.length > 0 && book.narrators.length > 0 && " · "}
       {book.narrators.length > 0 && `Narrated by ${book.narrators.join(", ")}`}
     </p>
+  );
+}
+
+/**
+ * The publisher's summary, folded to a few lines with Show more when it runs longer.
+ * Whether it folds is measured, at every width, rather than guessed from its length.
+ *
+ * `html` is not Audible's markup: the service writes it afresh from an allow-list
+ * (`p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, no attributes, every piece of text
+ * escaped; `htmltext.safe_html`), which is what makes inserting it safe.
+ */
+function Description({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [folds, setFolds] = useState(false);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `html` is read through the element, which a description brought by a refresh only then creates
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element || open) return;
+    const measure = () => setFolds(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [open, html]);
+
+  if (!html) return null;
+  return (
+    <div className={styles.description}>
+      <div
+        id="book-description"
+        ref={ref}
+        className={open ? styles.descriptionText : `${styles.descriptionText} ${styles.folded}`}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: rebuilt by the service from an allow-list, see above
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {(folds || open) && (
+        <button
+          type="button"
+          className="link-btn"
+          aria-expanded={open}
+          aria-controls="book-description"
+          onClick={() => setOpen(!open)}
+        >
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
   );
 }
 

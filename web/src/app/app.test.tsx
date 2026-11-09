@@ -168,6 +168,7 @@ describe("the layout", () => {
               stage: "downloading",
               account: null,
               book: null,
+              full_refresh: false,
               books_done: 2,
               books_total: 10,
               transfer: null,

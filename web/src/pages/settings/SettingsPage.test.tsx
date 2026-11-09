@@ -78,6 +78,19 @@ describe("Settings", () => {
     expect(screen.getByLabelText("Books per run")).toHaveValue("");
   });
 
+  it("switches the daily full refresh", async () => {
+    const user = userEvent.setup();
+    const { api } = await open({ "PUT /api/settings": saving() });
+    const daily = screen.getByRole("switch", { name: "Refresh every book from Audible once a day" });
+    expect(daily).toBeChecked();
+
+    await user.click(daily);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await screen.findByText("Settings saved.");
+    expect(api.sent("PUT /api/settings")).toEqual([{ daily_full_refresh: false }]);
+  });
+
   it("does not count an interval written in other units as a change", async () => {
     const user = userEvent.setup();
     await open();

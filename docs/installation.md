@@ -46,6 +46,8 @@ For a single sync-and-exit instead of the service:
 docker compose run --rm audible-sync uv run --no-sync audible-sync
 ```
 
+Add `--full` to make it a full refresh, re-reading every book's details from Audible (see `daily-full-refresh` in [Configuration](configuration.md#sync)).
+
 ## Running with Python (no Docker)
 
 If you'd rather run the app directly in Python (e.g. for development or scripting), follow these steps:
@@ -108,10 +110,10 @@ The service:
 python -m audible_sync.service
 ```
 
-or a single sync-and-exit:
+or a single sync-and-exit, with `--full` a full refresh:
 
 ```
-audible-sync
+audible-sync [--full]
 ```
 
 To add an account from here, see [Accounts](accounts.md#from-the-command-line). The service's environment variables are in [Configuration](configuration.md#environment-variables).

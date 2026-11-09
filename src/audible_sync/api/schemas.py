@@ -63,6 +63,16 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class SyncStart(BaseModel):
+    """What `POST /api/sync` may be sent; the body itself is optional."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Re-read every account's whole library, bringing each book's data up to date,
+    # rather than only what was bought since the last run
+    full: bool = False
+
+
 class SchedulerStatus(BaseModel):
     enabled: bool
     interval_minutes: int
@@ -91,6 +101,8 @@ class RunSnapshot(BaseModel):
 
     run_id: int
     started_at: str
+    # Whether it sets out to read the whole library from Audible (`SyncRunOut.full_refresh`)
+    full_refresh: bool
     stage: RunStage | None
     account: dict[str, Any] | None
     book: BookRef | None
@@ -116,6 +128,11 @@ class SyncRunOut(BaseModel):
     # Whether `GET /api/sync/runs/{id}/books` has anything to say: false on runs from
     # before the per-book records
     books_recorded: bool
+    # Whether the run was, or set out to be, a full refresh, reading the whole library
+    # from Audible to bring every stored book's data up to date: asked for, due, or the
+    # account's first sync. A run that failed before reading keeps what it set out to do;
+    # one whose re-read failed is not one
+    full_refresh: bool
 
 
 class RunBookOut(BaseModel):
@@ -287,6 +304,18 @@ class BookOut(BaseModel):
     annotations_path: str | None
     encoding_format: str | None
     downloaded_at: str | None
+
+
+class BookDetail(BookOut):
+    """One book, as its own endpoints give it: with the description, which a list leaves out."""
+
+    # Plain text with the paragraphs as blank lines. Empty when Audible has none or no
+    # sync has read it yet
+    description: str = Field(validation_alias="description_text")
+    # The same with its formatting: never Audible's markup, but HTML written afresh from
+    # an allow-list (`p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, no attributes, text
+    # escaped), so a page can insert it as it is
+    description_html: str
 
 
 class BookList(BaseModel):
@@ -494,6 +523,7 @@ class SettingsOut(BaseModel):
     max_attempts: int
     max_consecutive_failures: int | None
     auto_monitor_new: bool
+    daily_full_refresh: bool
     download_folder: str
     audiobook_folder: str
     folder_template: str
@@ -531,6 +561,7 @@ class SettingsUpdate(BaseModel):
     max_attempts: int | None = None
     max_consecutive_failures: int | None = None
     auto_monitor_new: bool | None = None
+    daily_full_refresh: bool | None = None
     download_folder: str | None = Field(default=None, min_length=1)
     audiobook_folder: str | None = Field(default=None, min_length=1)
     folder_template: str | None = None
@@ -545,6 +576,7 @@ class SettingsUpdate(BaseModel):
         "sync_interval_minutes",
         "max_attempts",
         "auto_monitor_new",
+        "daily_full_refresh",
         "download_folder",
         "audiobook_folder",
         "folder_template",

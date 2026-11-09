@@ -47,6 +47,7 @@ class RunState:
     def _reset(self) -> None:
         self._run_id: int | None = None
         self._started_at: str | None = None
+        self._full_refresh = False
         self._stage: RunStage | None = None
         self._account: dict[str, Any] | None = None
         self._book: dict[str, Any] | None = None
@@ -54,10 +55,14 @@ class RunState:
         self._books_total = 0
         self._transfer: dict[str, Any] | None = None
 
-    def begin(self, run_id: int) -> None:
-        """Start reporting a run. Clears anything a previous run left behind."""
+    def begin(self, run_id: int, *, full_refresh: bool = False) -> None:
+        """
+        Start reporting a run. Clears anything a previous run left behind. `full_refresh`
+        is whether it sets out to read the whole library, which takes longer.
+        """
         with self._lock:
             self._reset()
+            self._full_refresh = full_refresh
             self._run_id = run_id
             self._started_at = datetime.now(UTC).replace(microsecond=0).isoformat()
 
@@ -116,6 +121,7 @@ class RunState:
             return {
                 "run_id": self._run_id,
                 "started_at": self._started_at,
+                "full_refresh": self._full_refresh,
                 "stage": self._stage,
                 "account": dict(self._account) if self._account else None,
                 "book": dict(self._book) if self._book else None,

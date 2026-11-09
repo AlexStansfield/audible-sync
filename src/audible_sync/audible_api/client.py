@@ -8,9 +8,11 @@ logger = logging.getLogger(__name__)
 
 # Only the groups `_prepare_book` actually reads. Asking for more (price, rating,
 # relationships, ...) adds megabytes to a full sync that are parsed and discarded.
+# `product_extended_attrs` is the description (`publisher_summary`): it makes a page
+# about 45% larger, and `product_desc` despite its name only repeats the title.
 RESPONSE_GROUPS = (
-    "contributors, media, product_attrs, product_desc, series, category_ladders, is_finished, percent_complete, "
-    "pdf_url, customer_rights"
+    "contributors, media, product_attrs, product_desc, product_extended_attrs, series, category_ladders, "
+    "is_finished, percent_complete, pdf_url, customer_rights"
 )
 
 # The library endpoint caps a page at 1000 items.
@@ -93,6 +95,9 @@ def _prepare_book(item: dict) -> Book:
         "cover_url": cover_url,
         "has_pdf": has_pdf,
         "is_consumable": is_consumable,
+        # HTML; cleaned where it is shown or tagged (`html_to_text`), so a change to the
+        # cleaning applies without reading the library again
+        "description": item.get("publisher_summary") or None,
     }
 
     return Book(**data_row)

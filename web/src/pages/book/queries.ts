@@ -8,7 +8,7 @@ import { bookKey, refreshAfterBookChange, settingsQuery } from "../../api/querie
 import type { components } from "../../api/schema";
 import { useToast } from "../../components/Toasts";
 
-type Book = components["schemas"]["BookOut"];
+type Book = components["schemas"]["BookDetail"];
 
 export type BookActionName = "redownload" | "retry" | "delete-files" | "refresh";
 

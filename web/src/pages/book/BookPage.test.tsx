@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Status } from "../../api/queries";
 import { fail, fakeApi, ok, type Reply, signedIn, status } from "../../test/fakeApi";
 import { account, type Book, book } from "../../test/fixtures";
@@ -40,6 +40,7 @@ function running(bookId: number): Status {
       stage: "downloading",
       account: null,
       book: { id: bookId, asin: "B0", title: "One Word Kill" },
+      full_refresh: false,
       books_done: 2,
       books_total: 10,
       transfer: { desc: "One Word Kill", bytes: 243e6, total: 405e6 },
@@ -47,7 +48,7 @@ function running(bookId: number): Status {
   });
 }
 
-function page(theBook: Book | null = DUNE, extra: Record<string, Reply> = {}) {
+function page(theBook: (Book & { description_html?: string }) | null = DUNE, extra: Record<string, Reply> = {}) {
   return fakeApi(
     signedIn({
       "GET /api/status": ok(status({ accounts: [UK] })),
@@ -83,6 +84,79 @@ describe("Book detail", () => {
     expect(screen.getByRole("button", { name: "Redownload" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Retry download" })).not.toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Library / One Word Kill");
+  });
+
+  it("shows the description with its formatting, without Show more when it fits", async () => {
+    page({
+      ...DUNE,
+      description_html:
+        "<p>Set on the desert planet <em>Arrakis</em>.</p><p><strong>A stunning blend</strong> of adventure.</p>",
+    });
+    renderApp(`/library/${DUNE.id}`);
+
+    expect(await screen.findByText("Arrakis")).toBeInstanceOf(HTMLElement);
+    expect(screen.getByText("Arrakis").tagName).toBe("EM");
+    expect(screen.getByText("A stunning blend").tagName).toBe("STRONG");
+    expect(document.querySelectorAll("#book-description p")).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+  });
+
+  it("shows nothing for a book with no description", async () => {
+    page({ ...DUNE, description_html: "" });
+    renderApp(`/library/${DUNE.id}`);
+
+    await screen.findByRole("heading", { name: DUNE.title });
+    expect(document.getElementById("book-description")).toBeNull();
+  });
+
+  describe("a description longer than the fold", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("opens and folds again with Show more", async () => {
+      // jsdom lays nothing out: the description runs to 200px in an 80px fold
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.id === "book-description" ? 200 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.id === "book-description" ? 80 : 0;
+      });
+      page({ ...DUNE, description_html: "<p>A long summary.</p>" });
+      renderApp(`/library/${DUNE.id}`);
+
+      const more = await screen.findByRole("button", { name: "Show more" });
+      expect(more).toHaveAttribute("aria-expanded", "false");
+      expect(more).toHaveAttribute("aria-controls", "book-description");
+
+      await userEvent.click(more);
+      const less = screen.getByRole("button", { name: "Show less" });
+      expect(less).toHaveAttribute("aria-expanded", "true");
+
+      await userEvent.click(less);
+      expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
+    });
+
+    it("offers Show more for a description a refresh has just brought", async () => {
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.id === "book-description" ? 200 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.id === "book-description" ? 80 : 0;
+      });
+      const api = page({ ...DUNE, description_html: "" });
+      const refreshed = { ...DUNE, description_html: "<p>A long summary.</p>" };
+      api.routes[`POST /api/books/${DUNE.id}/refresh`] = ok(refreshed);
+      renderApp(`/library/${DUNE.id}`);
+
+      const refresh = await screen.findByRole("button", { name: "Refresh from Audible" });
+      expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+      // What the page reads once the refresh has stored it
+      api.routes[`GET /api/books/${DUNE.id}`] = ok(refreshed);
+      await userEvent.click(refresh);
+
+      expect(await screen.findByRole("button", { name: "Show more" })).toBeInTheDocument();
+    });
   });
 
   it("is the book 404 for a book the API does not have, or an id that is not one", async () => {

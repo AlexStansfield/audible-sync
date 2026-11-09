@@ -1,6 +1,7 @@
 import logging
 import sqlite3
 import threading
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,7 +15,7 @@ from audible_sync.pipeline.sync import SyncResult
 from tests.conftest import make_account, make_settings
 
 # Module-level singletons: ruff forbids constructing these in argument defaults
-_SYNCED = SyncResult(books_seen=5, books_added=3)
+_SYNCED = SyncResult(books_seen=5, books_added=3, full_refresh=False)
 _STATS = DownloadStats(attempted=2, succeeded=2, failed=0, unavailable=0)
 
 
@@ -33,8 +34,9 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
     """
     accounts = [make_account()] if accounts is None else accounts
 
-    def fake_sync(client, account, *, auto_monitor_new):
+    def fake_sync(client, account, *, auto_monitor_new, full=False):
         calls["synced"] = client
+        calls.setdefault("full", []).append(full)
         calls.setdefault("synced_accounts", []).append(account.id)
         calls["auto_monitor_new"] = auto_monitor_new
         if isinstance(synced, Exception):
@@ -72,7 +74,19 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
     monkeypatch.setattr(run_module, "init_db", lambda: calls.__setitem__("init_db", True))
     monkeypatch.setattr(run_module, "sync_library", fake_sync)
     monkeypatch.setattr(run_module, "download_books", fake_download)
-    monkeypatch.setattr(run_module, "start_sync_run", lambda account_id: calls.setdefault("run_id", 7))
+    monkeypatch.setattr(
+        run_module,
+        "start_sync_run",
+        lambda account_id, *, full_refresh=False: (
+            calls.setdefault("started_full", []).append(full_refresh) or calls.setdefault("run_id", 7)
+        ),
+    )
+    # No full refresh is due unless a test says when the last one was
+    monkeypatch.setattr(
+        run_module,
+        "latest_full_refresh_start",
+        lambda account_id: calls.get("last_full", datetime.now(UTC).isoformat()),
+    )
     monkeypatch.setattr(run_module, "get_sync_run", lambda run_id: f"run-{run_id}")
     monkeypatch.setattr(
         run_module,
@@ -140,6 +154,7 @@ def test_run_pipeline_records_a_successful_run(tmp_path, monkeypatch):
         "books_downloaded": 2,
         "books_failed": 0,
         "error": None,
+        "full_refresh": False,
     }
 
 
@@ -432,7 +447,7 @@ def test_the_device_is_marked_in_use_before_the_account_is_read_and_until_the_ru
         in_use["read"] = account_id in accounts_module._devices_in_use
         return account
 
-    def run(account, settings, progress=None, *, state=None, cancel=None):
+    def run(account, settings, progress=None, *, state=None, cancel=None, full=False):
         in_use["run"] = account.id in accounts_module._devices_in_use
 
     monkeypatch.setattr(run_module, "get_account", read)
@@ -452,3 +467,106 @@ def test_a_failing_run_releases_the_device(monkeypatch, tmp_path):
         run_pipeline(make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
 
     assert accounts_module._devices_in_use == set()
+
+
+# --- full refresh ---------------------------------------------------------------
+
+
+def _settings(tmp_path, **overrides):
+    return make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b", **overrides)
+
+
+def test_an_ordinary_run_is_not_a_full_refresh(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["full"] == [False]
+    assert calls["started_full"] == [False]
+    assert calls["snapshot"]["full_refresh"] is False
+
+
+def test_a_full_refresh_asked_for_reaches_every_account(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, accounts=[make_account(1), make_account(2, "Two (US)", "us")])
+
+    run_pipeline(_settings(tmp_path), full=True)
+
+    assert calls["full"] == [True, True]
+    assert calls["started_full"] == [True, True]
+    assert calls["snapshot"]["full_refresh"] is True
+
+
+def test_the_daily_full_refresh_is_due_with_none_yet(tmp_path, monkeypatch):
+    calls = {"last_full": None}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["full"] == [True]
+    assert calls["started_full"] == [True]
+
+
+@pytest.mark.parametrize(
+    ("last_full", "now", "due"),
+    [
+        ("2026-11-09T00:05:00+00:00", "2026-11-09T23:55:00+00:00", False),
+        # Under 24 hours, but yesterday: the drift of a daily schedule must not skip a day
+        ("2026-11-08T06:10:00+00:00", "2026-11-09T06:05:00+00:00", True),
+        ("2026-11-08T23:55:00+00:00", "2026-11-09T00:05:00+00:00", True),
+        # A timestamp with another offset is compared as UTC
+        ("2026-11-09T01:00:00+02:00", "2026-11-09T12:00:00+00:00", True),
+    ],
+)
+def test_the_daily_full_refresh_is_due_once_per_utc_day(monkeypatch, last_full, now, due):
+    monkeypatch.setattr(run_module, "latest_full_refresh_start", lambda account_id: last_full)
+
+    assert run_module._full_refresh_due(1, make_settings(), datetime.fromisoformat(now)) is due
+
+
+def test_the_daily_full_refresh_is_never_due_when_switched_off(tmp_path, monkeypatch):
+    calls = {"last_full": None}
+    _patch_pipeline(monkeypatch, calls)
+
+    run_pipeline(_settings(tmp_path, daily_full_refresh=False))
+
+    assert calls["full"] == [False]
+
+
+def test_the_daily_full_refresh_is_worked_out_per_account(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, accounts=[make_account(1), make_account(2, "Two (US)", "us")])
+    # Only the second account has never had one
+    monkeypatch.setattr(
+        run_module,
+        "latest_full_refresh_start",
+        lambda account_id: datetime.now(UTC).isoformat() if account_id == 1 else None,
+    )
+
+    run_pipeline(_settings(tmp_path))
+
+    assert calls["full"] == [False, True]
+
+
+def test_the_run_records_whether_the_sync_was_a_full_refresh(tmp_path, monkeypatch):
+    """An account's first sync is one without being asked, and the run says so."""
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=SyncResult(books_seen=1, books_added=0, full_refresh=True))
+
+    run_pipeline(_settings(tmp_path))
+
+    _, recorded = calls["finished"]
+    assert recorded["full_refresh"] is True
+
+
+def test_a_run_failing_before_the_read_leaves_what_it_set_out_to_do(tmp_path, monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("no library"))
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(_settings(tmp_path), full=True)
+
+    _, recorded = calls["finished"]
+    assert recorded["outcome"] is SyncOutcome.FAILED
+    assert recorded["full_refresh"] is None

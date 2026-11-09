@@ -594,7 +594,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Start Sync */
+        /**
+         * Start Sync
+         * @description Start a run now; with `{"full": true}` one that re-reads every library in full.
+         */
         post: operations["start_sync_api_sync_post"];
         delete?: never;
         options?: never;
@@ -782,6 +785,72 @@ export interface components {
             total: number;
             /** Unmonitored */
             unmonitored: number;
+        };
+        /**
+         * BookDetail
+         * @description One book, as its own endpoints give it: with the description, which a list leaves out.
+         */
+        BookDetail: {
+            /** Account Id */
+            account_id: number;
+            /** Annotations Path */
+            annotations_path: string | null;
+            /** Asin */
+            asin: string;
+            /** Attempts */
+            attempts: number;
+            /** Authors */
+            authors: string[];
+            /** Cover Path */
+            cover_path: string | null;
+            /** Cover Url */
+            cover_url: string;
+            /** Date Added */
+            date_added: string | null;
+            /** Description */
+            description: string;
+            /** Description Html */
+            description_html: string;
+            /** Downloaded At */
+            downloaded_at: string | null;
+            /** Encoding Format */
+            encoding_format: string | null;
+            /** File Path */
+            file_path: string | null;
+            /** Genres */
+            genres: string[];
+            /** Has Pdf */
+            has_pdf: boolean;
+            /** Id */
+            id: number;
+            /** Is Consumable */
+            is_consumable: boolean;
+            /** Is Finished */
+            is_finished: boolean;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Length */
+            length: number;
+            /** Monitored */
+            monitored: boolean;
+            /** Narrators */
+            narrators: string[];
+            /** Pdf Path */
+            pdf_path: string | null;
+            /** Percent Complete */
+            percent_complete: number;
+            primary_series: components["schemas"]["SeriesEntry"] | null;
+            /** Release Date */
+            release_date: string | null;
+            /** Series */
+            series: components["schemas"]["SeriesEntry"][];
+            status: components["schemas"]["BookStatus"] | null;
+            /** Subtitle */
+            subtitle: string;
+            /** Title */
+            title: string;
         };
         /**
          * BookFilter
@@ -1206,6 +1275,8 @@ export interface components {
             books_done: number;
             /** Books Total */
             books_total: number;
+            /** Full Refresh */
+            full_refresh: boolean;
             /** Run Id */
             run_id: number;
             stage: components["schemas"]["RunStage"] | null;
@@ -1250,6 +1321,8 @@ export interface components {
             auto_monitor_new: boolean;
             /** Bitrate */
             bitrate: number;
+            /** Daily Full Refresh */
+            daily_full_refresh: boolean;
             /** Debug */
             debug: boolean;
             /** Download Folder */
@@ -1292,6 +1365,8 @@ export interface components {
             auto_monitor_new?: boolean | null;
             /** Bitrate */
             bitrate?: number | null;
+            /** Daily Full Refresh */
+            daily_full_refresh?: boolean | null;
             /** Debug */
             debug?: boolean | null;
             /** Download Folder */
@@ -1409,11 +1484,24 @@ export interface components {
             error: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Full Refresh */
+            full_refresh: boolean;
             /** Id */
             id: number;
             outcome: components["schemas"]["SyncOutcome"] | null;
             /** Started At */
             started_at: string;
+        };
+        /**
+         * SyncStart
+         * @description What `POST /api/sync` may be sent; the body itself is optional.
+         */
+        SyncStart: {
+            /**
+             * Full
+             * @default false
+             */
+            full: boolean;
         };
         /** SystemInfo */
         SystemInfo: {
@@ -1987,7 +2075,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BookOut"];
+                    "application/json": components["schemas"]["BookDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2022,7 +2110,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BookOut"];
+                    "application/json": components["schemas"]["BookDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2146,7 +2234,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BookOut"];
+                    "application/json": components["schemas"]["BookDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2467,7 +2555,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SyncStart"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -2476,6 +2568,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Message"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

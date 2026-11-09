@@ -128,6 +128,9 @@ class Settings:
     max_consecutive_failures: int | None = DEFAULT_MAX_CONSECUTIVE_FAILURES
     # Whether a purchase seen for the first time joins the download queue
     auto_monitor_new: bool = True
+    # Whether a run re-reads an account's whole library when its last full refresh is
+    # more than a day old, so every stored book's data follows Audible's
+    daily_full_refresh: bool = True
 
     # [folders]
     download_folder: Path = DEFAULT_DOWNLOAD_FOLDER
@@ -183,6 +186,7 @@ class Settings:
             # An empty value means "never give up", the same "unset" as the other optionals
             max_consecutive_failures=_optional_int(config, "sync", "max-consecutive-failures"),
             auto_monitor_new=config.getboolean("sync", "auto-monitor-new", fallback=True),
+            daily_full_refresh=config.getboolean("sync", "daily-full-refresh", fallback=True),
             download_folder=resolve_path(config.get("folders", "downloads", fallback=DEFAULT_DOWNLOAD_FOLDER)),
             audiobook_folder=resolve_path(config.get("folders", "audiobooks", fallback=DEFAULT_AUDIOBOOK_FOLDER)),
             folder_template=config.get("naming", "folder", fallback=DEFAULT_FOLDER_TEMPLATE),
@@ -307,6 +311,7 @@ _PARSERS: dict[str, Callable[[str, str], Any]] = {
     "max_attempts": _parse_int,
     "max_consecutive_failures": _optional(_parse_int),
     "auto_monitor_new": _parse_bool,
+    "daily_full_refresh": _parse_bool,
     "download_folder": _parse_path,
     "audiobook_folder": _parse_path,
     "folder_template": _parse_text,

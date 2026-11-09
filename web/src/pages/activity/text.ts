@@ -26,7 +26,9 @@ export function runNote(run: SyncRun, current: RunSnapshot | null | undefined, s
     case "running":
       if (!statusKnown) return "In progress";
       if (isInterrupted(run, current?.run_id)) return runDetail(run, current?.run_id);
-      if (current?.stage === "syncing") return "Reading the library from Audible";
+      if (current?.stage === "syncing") {
+        return current.full_refresh ? "Reading the whole library from Audible" : "Reading the library from Audible";
+      }
       if (current?.stage === "cancelling") return "Cancelling";
       return current?.book?.title ? `Downloading ${current.book.title}` : "In progress";
     case "cancelled":

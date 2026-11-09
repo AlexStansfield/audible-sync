@@ -82,6 +82,16 @@ describe("Activity", () => {
     expect(within(rowOf(141)).getByText("Credentials rejected by Audible")).toBeInTheDocument();
     expect(screen.getByText("1–3 of 3")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Full refresh")).not.toBeInTheDocument();
+  });
+
+  it("marks a full refresh", async () => {
+    page({ "GET /api/sync/runs": ok({ items: [run({ id: 150, full_refresh: true }), run({ id: 149 })], total: 2 }) });
+    renderApp("/activity");
+
+    expect(await screen.findByText("2 runs recorded")).toBeInTheDocument();
+    expect(within(rowOf(150)).getByText("Full refresh")).toBeInTheDocument();
+    expect(within(rowOf(149)).queryByText("Full refresh")).not.toBeInTheDocument();
   });
 
   it("shows the run in flight live and an abandoned running row as interrupted", async () => {
@@ -98,6 +108,7 @@ describe("Activity", () => {
             stage: "downloading",
             account: null,
             book: { id: 7, asin: "B07", title: "Red Rising" },
+            full_refresh: false,
             books_done: 1,
             books_total: 10,
             transfer: null,
@@ -210,6 +221,7 @@ describe("Activity", () => {
                   stage: "syncing",
                   account: null,
                   book: null,
+                  full_refresh: false,
                   books_done: 0,
                   books_total: 0,
                   transfer: null,
@@ -345,6 +357,7 @@ describe("Activity", () => {
               stage: "downloading",
               account: null,
               book: { id: 100 + done, asin: "B0", title: `Book ${done}` },
+              full_refresh: false,
               books_done: done,
               books_total: 10,
               transfer: null,

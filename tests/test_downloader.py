@@ -1,4 +1,5 @@
 import base64
+import contextlib
 import json
 import logging
 import sqlite3
@@ -135,6 +136,17 @@ def test_generate_metadata_handles_missing_optional_fields():
     assert "date" not in meta
 
 
+def test_generate_metadata_writes_the_description_as_plain_text():
+    meta = generate_metadata(make_book(description="<p>A <b>tale</b>.</p><p>Second.</p>"))
+
+    assert meta["description"] == "A tale.\n\nSecond."
+
+
+def test_generate_metadata_leaves_out_a_description_the_book_does_not_have():
+    assert "description" not in generate_metadata(make_book(description=None))
+    assert "description" not in generate_metadata(make_book(description="<p></p>"))
+
+
 @pytest.fixture
 def fake_ffmpeg(monkeypatch):
     """Replace subprocess.run with a recorder that captures argv and the FFMETADATA file before it is deleted."""
@@ -242,6 +254,25 @@ def test_decrypt_aaxc_oga_command_and_metadata(fake_ffmpeg, aaxc):
     assert block.startswith(b"\x00\x00\x00\x03\x00\x00\x00\x0aimage/jpeg")
     assert block.endswith(b"\xff\xd8jpeg")
     assert not Path(metadata_file).exists()
+
+
+def test_decrypt_aaxc_m4b_writes_the_description_under_its_own_key(fake_ffmpeg, aaxc):
+    book = make_book(asin="B0DESC", description="<p>One.</p><p>Two.</p>")
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=book)
+
+    # The MP4 muxer's own key (`desc`), its paragraphs escaped the way FFMETADATA reads them
+    assert "description=One.\\\n\\\nTwo.\n" in fake_ffmpeg.metadata
+    assert "comment=ASIN: B0DESC\n" in fake_ffmpeg.metadata
+
+
+def test_decrypt_aaxc_oga_writes_the_description_as_synopsis_beside_the_asin(fake_ffmpeg, aaxc):
+    book = make_book(asin="B0DESC", description="<p>One.</p>")
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=book, encoding_format="oga")
+
+    # FFmpeg writes `comment` as DESCRIPTION in Ogg: the summary must not be a second one
+    assert "synopsis=One.\n" in fake_ffmpeg.metadata
+    assert "description=" not in fake_ffmpeg.metadata
+    assert "comment=ASIN: B0DESC\n" in fake_ffmpeg.metadata
 
 
 def test_decrypt_aaxc_oga_without_cover_or_chapters(fake_ffmpeg, aaxc):
@@ -1765,3 +1796,80 @@ def test_a_record_that_cannot_be_written_does_not_fail_the_book(tmp_path, monkey
     assert (stats.succeeded, stats.failed) == (1, 0)
     assert marked == [("OK1", "m4b")]
     assert "Could not record" in caplog.text
+
+
+# --- claim renewal ----------------------------------------------------------------
+
+
+def test_the_claim_is_renewed_while_the_book_is_worked_on_and_not_after(monkeypatch):
+    monkeypatch.setattr(downloader, "CLAIM_RENEW_SECONDS", 0.01)
+    renewed = []
+    two = threading.Event()
+
+    def renew(book_id, *, claim):
+        renewed.append((book_id, claim))
+        if len(renewed) >= 2:
+            two.set()
+        return True
+
+    monkeypatch.setattr(downloader, "renew_claim", renew)
+
+    with downloader._renewing_claim(5, "token"):
+        assert two.wait(2)
+    after = len(renewed)
+    threading.Event().wait(0.05)
+
+    assert renewed[0] == (5, "token")
+    assert len(renewed) == after
+
+
+def test_renewal_stops_once_the_claim_is_no_longer_the_runs(monkeypatch, caplog):
+    monkeypatch.setattr(downloader, "CLAIM_RENEW_SECONDS", 0.01)
+    renewed = []
+    monkeypatch.setattr(downloader, "renew_claim", lambda book_id, *, claim: renewed.append(book_id) or False)
+
+    with caplog.at_level(logging.WARNING), downloader._renewing_claim(5, "token"):
+        threading.Event().wait(0.1)
+
+    assert renewed == [5]
+    assert "no longer this run's" in caplog.text
+
+
+def test_a_failed_renewal_is_tried_again(monkeypatch, caplog):
+    monkeypatch.setattr(downloader, "CLAIM_RENEW_SECONDS", 0.01)
+    answers = iter([sqlite3.OperationalError("database is locked")])
+    renewed = threading.Event()
+
+    def renew(book_id, *, claim):
+        error = next(answers, None)
+        if error is not None:
+            raise error
+        renewed.set()
+        return True
+
+    monkeypatch.setattr(downloader, "renew_claim", renew)
+
+    with caplog.at_level(logging.WARNING), downloader._renewing_claim(5, "token"):
+        assert renewed.wait(2)
+
+    assert "Could not renew the claim on book 5" in caplog.text
+
+
+def test_download_books_renews_the_claim_for_as_long_as_the_book_takes(tmp_path, monkeypatch):
+    """Through the whole of `_process_book`, the FFmpeg pass included."""
+    held = []
+
+    @contextlib.contextmanager
+    def renewing(book_id, claim):
+        held.append(("start", book_id, claim))
+        yield
+        held.append(("stop", book_id))
+
+    _patch_pipeline(monkeypatch, [make_book("B001", id=3)], [], [], [])
+    monkeypatch.setattr(downloader, "_renewing_claim", renewing)
+    monkeypatch.setattr(downloader, "_process_book", lambda *args: held.append(("process",)) or tmp_path / "x.m4b")
+
+    downloader.download_books(object(), make_settings(download_folder=tmp_path / "d", audiobook_folder=tmp_path / "b"))
+
+    assert [entry[0] for entry in held] == ["start", "process", "stop"]
+    assert held[0][1] == 3

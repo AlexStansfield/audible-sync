@@ -84,12 +84,12 @@ def _warn_about_another_key() -> None:
         )
 
 
-def run_command() -> None:
-    """One sync and download pass, then exit."""
+def run_command(*, full: bool = False) -> None:
+    """One sync and download pass, then exit; with `full` re-reading every library in full."""
     settings = _prepare()
     # The progress bar is a terminal concern, injected here for the same reason logging
     # is configured here: a host process running the pipeline gets neither by surprise.
-    run_pipeline(settings, progress=TqdmProgress())
+    run_pipeline(settings, progress=TqdmProgress(), full=full)
 
 
 def login_command(
@@ -186,8 +186,14 @@ def reset_password_command(*, reset_username: bool = False) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="audible-sync", description="Sync an Audible library to DRM-free files")
+    full_help = "re-read every account's whole library, bringing each book's data up to date"
+    # On the parser and on `run`, since `run` is the default: `audible-sync --full` and
+    # `audible-sync run --full` both work. SUPPRESS on `run`'s, or its default would
+    # overwrite the one given before the command
+    parser.add_argument("--full", action="store_true", help=full_help)
     commands = parser.add_subparsers(dest="command")
-    commands.add_parser("run", help="sync and download once, then exit (the default)")
+    run = commands.add_parser("run", help="sync and download once, then exit (the default)")
+    run.add_argument("--full", action="store_true", default=argparse.SUPPRESS, help=full_help)
     login = commands.add_parser("login", help="add an Audible account by signing in to Amazon")
     login.add_argument(
         "--marketplace",
@@ -221,7 +227,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point: `run` (the default), `login` or `reset-password`."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.full and args.command not in (None, "run"):
+        # Only a run reads libraries; silently ignoring it would read as if it had
+        parser.error(f"--full applies to a sync run, not to {args.command}")
     if args.command == "reset-password":
         reset_password_command(reset_username=args.username)
     elif args.command == "login":
@@ -233,7 +243,7 @@ def main(argv: list[str] | None = None) -> None:
             browser=args.browser,
         )
     else:
-        run_command()
+        run_command(full=args.full)
 
 
 if __name__ == "__main__":

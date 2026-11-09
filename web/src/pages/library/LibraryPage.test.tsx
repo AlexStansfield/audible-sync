@@ -204,6 +204,7 @@ describe("the Library", () => {
             stage: "downloading",
             account: null,
             book: { id: 2, asin: "B0", title: "Golden Son" },
+            full_refresh: false,
             books_done: 0,
             books_total: 10,
             transfer: { desc: "Golden Son", bytes: 50, total: 100 },

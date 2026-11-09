@@ -17,7 +17,7 @@ import logging
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Protocol
 
 from audible_sync.database import latest_sync_run_start
 from audible_sync.pipeline.runstate import RunStage, RunState
@@ -25,8 +25,12 @@ from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
 
-# The pipeline the scheduler runs: settings, where to report, and the stop event
-Pipeline = Callable[[Settings, RunState, threading.Event], None]
+
+class Pipeline(Protocol):
+    """The pipeline the scheduler runs: settings, where to report, the stop event, and
+    whether to re-read every library in full."""
+
+    def __call__(self, settings: Settings, state: RunState, cancel: threading.Event, *, full: bool) -> None: ...
 
 
 def _now() -> datetime:
@@ -69,6 +73,8 @@ class Scheduler:
         self._cancel = threading.Event()
         self._stopping = False
         self._triggered = False
+        # Whether the run asked for is a full refresh; cleared when it starts
+        self._triggered_full = False
         self._running = False
         # When this process last started the pipeline. A pass can record no run at all -
         # no accounts yet, or none that can log in - and pacing from the history alone
@@ -101,17 +107,20 @@ class Scheduler:
             if self._thread.is_alive():
                 logger.warning("Scheduler thread did not stop within %.0fs", self._stop_timeout)
 
-    def trigger(self) -> bool:
+    def trigger(self, *, full: bool = False) -> bool:
         """
-        Ask for a run now. Returns False if one is already in flight.
+        Ask for a run now, with `full` one that re-reads every library in full. Returns
+        False if one is already in flight.
 
         Works whether or not the schedule is enabled: a manual run is the point of
-        turning the schedule off.
+        turning the schedule off. Two asks before the run starts are one run, a full
+        refresh if either asked for one.
         """
         with self._lock:
             if self._running:
                 return False
             self._triggered = True
+            self._triggered_full = self._triggered_full or full
         self._wake.set()
         return True
 
@@ -210,13 +219,14 @@ class Scheduler:
             if self._stopping:
                 return
             self._triggered = False
+            full, self._triggered_full = self._triggered_full, False
             self._running = True
             self._last_attempt = self._now()
             self._cancel.clear()
 
         logger.info("Starting sync run")
         try:
-            self._run(settings, self._state, self._cancel)
+            self._run(settings, self._state, self._cancel, full=full)
         except Exception:
             # The pipeline has already recorded the failure on its run row; the thread
             # must survive to try again next interval

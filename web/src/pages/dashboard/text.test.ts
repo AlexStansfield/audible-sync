@@ -1,7 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { status } from "../../test/fakeApi";
 import { run } from "../../test/fixtures";
-import { bookOfRun, isInterrupted, nextRunText, runDetail, subtitle, unavailableText, upNextHeader } from "./text";
+import {
+  bookOfRun,
+  isInterrupted,
+  nextRunText,
+  runDetail,
+  stageLabel,
+  subtitle,
+  unavailableText,
+  upNextHeader,
+} from "./text";
 
 const scheduler = status().scheduler;
 const NOW = new Date("2026-11-02T14:20:00Z");
@@ -42,6 +51,17 @@ describe("runDetail", () => {
   });
 });
 
+describe("stageLabel", () => {
+  const live = { run_id: 1, started_at: "", account: null, book: null, books_done: 0, books_total: 0, transfer: null };
+
+  it("says a full refresh while it reads the library, and downloads like any run", () => {
+    expect(stageLabel({ ...live, stage: "syncing", full_refresh: false })).toBe("Syncing");
+    expect(stageLabel({ ...live, stage: "syncing", full_refresh: true })).toBe("Refreshing all");
+    expect(stageLabel({ ...live, stage: "downloading", full_refresh: true })).toBe("Downloading");
+    expect(stageLabel({ ...live, stage: "cancelling", full_refresh: true })).toBe("Cancelling");
+  });
+});
+
 describe("bookOfRun", () => {
   const snapshot = {
     run_id: 148,
@@ -49,6 +69,7 @@ describe("bookOfRun", () => {
     stage: "downloading" as const,
     account: null,
     book: null,
+    full_refresh: false,
     books_done: 2,
     books_total: 10,
     transfer: null,

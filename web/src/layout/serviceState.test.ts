@@ -14,6 +14,7 @@ function running(run: Partial<Run>): Status {
       stage: "downloading",
       account: null,
       book: null,
+      full_refresh: false,
       books_done: 2,
       books_total: 10,
       transfer: null,
@@ -35,6 +36,11 @@ describe("serviceState", () => {
   it("says what a run is doing before and after the downloads", () => {
     expect(serviceState(running({ stage: "syncing", books_total: 0 }), false).text).toBe("Syncing the library");
     expect(serviceState(running({ stage: "cancelling" }), false).text).toBe("Cancelling the run");
+    expect(serviceState(running({ stage: "syncing", full_refresh: true, books_total: 0 }), false).text).toBe(
+      "Refreshing every book",
+    );
+    // A full refresh downloads like any other run
+    expect(serviceState(running({ full_refresh: true }), false).text).toBe("Syncing · book 3 of 10");
   });
 
   it("is not answering when the status fails, and checking before the first answer", () => {

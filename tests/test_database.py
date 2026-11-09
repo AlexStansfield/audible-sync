@@ -1,4 +1,5 @@
 import sqlite3
+from contextlib import closing
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -62,6 +63,8 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "last_error",
         "last_attempt_at",
         "claim_token",
+        "description",
+        "claim_renewed_at",
     }
 
 
@@ -90,6 +93,7 @@ def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
         "last_error",
         "last_attempt_at",
         "claim_token",
+        "description",
     }
     assert expected <= columns
 
@@ -424,6 +428,55 @@ def test_download_queue_agrees_with_the_claim_about_what_is_stale(db):
     assert database.get_book_by_asin("B001").attempts == 2
 
 
+def test_a_renewed_claim_is_neither_offered_nor_taken_however_old_the_claim(db):
+    """A book taking longer than the stale cutoff is still being worked on while its claim is renewed."""
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00")
+
+    assert database.renew_claim(_id("B001"), claim=claim) is True
+
+    assert database.get_books_to_download() == []
+    assert database.claim_book_for_download(_id("B001")) is None
+
+
+def test_a_claim_whose_renewals_stopped_is_abandoned_like_any_other(db):
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+    database.renew_claim(_id("B001"), claim=claim)
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00", claim_renewed_at="2020-01-02T00:00:00+00:00")
+
+    assert [book.asin for book in database.get_books_to_download()] == ["B001"]
+    assert database.claim_book_for_download(_id("B001")) is not None
+
+
+def test_a_new_claim_does_not_inherit_the_old_ones_renewal(db):
+    """The reclaim starts the clock again from its own claim, not from the renewal before it."""
+    _claimable()
+    first = database.claim_book_for_download(_id("B001"))
+    database.renew_claim(_id("B001"), claim=first)
+    _set("B001", last_attempt_at="2020-01-01T00:00:00+00:00", claim_renewed_at="2020-01-02T00:00:00+00:00")
+
+    database.claim_book_for_download(_id("B001"))
+
+    with closing(sqlite3.connect(database.DB_FILE)) as conn:
+        assert conn.execute("SELECT claim_renewed_at FROM library").fetchone()[0] is None
+
+
+@pytest.mark.parametrize("status", ["waiting_download", "downloaded"])
+def test_only_a_held_claim_can_be_renewed(db, status):
+    _claimable()
+    claim = database.claim_book_for_download(_id("B001"))
+
+    assert database.renew_claim(_id("B001"), claim="not-the-claim") is False
+    if status == "downloaded":
+        database.mark_book_downloaded(_id("B001"), "m4b", claim=claim)
+    else:
+        database.release_book(_id("B001"), claim=claim)
+    # Recorded or handed back: the claim is over
+    assert database.renew_claim(_id("B001"), claim=claim) is False
+
+
 @pytest.mark.parametrize("status", ["downloaded", "failed", "unavailable"])
 def test_download_queue_never_offers_a_book_that_is_not_pending(db, status):
     """A stale timestamp must not drag a finished or given-up book back in."""
@@ -668,6 +721,23 @@ def test_update_books_refreshes_the_mutable_api_fields_on_a_second_sync(db):
     assert book.authors == ["Ann"]
     assert book.is_finished is True
     assert book.percent_complete == 100.0
+
+
+def test_update_books_stores_and_refreshes_the_description(db):
+    database.update_books(ACCOUNT, [make_book("B001", description="<p>First.</p>")])
+    assert database.get_book_by_asin("B001").description == "<p>First.</p>"
+
+    # Publishers edit them, so every read brings the stored one up to date
+    database.update_books(ACCOUNT, [make_book("B001", description="<p>Edited.</p>")])
+    assert database.get_book_by_asin("B001").description == "<p>Edited.</p>"
+
+
+def test_update_books_keeps_the_description_when_a_response_has_none(db):
+    database.update_books(ACCOUNT, [make_book("B001", description="<p>Kept.</p>")])
+
+    database.update_books(ACCOUNT, [make_book("B001", description=None)])
+
+    assert database.get_book_by_asin("B001").description == "<p>Kept.</p>"
 
 
 def test_update_books_never_touches_the_download_state(db):
@@ -950,6 +1020,7 @@ def test_init_db_creates_sync_runs_table_with_all_columns(db):
         "books_failed",
         "error",
         "books_recorded",
+        "full_refresh",
     }
 
 
@@ -2008,3 +2079,57 @@ def test_runs_from_before_the_records_say_so(tmp_path, monkeypatch):
 
     assert old.books_recorded is False
     assert new.books_recorded is True
+
+
+# --- full refresh ---------------------------------------------------------------
+
+
+def test_a_run_says_whether_it_set_out_to_be_a_full_refresh(db):
+    plain = database.start_sync_run(ACCOUNT)
+    full = database.start_sync_run(ACCOUNT, full_refresh=True)
+
+    assert database.get_sync_run(plain).full_refresh is False
+    assert database.get_sync_run(full).full_refresh is True
+
+
+@pytest.mark.parametrize(
+    ("started", "finished", "recorded"), [(False, True, True), (True, None, True), (True, False, False)]
+)
+def test_finish_sync_run_records_whether_the_whole_library_was_read(db, started, finished, recorded):
+    """A parked book can make any run read everything; one that failed first says what it meant to do."""
+    run_id = database.start_sync_run(ACCOUNT, full_refresh=started)
+
+    database.finish_sync_run(run_id, outcome=SyncOutcome.SUCCESS, full_refresh=finished)
+
+    assert database.get_sync_run(run_id).full_refresh is recorded
+
+
+def _full_run(account_id, outcome, started_at, monkeypatch, *, full=True):
+    monkeypatch.setattr(database, "_utcnow", lambda: started_at)
+    run_id = database.start_sync_run(account_id, full_refresh=full)
+    database.finish_sync_run(run_id, outcome=outcome)
+    return run_id
+
+
+def test_latest_full_refresh_start_is_none_without_one(db, monkeypatch):
+    _full_run(ACCOUNT, SyncOutcome.SUCCESS, "2026-11-01T10:00:00+00:00", monkeypatch, full=False)
+
+    assert database.latest_full_refresh_start(ACCOUNT) is None
+
+
+def test_latest_full_refresh_start_takes_the_newest_that_read_the_library(db, monkeypatch):
+    _full_run(ACCOUNT, SyncOutcome.SUCCESS, "2026-11-01T10:00:00+00:00", monkeypatch)
+    _full_run(ACCOUNT, SyncOutcome.CANCELLED, "2026-11-02T10:00:00+00:00", monkeypatch)
+    # Failed before reading, or not a full one: neither counts
+    _full_run(ACCOUNT, SyncOutcome.FAILED, "2026-11-03T10:00:00+00:00", monkeypatch)
+    _full_run(ACCOUNT, SyncOutcome.SUCCESS, "2026-11-04T10:00:00+00:00", monkeypatch, full=False)
+
+    assert database.latest_full_refresh_start(ACCOUNT) == "2026-11-02T10:00:00+00:00"
+
+
+def test_latest_full_refresh_start_is_per_account(db, monkeypatch):
+    other = database.add_account("Other (US)", "us", auth=None)
+    _full_run(other, SyncOutcome.SUCCESS, "2026-11-04T10:00:00+00:00", monkeypatch)
+
+    assert database.latest_full_refresh_start(ACCOUNT) is None
+    assert database.latest_full_refresh_start(other) == "2026-11-04T10:00:00+00:00"

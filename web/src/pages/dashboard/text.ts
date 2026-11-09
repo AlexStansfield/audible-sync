@@ -58,7 +58,7 @@ export function nextRunText(iso: string, now: Date = new Date()): string {
 export function stageLabel(run: RunSnapshot): string {
   if (run.stage === "cancelling") return "Cancelling";
   if (run.stage === "downloading") return "Downloading";
-  return "Syncing";
+  return run.full_refresh ? "Refreshing all" : "Syncing";
 }
 
 /** "Book 3 of 10 this run": the book in hand, counting the slots already used. */

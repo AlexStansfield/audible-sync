@@ -1,8 +1,9 @@
 import logging
 from datetime import UTC, datetime
 
+import httpx
 import pytest
-from audible.exceptions import NotFoundError, NotResponding
+from audible.exceptions import NotFoundError, NotResponding, ServerError, Unauthorized
 
 import audible_sync.pipeline.sync as sync_module
 from audible_sync.pipeline.sync import SyncResult, _api_timestamp, sync_library
@@ -12,14 +13,17 @@ ACCOUNT = make_account()
 
 
 class FakeAudible:
-    """Records the cursor each get_library call was made with."""
+    """Records the cursor each get_library call was made with; `full_error` fails the full read."""
 
-    def __init__(self, books):
+    def __init__(self, books, *, full_error=None):
         self.books = books
         self.calls = []
+        self.full_error = full_error
 
     def get_library(self, purchased_after=None):
         self.calls.append(purchased_after)
+        if purchased_after is None and self.full_error is not None:
+            raise self.full_error
         return self.books
 
 
@@ -62,7 +66,7 @@ def test_sync_library_fetches_everything_on_an_empty_database(monkeypatch):
     _patch(monkeypatch)
     audible = FakeAudible([make_book("B001")])
 
-    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=1, books_added=1)
+    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=1, books_added=1, full_refresh=True)
     assert audible.calls == [None]
 
 
@@ -115,12 +119,84 @@ def test_sync_library_rereads_the_whole_library_while_a_book_is_parked(monkeypat
     assert "refresh availability" in caplog.text
 
 
+def test_the_re_read_for_a_parked_book_is_not_a_full_refresh(monkeypatch):
+    """A withdrawn title can stay parked for good; marking every run would say nothing."""
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
+
+    assert sync_library(FakeAudible([make_book("B001")]), ACCOUNT).full_refresh is False
+
+
+def test_a_full_refresh_with_a_book_parked_reads_the_library_once(monkeypatch):
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
+    audible = FakeAudible([make_book("B001")])
+
+    assert sync_library(audible, ACCOUNT, full=True).full_refresh is True
+    assert audible.calls == ["2024-01-01T00:00:00Z", None]
+
+
+def test_sync_library_reads_only_new_purchases_on_an_ordinary_run(monkeypatch):
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
+    audible = FakeAudible([make_book("B001")])
+
+    assert sync_library(audible, ACCOUNT).full_refresh is False
+
+
+def test_a_full_refresh_reads_the_new_purchases_then_the_whole_library(monkeypatch, caplog):
+    """Every stored book is given to `update_books` again, which brings its data up to date."""
+    caplog.set_level(logging.INFO)
+    updated = _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
+    audible = FakeAudible([make_book("B001")])
+
+    result = sync_library(audible, ACCOUNT, full=True)
+
+    assert audible.calls == ["2024-01-01T00:00:00Z", None]
+    assert len(updated) == 2
+    assert result.full_refresh is True
+    assert "refresh every book" in caplog.text
+
+
+@pytest.mark.parametrize("full", [True, False], ids=["asked-for", "parked-book"])
+@pytest.mark.parametrize("error", [NotResponding(), ServerError(httpx.Response(503), {})], ids=["timeout", "5xx"])
+def test_a_failed_full_re_read_keeps_the_new_purchases_and_the_run(monkeypatch, caplog, full, error):
+    """
+    The incremental fetch is stored by then. Raising would fail the run and skip every
+    download; not counting it as a full refresh keeps one due for the next run.
+    """
+    updated = _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=not full)
+    audible = FakeAudible([make_book("B001")], full_error=error)
+
+    with caplog.at_level(logging.WARNING):
+        result = sync_library(audible, ACCOUNT, full=full)
+
+    assert audible.calls == ["2024-01-01T00:00:00Z", None]
+    assert len(updated) == 1
+    assert result == SyncResult(books_seen=1, books_added=1, full_refresh=False)
+    assert "Could not re-read the full library" in caplog.text
+
+
+def test_signed_out_during_the_full_re_read_still_fails_the_run(monkeypatch):
+    """Credentials are the run's concern: it marks the account as needing a login."""
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
+    audible = FakeAudible([make_book("B001")], full_error=Unauthorized(httpx.Response(401), {}))
+
+    with pytest.raises(Unauthorized):
+        sync_library(audible, ACCOUNT, full=True)
+
+
+def test_a_full_refresh_on_a_first_sync_reads_the_library_once(monkeypatch):
+    _patch(monkeypatch)
+    audible = FakeAudible([make_book("B001")])
+
+    assert sync_library(audible, ACCOUNT, full=True).full_refresh is True
+    assert audible.calls == [None]
+
+
 def test_sync_library_counts_only_the_incremental_fetch(monkeypatch):
     """The refresh pass re-reads everything, so folding it in would report the library size."""
     _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
     audible = FakeAudible([make_book("B001"), make_book("B002")])
 
-    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=2, books_added=2)
+    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=2, books_added=2, full_refresh=False)
 
 
 def test_sync_library_does_not_refresh_twice_on_a_first_full_sync(monkeypatch):
@@ -223,7 +299,7 @@ def test_a_failed_check_costs_neither_the_run_nor_more_timeouts(monkeypatch, cap
     with caplog.at_level(logging.WARNING):
         result = sync_library(audible, ACCOUNT)
 
-    assert result == SyncResult(books_seen=0, books_added=0)
+    assert result == SyncResult(books_seen=0, books_added=0, full_refresh=True)
     assert audible.asked == ["FIRST"]
     assert removed == []
     assert "Could not check whether FIRST is a podcast" in caplog.text
