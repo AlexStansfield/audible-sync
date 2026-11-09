@@ -307,9 +307,13 @@ class BookOut(BaseModel):
 class BookDetail(BookOut):
     """One book, as its own endpoints give it: with the description, which a list leaves out."""
 
-    # Plain text with the paragraphs as blank lines, never Audible's HTML: nothing that
-    # shows it has to trust it. Empty when Audible has none or no sync has read it yet
+    # Plain text with the paragraphs as blank lines. Empty when Audible has none or no
+    # sync has read it yet
     description: str = Field(validation_alias="description_text")
+    # The same with its formatting: never Audible's markup, but HTML written afresh from
+    # an allow-list (`p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, no attributes, text
+    # escaped), so a page can insert it as it is
+    description_html: str
 
 
 class BookList(BaseModel):

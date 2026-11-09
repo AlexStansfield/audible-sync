@@ -48,7 +48,7 @@ function running(bookId: number): Status {
   });
 }
 
-function page(theBook: (Book & { description?: string }) | null = DUNE, extra: Record<string, Reply> = {}) {
+function page(theBook: (Book & { description_html?: string }) | null = DUNE, extra: Record<string, Reply> = {}) {
   return fakeApi(
     signedIn({
       "GET /api/status": ok(status({ accounts: [UK] })),
@@ -86,17 +86,23 @@ describe("Book detail", () => {
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Library / One Word Kill");
   });
 
-  it("shows the description, without Show more when it fits", async () => {
-    page({ ...DUNE, description: "Set on the desert planet Arrakis.\n\nA stunning blend of adventure." });
+  it("shows the description with its formatting, without Show more when it fits", async () => {
+    page({
+      ...DUNE,
+      description_html:
+        "<p>Set on the desert planet <em>Arrakis</em>.</p><p><strong>A stunning blend</strong> of adventure.</p>",
+    });
     renderApp(`/library/${DUNE.id}`);
 
-    const text = await screen.findByText(/Set on the desert planet Arrakis\./);
-    expect(text).toHaveTextContent("A stunning blend of adventure.");
+    expect(await screen.findByText("Arrakis")).toBeInstanceOf(HTMLElement);
+    expect(screen.getByText("Arrakis").tagName).toBe("EM");
+    expect(screen.getByText("A stunning blend").tagName).toBe("STRONG");
+    expect(document.querySelectorAll("#book-description p")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
   });
 
   it("shows nothing for a book with no description", async () => {
-    page({ ...DUNE, description: "" });
+    page({ ...DUNE, description_html: "" });
     renderApp(`/library/${DUNE.id}`);
 
     await screen.findByRole("heading", { name: DUNE.title });
@@ -116,7 +122,7 @@ describe("Book detail", () => {
       vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
         return this.id === "book-description" ? 80 : 0;
       });
-      page({ ...DUNE, description: "A long summary." });
+      page({ ...DUNE, description_html: "<p>A long summary.</p>" });
       renderApp(`/library/${DUNE.id}`);
 
       const more = await screen.findByRole("button", { name: "Show more" });

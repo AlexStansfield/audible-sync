@@ -1300,12 +1300,16 @@ def test_get_book_gives_the_description_as_plain_text(api):
     body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
 
     assert body["description"] == "A tale & more.\n\nTwo."
+    # And with its formatting, rebuilt from the allow-list: no script, nothing else of Audible's
+    assert body["description_html"] == "<p>A <strong>tale</strong> &amp; more.</p><p>Two.</p>"
 
 
 def test_get_book_without_a_description_gives_an_empty_one(api):
     (book,) = _shelve(_account(), make_book("B001", description=None))
 
-    assert api.get(f"/api/books/{book.id}", headers=AUTH).json()["description"] == ""
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert (body["description"], body["description_html"]) == ("", "")
 
 
 def test_the_book_list_leaves_the_description_out(api):
@@ -1314,6 +1318,7 @@ def test_the_book_list_leaves_the_description_out(api):
     (item,) = api.get("/api/books", headers=AUTH).json()["items"]
 
     assert "description" not in item
+    assert "description_html" not in item
 
 
 def test_patch_gives_the_description_too(api):

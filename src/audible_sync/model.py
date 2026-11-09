@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, NamedTuple
 
-from audible_sync.htmltext import html_to_text
+from audible_sync.htmltext import html_to_text, safe_html
 
 
 class StoredLogin(NamedTuple):
@@ -289,6 +289,11 @@ class Book:
     def description_text(self) -> str:
         """The description as plain text, as the API serves it and the files carry it."""
         return html_to_text(self.description)
+
+    @property
+    def description_html(self) -> str:
+        """The description as HTML rebuilt from an allow-list (`safe_html`), safe to show."""
+        return safe_html(self.description)
 
     def __repr__(self):
         # Kept deliberately: the generated repr would put the cover URL and three

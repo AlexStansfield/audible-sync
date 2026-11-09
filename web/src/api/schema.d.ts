@@ -809,6 +809,8 @@ export interface components {
             date_added: string | null;
             /** Description */
             description: string;
+            /** Description Html */
+            description_html: string;
             /** Downloaded At */
             downloaded_at: string | null;
             /** Encoding Format */

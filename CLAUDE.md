@@ -32,7 +32,7 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`; `api.web`: the base path and the web app) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `htmltext` (Audible's HTML descriptions as plain text), `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
+Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`; `api.web`: the base path and the web app) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `htmltext` (Audible's HTML descriptions as plain text and as allow-listed HTML), `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
 
 `database` stays one module, since tests point its `DB_FILE` at a temp file (and `conftest.scratch_database` does by default). `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: `paths.REPO_ROOT` is two levels above it, `/app` in the image.
 
@@ -62,7 +62,7 @@ All observed; the API is undocumented.
 - **A denied licence is a 200** with no `content_metadata`; `get_license_response` raises `LicenseError`. The correct quality for AAXC is `"High"`
 - **The cover goes through the unauthenticated client:** the audible session signs every request, which would hand the ADP token to the image CDN
 - **Amazon's device list:** a device exists only once `/auth/register` is collected. A code entered after we stopped polling shows "Device connected" and creates nothing (checked 2026-11-05). `customer_info.user_id` is stable across registrations (compared a year and two methods apart)
-- **The description is `publisher_summary`**, HTML, in `product_extended_attrs`; `product_desc` despite its name only repeats the title. The group makes a page about 45% larger. Stored as Audible gave it and cleaned to plain text (`htmltext.html_to_text`, `Book.description_text`) wherever it leaves, so a change to the cleaning needs no re-read
+- **The description is `publisher_summary`**, HTML, in `product_extended_attrs`; `product_desc` despite its name only repeats the title. The group makes a page about 45% larger. Stored as Audible gave it and never leaves as it came: plain text for the files and scripts (`html_to_text`, `Book.description_text`), and for the web app HTML **written afresh** from an allow-list (`safe_html`, `Book.description_html`: `p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, no attributes, text escaped), which is what makes the Book page's `dangerouslySetInnerHTML` safe. Never widen it to a filter of Audible's markup. Both are built on read, so a change to either needs no re-read
 - **Chapters nest:** `flatten_chapters` descends, or a multi-part book gets a few hours-long "Part One" markers
 - **Validation:** the library checks credential fields on assignment (`Atna|`, `Atnr|`, PEM, `adp_token` shape). `tests/test_accounts.py`'s `AUTH_BLOB` is the smallest dict that passes; reuse it
 
@@ -125,7 +125,7 @@ All observed; the API is undocumented.
 
 ## API and serving
 
-- **One book's endpoints answer with `BookDetail`** (`GET`, `PATCH`, `refresh`): `BookOut` plus the description as plain text, never HTML, so nothing that shows it has to trust it. The list stays `BookOut`, without it
+- **One book's endpoints answer with `BookDetail`** (`GET`, `PATCH`, `refresh`): `BookOut` plus `description` (plain text) and `description_html` (allow-listed, see above). The list stays `BookOut`, without them
 - Every endpoint is a plain `def`, so SQLite runs in the threadpool. Errors are `{"detail": ...}`. A settings `ValueError` is a 422, but pydantic's `ValidationError` is re-raised: a response that does not fit its schema must be a 500, not a misleading 422
 - **Book rules (`library.py`):** a row a run holds is never touched (`BookBusy`, 409), files go before the row forgets them, and every transition goes through `reset_for_download`. Bulk goes book by book through the same functions so the rules stay in one place
 - **The catch-all** is registered after the routers. It takes every method and uses `_methods_allowed`, so a typo answers the same with or without a build. It checks `resolve()` + `is_relative_to`, since Starlette hands it `../x` for `%2E%2E/x`

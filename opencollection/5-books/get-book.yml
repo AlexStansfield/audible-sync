@@ -14,5 +14,6 @@ http:
 settings:
   encodeUrl: true
 docs: |
-  Includes `primary_series`, the series the book files under, and the `description` as
-  plain text (empty until a sync has read it).
+  Includes `primary_series`, the series the book files under, and the description as
+  plain text (`description`) and as allow-listed HTML (`description_html`); both empty
+  until a sync has read it.

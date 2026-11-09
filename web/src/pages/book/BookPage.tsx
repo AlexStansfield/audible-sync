@@ -189,7 +189,7 @@ function BookDetail({
             {book.subtitle && <p className={styles.subtitle}>{book.subtitle}</p>}
           </div>
           <Credits book={book} />
-          <Description text={book.description} />
+          <Description html={book.description_html} />
 
           <dl className={styles.details}>
             <Detail term="Series">{series ?? "—"}</Detail>
@@ -407,10 +407,13 @@ function Credits({ book }: { book: Book }) {
 
 /**
  * The publisher's summary, folded to a few lines with Show more when it runs longer.
- * Plain text from the API, its paragraphs as blank lines (`white-space: pre-line`).
  * Whether it folds is measured, at every width, rather than guessed from its length.
+ *
+ * `html` is not Audible's markup: the service writes it afresh from an allow-list
+ * (`p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, no attributes, every piece of text
+ * escaped; `htmltext.safe_html`), which is what makes inserting it safe.
  */
-function Description({ text }: { text: string }) {
+function Description({ html }: { html: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [folds, setFolds] = useState(false);
@@ -426,16 +429,16 @@ function Description({ text }: { text: string }) {
     return () => observer.disconnect();
   }, [open]);
 
-  if (!text) return null;
+  if (!html) return null;
   return (
     <div className={styles.description}>
       <div
         id="book-description"
         ref={ref}
         className={open ? styles.descriptionText : `${styles.descriptionText} ${styles.folded}`}
-      >
-        {text}
-      </div>
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: rebuilt by the service from an allow-list, see above
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
       {(folds || open) && (
         <button
           type="button"

@@ -290,6 +290,10 @@
             "title": "Description",
             "type": "string"
           },
+          "description_html": {
+            "title": "Description Html",
+            "type": "string"
+          },
           "downloaded_at": {
             "anyOf": [
               {
@@ -475,7 +479,8 @@
           "annotations_path",
           "encoding_format",
           "downloaded_at",
-          "description"
+          "description",
+          "description_html"
         ],
         "title": "BookDetail",
         "type": "object"
