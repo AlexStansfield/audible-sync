@@ -25,6 +25,7 @@ from audible import Authenticator
 
 from src.database import (
     add_account,
+    customer_id_of,
     get_account,
     get_account_by_customer,
     replace_account_auth_if_unchanged,
@@ -97,7 +98,7 @@ def add_account_from_authenticator(
         _country_of(auth) or "",
         auth=auth_to_dict(auth),
         customer_name=customer_name_of(auth),
-        customer_id=_user_id(auth.customer_info),
+        customer_id=customer_id_of(auth.customer_info),
         monitor_existing=monitor_existing,
     )
 
@@ -255,8 +256,8 @@ def _store_auth(account: Account, auth: Authenticator) -> tuple[Account, int]:
         raise AccountGone(f"Account {account.id} ({account.name}) was removed while the login was in progress")
     check_marketplace(current, _country_of(auth))
     # The column, so a customer is known even when the credentials cannot be read
-    stored_customer = current.customer_id or _user_id((current.auth or {}).get("customer_info"))
-    new_customer = _user_id(auth.customer_info)
+    stored_customer = current.customer_id or customer_id_of((current.auth or {}).get("customer_info"))
+    new_customer = customer_id_of(auth.customer_info)
     if stored_customer and new_customer and stored_customer != new_customer:
         raise AnotherCustomer(
             f"This is a different Amazon login from the one {current.name} belongs to. "
@@ -307,7 +308,7 @@ def _holder(auth: Authenticator) -> Account | None:
     the key was lost, say - is still found, rather than a login adding a second account
     that downloads the whole library again.
     """
-    user_id = _user_id(auth.customer_info)
+    user_id = customer_id_of(auth.customer_info)
     country_code = _country_of(auth)
     if not user_id or not country_code:
         return None
@@ -317,10 +318,6 @@ def _holder(auth: Authenticator) -> Account | None:
 def _already_held(holder: Account | None) -> LoginAlreadyHeld:
     name = holder.name if holder is not None else "Another account"
     return LoginAlreadyHeld(f"{name} already holds this Audible login. Sign in on that account, or remove it first")
-
-
-def _user_id(customer_info: dict | None) -> str | None:
-    return (customer_info or {}).get("user_id")
 
 
 def store_login(

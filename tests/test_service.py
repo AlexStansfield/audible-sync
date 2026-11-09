@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import src.database as database
-from src import service, webauth
+from src import crypto, service, webauth
 from src.apitoken import resolve_api_token
 from src.logbuffer import RingBufferHandler
 from src.service import ServiceConfig
@@ -72,6 +72,29 @@ def test_build_installs_the_log_buffer_on_the_root_logger(db, monkeypatch):
         client = TestClient(app)
         body = client.get("/api/logs", headers={"Authorization": "Bearer tok"}).json()
         assert any(e["message"] == "through the root" for e in body["items"])
+    finally:
+        for handler in root.handlers:
+            if handler not in before:
+                root.removeHandler(handler)
+
+
+def test_the_duplicate_account_warning_reaches_the_logs_endpoint(db, monkeypatch):
+    """It is the only advice about duplicates, and most read their logs in the web app."""
+    monkeypatch.setattr(service, "configure_logging", lambda debug: None)
+    monkeypatch.setattr(service, "seed_settings_from_ini", lambda: False)
+    key = crypto.generate_key()
+    crypto.configure(key)
+    monkeypatch.setattr(service, "load_secret_key", lambda: key)
+    blob = {"locale_code": "uk", "customer_info": {"user_id": "u1"}}
+    database.add_account("First", "uk", auth=blob)
+    database.add_account("Second", "uk", auth=blob)
+    root = logging.getLogger()
+    before = list(root.handlers)
+
+    app = service.build(ServiceConfig(api_token="tok"))
+    try:
+        items = TestClient(app).get("/api/logs", headers={"Authorization": "Bearer tok"}).json()["items"]
+        assert any("hold the same Audible login" in e["message"] for e in items)
     finally:
         for handler in root.handlers:
             if handler not in before:

@@ -1332,9 +1332,13 @@ def encrypt_stored_secrets() -> int:
     return rewritten
 
 
-def _customer_id_of(auth: dict | None) -> str | None:
-    """The customer a login's credentials belong to, from Amazon's `customer_info`."""
-    return ((auth or {}).get("customer_info") or {}).get("user_id")
+def customer_id_of(customer_info: dict | None) -> str | None:
+    """
+    The customer a login belongs to: `user_id` from Amazon's `customer_info`, or None
+    when it does not say. An empty id is no id, or it would be stored and every login
+    that does not say would collide in the unique index.
+    """
+    return (customer_info or {}).get("user_id") or None
 
 
 def backfill_customer_ids() -> int:
@@ -1363,24 +1367,36 @@ def backfill_customer_ids() -> int:
         for row in rows:
             if row["customer_id"] is not None or not row["auth"]:
                 continue
-            customer_id = _customer_id_of(_account_from_row(row).auth)
+            customer_id = customer_id_of((_account_from_row(row).auth or {}).get("customer_info"))
             if customer_id is None:
                 continue
             key = (customer_id, (row["country_code"] or "").lower())
             if key in held:
-                logger.warning(
-                    "Accounts %d and %d hold the same Audible login, so both download the same library; "
-                    "remove account %d, the newer",
-                    held[key],
-                    row["id"],
-                    row["id"],
-                )
+                _warn_duplicate(held[key], row["id"])
                 continue
-            conn.execute("UPDATE accounts SET customer_id = ? WHERE id = ?", (customer_id, row["id"]))
+            try:
+                conn.execute("UPDATE accounts SET customer_id = ? WHERE id = ?", (customer_id, row["id"]))
+            except sqlite3.IntegrityError:
+                # Another process stored this customer on another account since the
+                # SELECT; that one holds it now, and a start must not fail over it
+                logger.info("Account %d's login was stored on another account meanwhile; left as it is", row["id"])
+                continue
             held[key] = row["id"]
             filled += 1
         conn.commit()
     return filled
+
+
+def _warn_duplicate(first: int, second: int) -> None:
+    """Name two accounts holding one login, and the newer as the one to remove."""
+    older, newer = sorted((first, second))
+    logger.warning(
+        "Accounts %d and %d hold the same Audible login, so both download the same library; "
+        "remove account %d, the newer",
+        older,
+        newer,
+        newer,
+    )
 
 
 def get_account_by_customer(customer_id: str, country_code: str) -> Account | None:
@@ -1557,6 +1573,10 @@ def delete_account(account_id: int) -> None:
 
     The files on disk are left alone: they are the user's, and a re-added account files
     the same book to the same path and reuses them.
+
+    Removing the account that held a customer frees it for a duplicate from before the
+    rule, which `backfill_customer_ids` left without one: it gets it now rather than at
+    the next start, so a login meanwhile finds it instead of adding a third account.
     """
     with closing(_get_connection()) as conn:
         conn.execute("DELETE FROM library WHERE account_id = ?", (account_id,))
@@ -1567,6 +1587,7 @@ def delete_account(account_id: int) -> None:
         conn.execute("DELETE FROM sync_runs WHERE account_id = ?", (account_id,))
         conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
         conn.commit()
+    backfill_customer_ids()
 
 
 # --- settings ------------------------------------------------------------------
