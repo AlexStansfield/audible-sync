@@ -370,9 +370,7 @@ def reset_password_command(*, reset_username: bool = False) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="audible-sync", description="Sync an Audible library to DRM-free files"
-    )
+    parser = argparse.ArgumentParser(prog="audible-sync", description="Sync an Audible library to DRM-free files")
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("run", help="sync and download once, then exit (the default)")
     login = commands.add_parser("login", help="add an Audible account by signing in to Amazon")

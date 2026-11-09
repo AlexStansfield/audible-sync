@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import pytest
 
+from audible_sync import database
 from audible_sync.model import Account, Book
 from audible_sync.security import crypto
 from audible_sync.settings import Settings
@@ -25,6 +26,15 @@ def secret_key(monkeypatch, tmp_path):
     crypto.configure(key)
     yield key
     crypto.configure(None)
+
+
+@pytest.fixture(autouse=True)
+def scratch_database(monkeypatch, tmp_path):
+    """
+    The database is a file under `tmp_path` unless a test points it elsewhere, so a test
+    whose own patch misses (a module path that moved, say) cannot write to the real one.
+    """
+    monkeypatch.setattr(database, "DB_FILE", str(tmp_path / "scratch.db"))
 
 
 @pytest.fixture(autouse=True)
@@ -116,8 +126,6 @@ def mark_downloaded(book_id: int, encoding_format: str | None = None, **paths) -
     For tests that need a downloaded book rather than to test the transition, which
     `mark_book_downloaded` only allows to the run holding the claim.
     """
-    from audible_sync import database
-
     claim = database.claim_book_for_download(book_id)
     assert claim is not None, "the book could not be claimed"
     assert database.mark_book_downloaded(book_id, encoding_format, claim=claim, **paths)
