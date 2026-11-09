@@ -180,23 +180,22 @@ src/audible_sync/
 
 ### Tasks
 
-- [ ] Commit 1, the named package (mechanical): `git mv src/*.py src/audible_sync/` with an `__init__.py`; `pyproject.toml` gets a `[build-system]` and loses pytest's `pythonpath = ["."]`, ruff's `known-first-party` becomes `audible_sync`; `uv lock` and re-export `requirements.txt`
-- [ ] Commit 1: rewrite `from src.`, `import src.` and `from src import`, and every string naming a module: monkeypatch targets (`"src.database.DB_FILE"`, `"src.audible_client._PAGE_SIZE"`, `"src.apitoken"` and the rest), `caplog` logger names (`logger="src.downloader"` and four more), and the `getLogger("src.main"/"src.service")` of the two entry modules
-- [ ] Commit 1: `paths.REPO_ROOT` to `parents[2]` and `tests/test_paths.py` with it
-- [ ] Commit 1: the Dockerfile: `uv sync --locked --no-dev --no-install-project` before `COPY . .` and `uv sync --locked --no-dev` after it, and `CMD` `python -m audible_sync.service`
-- [ ] Commit 1: everything else naming the module: `web/package.json`'s `gen:api`, `docs/installation.md`, `docs/accounts.md`, `docs/manual-testing.md`, the README and CLAUDE.md (its layout section and the "flat, no `__init__.py`" rule)
-- [ ] Commit 2, the subpackages: pure `git mv` into the target with an `__init__.py` in each folder and the imports rewritten, no code changed, so the review is files that only moved
-- [ ] Commit 2: `[project.scripts] audible-sync = "audible_sync.cli:main"` and `__main__.py`, so the CLI is `audible-sync run`, `login` and `reset-password`
-- [ ] An autouse fixture in `tests/conftest.py` pointing `src.database.DB_FILE` at a temp file by default, so a patch target the rename misses cannot write to the real database
-- [ ] Later, separate commits: `run_pipeline` out of `cli.py` into `pipeline/run.py` (the scheduler imports it from the CLI module today); `BasePath` and the web app serving out of `api/app.py`
-- [ ] Checked: ruff, pytest and the web checks; `gen:api` gives a byte-identical `openapi.json`; no `src.` left in a string (a `caplog` on a logger that no longer exists lets a test pass while checking nothing); `data/audible_sync.db` unchanged by the test run; the image built from `git archive` runs in the test container, `/api/health` answers and a sync completes; `git log --follow` on a moved file still shows its history
+- [x] Commit 1, the named package (mechanical): `git mv src/*.py src/audible_sync/` with an `__init__.py`; `pyproject.toml` gets a `[build-system]` and keeps pytest's `pythonpath = ["."]` (only for `from tests.conftest import`), ruff's `known-first-party` becomes `audible_sync`; `uv lock` and re-export `requirements.txt`
+- [x] Commit 1: rewrite `from src.`, `import src.` and `from src import`, and every string naming a module: monkeypatch targets (`"src.database.DB_FILE"`, `"src.audible_client._PAGE_SIZE"`, `"src.apitoken"` and the rest), `caplog` logger names (`logger="src.downloader"` and four more), and the `getLogger("src.main"/"src.service")` of the two entry modules
+- [x] Commit 1: `paths.REPO_ROOT` to `parents[2]` and `tests/test_paths.py` with it
+- [x] Commit 1: the Dockerfile: `uv sync --locked --no-dev --no-install-project` before `COPY . .` and `uv sync --locked --no-dev` after it, and `CMD` `python -m audible_sync.service`
+- [x] Commit 1: everything else naming the module: `web/package.json`'s `gen:api`, `docs/installation.md`, `docs/accounts.md`, `docs/manual-testing.md`, the README and CLAUDE.md (its layout section and the "flat, no `__init__.py`" rule)
+- [x] Commit 2, the subpackages: pure `git mv` into the target with an `__init__.py` in each folder and the imports rewritten, no code changed, so the review is files that only moved
+- [x] Commit 2: `[project.scripts] audible-sync = "audible_sync.cli:main"` and `__main__.py`, so the CLI is `audible-sync run`, `login` and `reset-password`
+- [x] An autouse fixture in `tests/conftest.py` pointing `src.database.DB_FILE` at a temp file by default, so a patch target the rename misses cannot write to the real database
+- [x] Separate commits: `run_pipeline` out of `cli.py` into `pipeline/run.py` (the service imported it from the CLI module); `BasePath` and the web app serving out of `api/app.py` into `api/web.py`
+- [x] Checked: ruff, pytest and the web checks; `gen:api` gives a byte-identical `openapi.json`; no `src.` left in a string (a `caplog` on a logger that no longer exists lets a test pass while checking nothing); `data/audible_sync.db` unchanged by the test run; the image built from `git archive` runs in the test container, `/api/health` answers and a sync completes; `git log --follow` on a moved file still shows its history (2026-11-09: run #54 in the test container, success)
 
-### To decide
+### Decided (2026-11-09)
 
-- The package name: `audible_sync` proposed
-- `python -m src.main ...` stops working, which a script or a cron job using it (`reset-password` from the docs, say) would notice: a line in the release notes, or a `src/main.py` shim that forwards and warns for one release. Proposed: the release notes, since the image's own command changes with it and `compose.yml` does not name the module
+- The package is `audible_sync`, built by `uv_build` (the toolchain already in use)
+- The command line is `audible-sync` (or `python -m audible_sync`); `python -m src.main` stops working with no shim, and the release notes say so: the image's own command changes with it and `compose.yml` does not name the module
 - The version: 3.1.0, since the CLI changes
-- The build backend: `uv_build`, the toolchain already in use, or `hatchling`
 
 ## Milestone 5: Wishlist and Catalogue Search
 

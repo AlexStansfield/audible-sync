@@ -4,10 +4,18 @@ from pathlib import Path
 import pytest
 from mutagen.mp4 import MP4
 
-import src.database as database
-from src import library
-from src.library import BookBusy, audio_path_for, delete_book_files, delete_download, redownload, refresh, retry
-from src.model import BookStatus
+import audible_sync.database as database
+from audible_sync import library
+from audible_sync.library import (
+    BookBusy,
+    audio_path_for,
+    delete_book_files,
+    delete_download,
+    redownload,
+    refresh,
+    retry,
+)
+from audible_sync.model import BookStatus
 from tests.conftest import ACCOUNT_ID, make_book, make_settings, mark_downloaded
 
 FIXTURE_M4B = Path(__file__).parent / "fixtures" / "silence.m4b"

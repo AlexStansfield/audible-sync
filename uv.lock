@@ -54,7 +54,7 @@ wheels = [
 [[package]]
 name = "audible-sync"
 version = "3.0.2"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "audible" },
     { name = "cryptography" },

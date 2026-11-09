@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from src.model import Account, Book, BookStatus, sort_series
+from audible_sync.model import Account, Book, BookStatus, sort_series
 from tests.conftest import make_book
 
 ALL_COLUMNS = (

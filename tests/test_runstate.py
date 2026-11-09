@@ -1,4 +1,4 @@
-from src.runstate import RunStage, RunState, StateProgress
+from audible_sync.pipeline.runstate import RunStage, RunState, StateProgress
 from tests.conftest import make_book
 
 

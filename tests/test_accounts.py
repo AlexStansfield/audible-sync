@@ -6,9 +6,9 @@ import time
 import pytest
 from audible import Authenticator
 
-import src.database as database
-from src import accounts, crypto
-from src.accounts import (
+import audible_sync.database as database
+from audible_sync.audible_api import accounts
+from audible_sync.audible_api.accounts import (
     AccountGone,
     AnotherCustomer,
     LoginAlreadyHeld,
@@ -17,7 +17,8 @@ from src.accounts import (
     persist_auth_if_changed,
     replace_account_auth,
 )
-from src.model import Account, BookStatus, StoredLogin
+from audible_sync.model import Account, BookStatus, StoredLogin
+from audible_sync.security import crypto
 from tests.conftest import make_account, make_book
 
 # What `Authenticator.to_dict()` looks like for a UK login; enough for from_dict

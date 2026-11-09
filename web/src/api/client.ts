@@ -1,6 +1,6 @@
 /**
  * The API client: openapi-fetch over the types generated from the service's schema
- * (`npm run gen:api`), so every path, query and body is checked against src/schemas.py.
+ * (`npm run gen:api`), so every path, query and body is checked against src/audible_sync/api/schemas.py.
  *
  * Requests go to the address the page was served under: the service writes
  * <base href="{base path}/"> into index.html, so the same build works at the root of

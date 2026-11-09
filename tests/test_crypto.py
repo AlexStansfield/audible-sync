@@ -2,8 +2,8 @@ import stat
 
 import pytest
 
-from src import crypto
-from src.crypto import (
+from audible_sync.security import crypto
+from audible_sync.security.crypto import (
     KEY_ENV,
     KEY_FILE_ENV,
     SecretKeyError,

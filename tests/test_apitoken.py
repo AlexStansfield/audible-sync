@@ -2,10 +2,10 @@ import logging
 
 import pytest
 
-import src.database as database
-from src import apitoken, crypto
-from src.apitoken import resolve_api_token
-from src.settings import Settings
+import audible_sync.database as database
+from audible_sync.security import apitoken, crypto
+from audible_sync.security.apitoken import resolve_api_token
+from audible_sync.settings import Settings
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_a_generated_token_is_kept_for_the_next_start(db):
 
 def test_the_token_is_logged_in_full_only_on_the_start_that_generates_it(db, caplog):
     """`docker logs` attached to a bug report must not hand over the API on every start."""
-    caplog.set_level(logging.INFO, logger="src.apitoken")
+    caplog.set_level(logging.INFO, logger="audible_sync.security.apitoken")
     token = resolve_api_token(None).value
     assert token in caplog.text
     assert "not logged again" in caplog.text
@@ -45,7 +45,7 @@ def test_the_token_is_logged_in_full_only_on_the_start_that_generates_it(db, cap
 
 
 def test_a_configured_token_is_never_logged(db, caplog):
-    caplog.set_level(logging.INFO, logger="src.apitoken")
+    caplog.set_level(logging.INFO, logger="audible_sync.security.apitoken")
 
     resolve_api_token("chosen-by-the-user")
 

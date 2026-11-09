@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared by tests/test_naming.py and web/src/pages/settings/naming.test.ts: the browser's port of src/naming.py must file every book exactly as the service does. Expected values were computed by src/naming.py.",
+  "_comment": "Shared by tests/test_naming.py and web/src/pages/settings/naming.test.ts: the browser's port of src/audible_sync/pipeline/naming.py must file every book exactly as the service does. Expected values were computed by src/audible_sync/pipeline/naming.py.",
   "books": {
     "series": {
       "asin": "B01",

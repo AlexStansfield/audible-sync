@@ -1,10 +1,10 @@
 import json
 
-from src import openapi_export
+from audible_sync.api import openapi_export
 
 
 def test_the_schema_lists_the_api_without_a_server_or_database(tmp_path, monkeypatch):
-    monkeypatch.setattr("src.database.DB_FILE", str(tmp_path / "never-created.db"))
+    monkeypatch.setattr("audible_sync.database.DB_FILE", str(tmp_path / "never-created.db"))
     out = tmp_path / "openapi.json"
 
     openapi_export.main([str(out)])

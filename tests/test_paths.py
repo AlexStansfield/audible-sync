@@ -1,10 +1,11 @@
 from pathlib import Path
 
-from src.paths import REPO_ROOT, resolve_path
+from audible_sync import database
+from audible_sync.paths import REPO_ROOT, resolve_path
 
 
 def test_repo_root_is_the_directory_containing_src():
-    assert (REPO_ROOT / "src" / "paths.py").is_file()
+    assert (REPO_ROOT / "src" / "audible_sync" / "paths.py").is_file()
     assert (REPO_ROOT / "pyproject.toml").is_file()
 
 
@@ -30,3 +31,9 @@ def test_symlinks_are_not_followed():
     """The audiobook folder is a bind mount under Docker and often a symlink to a
     network share, so the anchored path must not be canonicalised."""
     assert resolve_path("audiobooks") == REPO_ROOT / "audiobooks"
+
+
+def test_a_test_never_reaches_the_real_database():
+    """`conftest.scratch_database` points every test at a scratch file to begin with."""
+    assert Path(database.DB_FILE) != REPO_ROOT / "data" / "audible_sync.db"
+    assert Path(database.DB_FILE).name == "scratch.db"

@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type NamingBook, outputPath, primarySeries, sanitizeFilename, templateError } from "./naming";
 
-// The cases tests/test_naming.py runs against src/naming.py, read from the same file
+// The cases tests/test_naming.py runs against src/audible_sync/pipeline/naming.py, read from the same file
 interface Cases {
   books: Record<string, NamingBook>;
   sanitize: { input: string | null; fallback?: string; expected: string }[];

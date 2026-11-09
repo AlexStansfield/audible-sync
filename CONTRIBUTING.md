@@ -10,7 +10,7 @@ npm install
 npm run dev        # http://localhost:5173, proxying /api to the service on :8080
 ```
 
-`AUDIBLE_SYNC_API=http://host:port npm run dev` points the proxy elsewhere. The checks CI runs are `npm run lint`, `npm run typecheck`, `npm test` and `npm run build`; `npm run format` fixes the formatting. After changing `src/schemas.py` or a route, run `npm run gen:api` to regenerate `web/openapi.json` and the client's types in `web/src/api/schema.d.ts` (it needs `uv`); CI fails while they are stale. `npm run build` writes `web/dist`, which the service serves when it finds it.
+`AUDIBLE_SYNC_API=http://host:port npm run dev` points the proxy elsewhere. The checks CI runs are `npm run lint`, `npm run typecheck`, `npm test` and `npm run build`; `npm run format` fixes the formatting. After changing `src/audible_sync/api/schemas.py` or a route, run `npm run gen:api` to regenerate `web/openapi.json` and the client's types in `web/src/api/schema.d.ts` (it needs `uv`); CI fails while they are stale. `npm run build` writes `web/dist`, which the service serves when it finds it.
 
 ## Testing by hand
 

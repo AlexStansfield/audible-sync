@@ -4,9 +4,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-import src.database as database
-from src import crypto
-from src.model import Account, Book, BookStatus, RunBookOutcome, SyncOutcome, SyncRun
+import audible_sync.database as database
+from audible_sync.model import Account, Book, BookStatus, RunBookOutcome, SyncOutcome, SyncRun
+from audible_sync.security import crypto
 from tests.conftest import ACCOUNT_ID as ACCOUNT
 from tests.conftest import make_book, mark_downloaded
 

@@ -4,8 +4,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from src.runstate import RunStage, RunState
-from src.scheduler import Scheduler
+from audible_sync.pipeline.runstate import RunStage, RunState
+from audible_sync.pipeline.scheduler import Scheduler
 from tests.conftest import make_settings
 
 NOW = datetime(2026, 9, 12, 12, 0, tzinfo=UTC)

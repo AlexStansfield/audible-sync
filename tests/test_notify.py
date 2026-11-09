@@ -4,9 +4,9 @@ import logging
 import httpx
 import pytest
 
-from src import notify
-from src.model import SyncOutcome, SyncRun
-from src.notify import notify_run_finished, run_finished_payload, send_webhook
+from audible_sync.model import SyncOutcome, SyncRun
+from audible_sync.pipeline import notify
+from audible_sync.pipeline.notify import notify_run_finished, run_finished_payload, send_webhook
 from tests.conftest import make_account
 
 RUN = SyncRun(
