@@ -30,12 +30,17 @@ describe("serviceState", () => {
 
   it("counts the book in hand during the downloads", () => {
     expect(serviceState(running({}), false).text).toBe("Syncing · book 3 of 10");
-    expect(serviceState(running({ full_refresh: false, books_done: 10 }), false).text).toBe("Syncing · book 10 of 10");
+    expect(serviceState(running({ books_done: 10 }), false).text).toBe("Syncing · book 10 of 10");
   });
 
   it("says what a run is doing before and after the downloads", () => {
     expect(serviceState(running({ stage: "syncing", books_total: 0 }), false).text).toBe("Syncing the library");
     expect(serviceState(running({ stage: "cancelling" }), false).text).toBe("Cancelling the run");
+    expect(serviceState(running({ stage: "syncing", full_refresh: true, books_total: 0 }), false).text).toBe(
+      "Refreshing every book",
+    );
+    // A full refresh downloads like any other run
+    expect(serviceState(running({ full_refresh: true }), false).text).toBe("Syncing · book 3 of 10");
   });
 
   it("is not answering when the status fails, and checking before the first answer", () => {

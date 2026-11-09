@@ -205,11 +205,14 @@ function RunHistory({
                         </button>
                       </td>
                       <td>
-                        {statusKnown && isInterrupted(run, current?.run_id) ? (
-                          <Chip colour="var(--bad)">Interrupted</Chip>
-                        ) : (
-                          <OutcomeChip outcome={run.outcome} />
-                        )}
+                        <span className={styles.outcome}>
+                          {statusKnown && isInterrupted(run, current?.run_id) ? (
+                            <Chip colour="var(--bad)">Interrupted</Chip>
+                          ) : (
+                            <OutcomeChip outcome={run.outcome} />
+                          )}
+                          {run.full_refresh && <Chip colour="var(--accent)">Full refresh</Chip>}
+                        </span>
                       </td>
                       <td>{run.account_id != null ? (names.get(run.account_id) ?? "—") : "—"}</td>
                       <td className={styles.secondary}>{formatTime(run.started_at)}</td>

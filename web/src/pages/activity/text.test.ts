@@ -34,6 +34,9 @@ describe("Activity's wording", () => {
     const running = run({ id: 148, outcome: "running", finished_at: null });
     expect(runNote(running, LIVE, true)).toBe("Downloading Red Rising");
     expect(runNote(running, { ...LIVE, stage: "syncing", book: null }, true)).toBe("Reading the library from Audible");
+    expect(runNote(running, { ...LIVE, stage: "syncing", book: null, full_refresh: true }, true)).toBe(
+      "Reading the whole library from Audible",
+    );
     expect(runNote(running, { ...LIVE, stage: "cancelling" }, true)).toBe("Cancelling");
     expect(runNote(running, null, true)).toBe("Interrupted: the service stopped during this run");
     // Before the status has answered, the run in flight is not called interrupted

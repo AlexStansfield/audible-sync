@@ -357,6 +357,12 @@ function Schedule({ draft, set, errors, edited }: SectionProps & { edited: boole
         checked={draft.auto_monitor_new}
         onChange={(auto_monitor_new) => set({ auto_monitor_new })}
       />
+      <SwitchRow
+        label="Refresh every book from Audible once a day"
+        hint="Brings titles, authors, series, covers, descriptions and availability up to date. Off: a run reads only new purchases, and Refresh all on the Dashboard does it by hand."
+        checked={draft.daily_full_refresh}
+        onChange={(daily_full_refresh) => set({ daily_full_refresh })}
+      />
     </Section>
   );
 }

@@ -23,6 +23,9 @@ export function serviceState(status: Status | undefined, failed: boolean): Servi
       const book = Math.min(run.books_done + 1, run.books_total);
       return { text: `Syncing · book ${book} of ${run.books_total}`, colour: "var(--accent)" };
     }
+    if (run.stage === "syncing" && run.full_refresh) {
+      return { text: "Refreshing every book", colour: "var(--accent)" };
+    }
     return { text: "Syncing the library", colour: "var(--accent)" };
   }
   if (status.scheduler.running) {

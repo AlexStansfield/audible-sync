@@ -17,6 +17,7 @@ export interface Draft {
   interval: string;
   unit: Unit;
   auto_monitor_new: boolean;
+  daily_full_refresh: boolean;
   max_download: string;
   max_attempts: string;
   max_consecutive_failures: string;
@@ -44,6 +45,7 @@ export function draftFrom(settings: Settings): Draft {
     interval: String(inHours ? minutes / 60 : minutes),
     unit: inHours ? "hours" : "minutes",
     auto_monitor_new: settings.auto_monitor_new,
+    daily_full_refresh: settings.daily_full_refresh,
     max_download: optional(settings.max_download),
     max_attempts: String(settings.max_attempts),
     max_consecutive_failures: optional(settings.max_consecutive_failures),
@@ -92,6 +94,7 @@ function parse(draft: Draft): { values: Partial<Values>; errors: Errors } {
   const values: Partial<Values> = {
     sync_enabled: draft.sync_enabled,
     auto_monitor_new: draft.auto_monitor_new,
+    daily_full_refresh: draft.daily_full_refresh,
     encoding_format: draft.encoding_format,
     bitrate: draft.bitrate,
     audiobook_folder: draft.audiobook_folder.trim(),
@@ -127,6 +130,7 @@ const SETTING_OF: Record<ErrorField, keyof Values> = {
   sync_enabled: "sync_enabled",
   interval: "sync_interval_minutes",
   auto_monitor_new: "auto_monitor_new",
+  daily_full_refresh: "daily_full_refresh",
   max_download: "max_download",
   max_attempts: "max_attempts",
   max_consecutive_failures: "max_consecutive_failures",

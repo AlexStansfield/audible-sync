@@ -115,7 +115,49 @@ describe("the Dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Sync now" }));
 
     expect(await screen.findByText("Sync started.")).toBeInTheDocument();
-    expect(api.calls.some((call) => call.method === "POST" && call.path === "/api/sync")).toBe(true);
+    // An ordinary run: no body, so not a full refresh
+    expect(api.sent("POST /api/sync")).toEqual([null]);
+  });
+
+  it("starts a full refresh with Refresh all from Audible", async () => {
+    const api = fakeApi(dashboard({ "POST /api/sync": ok({ status: "started" }) }));
+    renderApp("/");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Refresh all from Audible" }));
+
+    expect(await screen.findByText("Full refresh started.")).toBeInTheDocument();
+    expect(api.sent("POST /api/sync")).toEqual([{ full: true }]);
+  });
+
+  it("offers no full refresh while a run is going", async () => {
+    fakeApi(
+      dashboard({
+        "GET /api/status": ok(
+          status({
+            accounts: [UK, US],
+            scheduler: { ...status().scheduler, running: true },
+            current_run: {
+              run_id: 148,
+              started_at: "2026-11-02T14:00:00+00:00",
+              stage: "syncing",
+              account: { id: 1, name: "Alex (UK)", country_code: "uk" },
+              book: null,
+              full_refresh: true,
+              books_done: 0,
+              books_total: 0,
+              transfer: null,
+            },
+          }),
+        ),
+      }),
+    );
+    renderApp("/");
+
+    expect(await screen.findByRole("button", { name: "Cancel run" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh all from Audible" })).toBeDisabled();
+    // The run card says what kind of run it is
+    const card = await screen.findByRole("region", { name: "Run in progress" });
+    expect(within(card).getByText("Refreshing all")).toBeInTheDocument();
   });
 
   it("shows each account with its books by status", async () => {
