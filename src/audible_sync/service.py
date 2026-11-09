@@ -39,10 +39,11 @@ from pathlib import Path
 import uvicorn
 
 from audible_sync.api.app import create_app, normalise_base_path
-from audible_sync.cli import configure_logging, run_pipeline
+from audible_sync.cli import configure_logging
 from audible_sync.database import backfill_customer_ids, encrypt_stored_secrets, init_db
 from audible_sync.logbuffer import RingBufferHandler
 from audible_sync.paths import REPO_ROOT, resolve_path
+from audible_sync.pipeline.run import run_pipeline
 from audible_sync.pipeline.runstate import RunState, StateProgress
 from audible_sync.pipeline.scheduler import Scheduler
 from audible_sync.security import crypto, webauth

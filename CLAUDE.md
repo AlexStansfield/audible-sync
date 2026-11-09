@@ -23,7 +23,7 @@ What the code cannot tell you: decisions, gotchas and how to test. For what a fu
 
 ```
 src/audible_sync/  the package (src layout, uv_build, installed editable), absolute imports (from audible_sync.x import y)
-tests/      one file per module, under its name from before the package (test_main.py is cli.py); fixtures/ has silence.m4b and naming_cases.json (shared with web/)
+tests/      one file per module, under its name from before the package (test_main.py is cli.py; test_run.py is pipeline/run.py); fixtures/ has silence.m4b and naming_cases.json (shared with web/)
 web/        the web app, see "Web app"
 docs/       user docs; design/ has the web app's spec and mockups; manual-testing.md the hand checks
 config/     config.ini, the defaults of a fresh database
@@ -32,7 +32,7 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `cli.run_pipeline` (also the CLI) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
+Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
 
 `database` stays one module, since tests point its `DB_FILE` at a temp file (and `conftest.scratch_database` does by default). `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: `paths.REPO_ROOT` is two levels above it, `/app` in the image.
 
@@ -175,14 +175,14 @@ Every behaviour change ships with tests; a bug fix with one that reproduces it. 
 **By area:**
 
 - **`download_books`:** `_patch_pipeline` in `tests/test_downloader.py`. Everything is looked up as an attribute of `audible_sync.pipeline.downloader`, so patch it there: miss one and the test writes to the scratch database rather than the one it set up
-- **`run_pipeline`:** `tests/test_main.py`'s `_patch_pipeline`, whose `synced=` and `stats=` may be exceptions, and `accounts=`. Tests call `main([])`, since `parse_args(None)` would read pytest's argv
+- **`run_pipeline`:** `tests/test_run.py`'s `_patch_pipeline`, whose `synced=` and `stats=` may be exceptions, and `accounts=`. CLI tests (`tests/test_main.py`) call `main([])`, since `parse_args(None)` would read pytest's argv
 - **`decrypt_aaxc`:** the `fake_ffmpeg` fixture records the argv and must read the FFMETADATA file before it is deleted. `write_m4b_extra_tags` needs a real MP4: copy `tests/fixtures/silence.m4b`. For `read_embedded_asin`, set `©cmt` to `ASIN: ...` with mutagen
 - **Progress:** a fake response's `num_bytes_downloaded` must advance, as `_stream_to_file` takes deltas from it, not `len(chunk)`
 - **API:** `create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), version="test")` with `TestClient` and **no** context manager, so the scheduler is not started. The client's jar sends its cookie with bearer requests too, so a test about the token alone uses a fresh client, and a second client is a second browser. A non-ASCII bearer header must be bytes. scrypt costs 50 ms, so keep it out of loops. `httpx2` is in the dev group because Starlette's TestClient needs it
 - **Scheduler:** everything is injected. Call `_settle(scheduler)` before re-triggering, since `FakeRun` signals `finished` a moment before `running` flips
 - **Login:** `tests/test_audible_login.py`'s `FakeAmazon` on `httpx.MockTransport` serves scripted answers (`PENDING`, `REJECTED`, `registered_response()`); import it rather than building another. `join(login_id)` before reading a code login's outcome. Never call the real `register`
 - **Anything replacing credentials** patches `Authenticator.deregister_device` (`_deregistered` in `tests/test_accounts.py`)
-- **Webhook:** `httpx.MockTransport` for the POST; `tests/test_main.py` patches it on `audible_sync.cli`
+- **Webhook:** `httpx.MockTransport` for the POST; `tests/test_run.py` patches `notify_run_finished` on `audible_sync.pipeline.run`
 - **`RingBufferHandler`** on a logger of its own with the level set: the default WARNING drops INFO before the handler sees it
 
 **Web:**
