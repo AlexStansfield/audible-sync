@@ -220,6 +220,8 @@ function RunCard({ run }: { run: RunSnapshot }) {
             </>
           ) : run.stage === "cancelling" ? (
             "Stopping after the current step"
+          ) : run.full_refresh ? (
+            "Reading the whole library from Audible"
           ) : (
             "Reading the library from Audible"
           )}

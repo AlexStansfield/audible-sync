@@ -229,9 +229,9 @@ Each library book keeps its description from Audible, shown on its page, in the 
 - [x] Web: Refresh all from Audible beside Sync now on the Dashboard, which starts a full refresh (disabled during a run, like Sync now); the daily full refresh as a switch in Settings' Schedule section; a full refresh marked as such in Activity
 - [x] Backend: renew a claim while its book downloads. `last_attempt_at` is written once, at the claim, so a book taking over `STALE_CLAIM_SECONDS` (6 h) is reclaimable while still in progress, and a second process downloads and files it at the same time. The claim token only settles whose outcome is kept. Done as a thread renewing the claim (`claim_renewed_at`, guarded on the claim) every five minutes for the whole of `_process_book`, the FFmpeg pass included
 - [x] Docs: the description and the full refresh in `docs/api.md` and `opencollection/` (`GET /api/books/{id}`, `POST /api/sync`'s `full`); `--full` in the README; CLAUDE.md
-- [ ] Checked live: a full refresh from the button and from the daily setting each re-read the whole library once per account, and a book edited in the database by hand is put back by it
-- [ ] Checked live: after the first full refresh every library book with a summary on Audible has its description; a new download carries it in M4B and in Ogg Opus, and its ASIN is still read back from the file
-- [ ] Checked live: a download taking longer than a few minutes renews its claim, and a second process does not take the book
+- [x] Checked live: a full refresh from the button and from the daily setting each re-read the whole library once per account, and a book edited in the database by hand is put back by it
+- [x] Checked live: after the first full refresh every library book with a summary on Audible has its description; a new download carries it in M4B and in Ogg Opus, and its ASIN is still read back from the file
+- [x] Checked live: a download taking longer than a few minutes renews its claim, and a second process does not take the book
 
 - Later, not in this release: a refresh changes the database only. A book whose title, author or series changed stays in its old folder with its old tags until it is downloaded again; renaming and re-tagging files on disk would be a feature of its own
 

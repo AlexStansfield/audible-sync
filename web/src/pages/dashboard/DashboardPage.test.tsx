@@ -158,6 +158,7 @@ describe("the Dashboard", () => {
     // The run card says what kind of run it is
     const card = await screen.findByRole("region", { name: "Run in progress" });
     expect(within(card).getByText("Refreshing all")).toBeInTheDocument();
+    expect(within(card).getByText("Reading the whole library from Audible")).toBeInTheDocument();
   });
 
   it("shows each account with its books by status", async () => {
