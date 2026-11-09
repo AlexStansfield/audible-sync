@@ -15,8 +15,8 @@ from audible_sync import library
 from audible_sync.api.routes.accounts import account_or_404
 from audible_sync.api.schemas import (
     BookAction,
+    BookDetail,
     BookList,
-    BookOut,
     BookUpdate,
     BulkRequest,
     BulkResultOut,
@@ -126,12 +126,12 @@ def router() -> APIRouter:
             max_download=settings.max_download,
         )
 
-    @router.get("/books/{book_id}", response_model=BookOut)
-    def get_one_book(book_id: int) -> BookOut:
+    @router.get("/books/{book_id}", response_model=BookDetail)
+    def get_one_book(book_id: int) -> BookDetail:
         return _book_or_404(book_id)
 
-    @router.patch("/books/{book_id}", response_model=BookOut)
-    def patch_book(book_id: int, update: BookUpdate) -> BookOut:
+    @router.patch("/books/{book_id}", response_model=BookDetail)
+    def patch_book(book_id: int, update: BookUpdate) -> BookDetail:
         _book_or_404(book_id)
         set_monitored(book_id, update.monitored)
         return get_book(book_id)
@@ -162,8 +162,8 @@ def router() -> APIRouter:
             raise HTTPException(status_code=409, detail=str(error)) from None
         return BookAction(status="queued")
 
-    @router.post("/books/{book_id}/refresh", response_model=BookOut)
-    def refresh_book(book_id: int) -> BookOut:
+    @router.post("/books/{book_id}/refresh", response_model=BookDetail)
+    def refresh_book(book_id: int) -> BookDetail:
         """Re-read the book from Audible."""
         book = _book_or_404(book_id)
         try:

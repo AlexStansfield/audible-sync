@@ -784,6 +784,70 @@ export interface components {
             unmonitored: number;
         };
         /**
+         * BookDetail
+         * @description One book, as its own endpoints give it: with the description, which a list leaves out.
+         */
+        BookDetail: {
+            /** Account Id */
+            account_id: number;
+            /** Annotations Path */
+            annotations_path: string | null;
+            /** Asin */
+            asin: string;
+            /** Attempts */
+            attempts: number;
+            /** Authors */
+            authors: string[];
+            /** Cover Path */
+            cover_path: string | null;
+            /** Cover Url */
+            cover_url: string;
+            /** Date Added */
+            date_added: string | null;
+            /** Description */
+            description: string;
+            /** Downloaded At */
+            downloaded_at: string | null;
+            /** Encoding Format */
+            encoding_format: string | null;
+            /** File Path */
+            file_path: string | null;
+            /** Genres */
+            genres: string[];
+            /** Has Pdf */
+            has_pdf: boolean;
+            /** Id */
+            id: number;
+            /** Is Consumable */
+            is_consumable: boolean;
+            /** Is Finished */
+            is_finished: boolean;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Last Error */
+            last_error: string | null;
+            /** Length */
+            length: number;
+            /** Monitored */
+            monitored: boolean;
+            /** Narrators */
+            narrators: string[];
+            /** Pdf Path */
+            pdf_path: string | null;
+            /** Percent Complete */
+            percent_complete: number;
+            primary_series: components["schemas"]["SeriesEntry"] | null;
+            /** Release Date */
+            release_date: string | null;
+            /** Series */
+            series: components["schemas"]["SeriesEntry"][];
+            status: components["schemas"]["BookStatus"] | null;
+            /** Subtitle */
+            subtitle: string;
+            /** Title */
+            title: string;
+        };
+        /**
          * BookFilter
          * @description The library listing's filters, for a bulk action on everything they match.
          */
@@ -1987,7 +2051,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BookOut"];
+                    "application/json": components["schemas"]["BookDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2022,7 +2086,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BookOut"];
+                    "application/json": components["schemas"]["BookDetail"];
                 };
             };
             /** @description Validation Error */
@@ -2146,7 +2210,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BookOut"];
+                    "application/json": components["schemas"]["BookDetail"];
                 };
             };
             /** @description Validation Error */

@@ -289,6 +289,14 @@ class BookOut(BaseModel):
     downloaded_at: str | None
 
 
+class BookDetail(BookOut):
+    """One book, as its own endpoints give it: with the description, which a list leaves out."""
+
+    # Plain text with the paragraphs as blank lines, never Audible's HTML: nothing that
+    # shows it has to trust it. Empty when Audible has none or no sync has read it yet
+    description: str = Field(validation_alias="description_text")
+
+
 class BookList(BaseModel):
     items: list[BookOut]
     total: int

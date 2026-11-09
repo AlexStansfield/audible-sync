@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, NamedTuple
 
+from audible_sync.htmltext import html_to_text
+
 
 class StoredLogin(NamedTuple):
     """
@@ -194,6 +196,9 @@ class Book:
     # False while Audible has withdrawn a Plus title the customer still holds. Read from
     # `customer_rights.is_consumable`, and the reason a book sits in `UNAVAILABLE`.
     is_consumable: bool = True
+    # The publisher's summary, HTML as Audible gives it; `description_text` is how it is
+    # shown and tagged. None when the response did not carry it
+    description: str | None = None
 
     # Database only, so None on a book that came straight from the Audible API
     status: BookStatus | None = None
@@ -247,6 +252,7 @@ class Book:
             # withdrawn", so it must read True: defaulting to False would park a whole
             # legacy library as unavailable.
             is_consumable=bool(data["is_consumable"]) if data.get("is_consumable") is not None else True,
+            description=data.get("description"),
             status=_book_status(data.get("status")),
             # A row from before the column existed is wanted, like every row was then
             monitored=bool(monitored) if monitored is not None else True,
@@ -278,6 +284,11 @@ class Book:
         """
         named = [entry for entry in self.series if entry.get("title")]
         return min(named, key=_series_sort_key, default=None)
+
+    @property
+    def description_text(self) -> str:
+        """The description as plain text, as the API serves it and the files carry it."""
+        return html_to_text(self.description)
 
     def __repr__(self):
         # Kept deliberately: the generated repr would put the cover URL and three

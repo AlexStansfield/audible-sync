@@ -62,6 +62,7 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "last_error",
         "last_attempt_at",
         "claim_token",
+        "description",
     }
 
 
@@ -90,6 +91,7 @@ def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
         "last_error",
         "last_attempt_at",
         "claim_token",
+        "description",
     }
     assert expected <= columns
 
@@ -668,6 +670,23 @@ def test_update_books_refreshes_the_mutable_api_fields_on_a_second_sync(db):
     assert book.authors == ["Ann"]
     assert book.is_finished is True
     assert book.percent_complete == 100.0
+
+
+def test_update_books_stores_and_refreshes_the_description(db):
+    database.update_books(ACCOUNT, [make_book("B001", description="<p>First.</p>")])
+    assert database.get_book_by_asin("B001").description == "<p>First.</p>"
+
+    # Publishers edit them, so every read brings the stored one up to date
+    database.update_books(ACCOUNT, [make_book("B001", description="<p>Edited.</p>")])
+    assert database.get_book_by_asin("B001").description == "<p>Edited.</p>"
+
+
+def test_update_books_keeps_the_description_when_a_response_has_none(db):
+    database.update_books(ACCOUNT, [make_book("B001", description="<p>Kept.</p>")])
+
+    database.update_books(ACCOUNT, [make_book("B001", description=None)])
+
+    assert database.get_book_by_asin("B001").description == "<p>Kept.</p>"
 
 
 def test_update_books_never_touches_the_download_state(db):

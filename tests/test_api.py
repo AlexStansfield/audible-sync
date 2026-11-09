@@ -1270,6 +1270,53 @@ def test_list_books_rejects_bad_parameters(api, params):
     assert api.get("/api/books", headers=AUTH, params=params).status_code == 422
 
 
+def test_get_book_gives_the_description_as_plain_text(api):
+    account_id = _account()
+    (book,) = _shelve(
+        account_id, make_book("B001", description="<p>A <b>tale</b> &amp; more.</p><script>x()</script><p>Two.</p>")
+    )
+
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert body["description"] == "A tale & more.\n\nTwo."
+
+
+def test_get_book_without_a_description_gives_an_empty_one(api):
+    (book,) = _shelve(_account(), make_book("B001", description=None))
+
+    assert api.get(f"/api/books/{book.id}", headers=AUTH).json()["description"] == ""
+
+
+def test_the_book_list_leaves_the_description_out(api):
+    _shelve(_account(), make_book("B001", description="<p>Long.</p>"))
+
+    (item,) = api.get("/api/books", headers=AUTH).json()["items"]
+
+    assert "description" not in item
+
+
+def test_patch_gives_the_description_too(api):
+    (book,) = _shelve(_account(), make_book("B001", description="<p>Told.</p>"))
+
+    body = api.patch(f"/api/books/{book.id}", headers=AUTH, json={"monitored": False}).json()
+
+    assert body["description"] == "Told."
+
+
+def test_refresh_gives_the_description_it_read(api, monkeypatch):
+    (book,) = _shelve(_account(), make_book("B001", description=None))
+    monkeypatch.setattr(
+        api_books.library,
+        "refresh",
+        lambda b: (
+            database.update_books(b.account_id, [make_book("B001", description="<p>New.</p>")])
+            or database.get_book(b.id)
+        ),
+    )
+
+    assert api.post(f"/api/books/{book.id}/refresh", headers=AUTH).json()["description"] == "New."
+
+
 def test_get_book_carries_the_series_it_files_under(api):
     account_id = _account()
     (book,) = _shelve(

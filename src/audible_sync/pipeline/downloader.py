@@ -413,11 +413,22 @@ def generate_metadata(book: Book) -> dict:
     # ASIN as comment for reference
     metadata["comment"] = f"ASIN: {asin}"
 
+    # The publisher's summary as plain text. Under `description` here, which the MP4
+    # muxer writes as `desc`; `decrypt_aaxc` renames it for Ogg (see `_OGG_DESCRIPTION`)
+    if description := book.description_text:
+        metadata["description"] = description
+
     # Media type
     metadata["media_type"] = "audiobook"
 
     logger.debug("Generated metadata: %s", metadata)
     return metadata
+
+
+# In Ogg, FFmpeg writes the `comment` key - the ASIN, which `read_embedded_asin` reads
+# back - as the DESCRIPTION vorbis comment, and a `description` key would be a second
+# DESCRIPTION beside it. So the summary goes under SYNOPSIS, as in Vorbis comment usage.
+_OGG_DESCRIPTION = "synopsis"
 
 
 def _escape_ffmetadata(value) -> str:
@@ -526,6 +537,8 @@ def decrypt_aaxc(
 
     if encoding_format == "oga":
         tags = dict(metadata) if metadata else {}
+        if "description" in tags:
+            tags[_OGG_DESCRIPTION] = tags.pop("description")
         if chapters:
             tags.update(chapter_tags(chapters))
             logger.info("Embedding %d chapters as vorbis comments", len(chapters))

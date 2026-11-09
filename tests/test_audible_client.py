@@ -40,6 +40,25 @@ def test_prepare_book_maps_a_complete_item():
     assert book.has_pdf is True
 
 
+def test_prepare_book_reads_the_description_from_the_publisher_summary():
+    book = _prepare_book(make_item(publisher_summary="<p>A <b>tale</b>.</p>", product_desc="Title: Sub"))
+
+    # Kept as Audible gave it; cleaned where it is shown or tagged
+    assert book.description == "<p>A <b>tale</b>.</p>"
+    assert book.description_text == "A tale."
+
+
+@pytest.mark.parametrize("summary", [None, ""])
+def test_prepare_book_without_a_summary_has_no_description(summary):
+    item = make_item(publisher_summary=summary)
+
+    assert _prepare_book(item).description is None
+
+
+def test_the_response_groups_ask_for_the_description():
+    assert "product_extended_attrs" in [group.strip() for group in RESPONSE_GROUPS.split(",")]
+
+
 def test_prepare_book_falls_back_to_the_smaller_cover():
     book = _prepare_book(make_item(product_images={"500": "https://img/500.jpg"}))
     assert book.cover_url == "https://img/500.jpg"

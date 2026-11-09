@@ -227,6 +227,259 @@
         "title": "BookCounts",
         "type": "object"
       },
+      "BookDetail": {
+        "description": "One book, as its own endpoints give it: with the description, which a list leaves out.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "annotations_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Annotations Path"
+          },
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "cover_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Path"
+          },
+          "cover_url": {
+            "title": "Cover Url",
+            "type": "string"
+          },
+          "date_added": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Added"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "downloaded_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Downloaded At"
+          },
+          "encoding_format": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Encoding Format"
+          },
+          "file_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Path"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "has_pdf": {
+            "title": "Has Pdf",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_consumable": {
+            "title": "Is Consumable",
+            "type": "boolean"
+          },
+          "is_finished": {
+            "title": "Is Finished",
+            "type": "boolean"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "length": {
+            "title": "Length",
+            "type": "integer"
+          },
+          "monitored": {
+            "title": "Monitored",
+            "type": "boolean"
+          },
+          "narrators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Narrators",
+            "type": "array"
+          },
+          "pdf_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Path"
+          },
+          "percent_complete": {
+            "title": "Percent Complete",
+            "type": "number"
+          },
+          "primary_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SeriesEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesEntry"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "subtitle": {
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "account_id",
+          "asin",
+          "title",
+          "subtitle",
+          "authors",
+          "narrators",
+          "series",
+          "primary_series",
+          "genres",
+          "length",
+          "is_finished",
+          "percent_complete",
+          "date_added",
+          "release_date",
+          "cover_url",
+          "has_pdf",
+          "is_consumable",
+          "status",
+          "monitored",
+          "attempts",
+          "last_error",
+          "last_attempt_at",
+          "file_path",
+          "pdf_path",
+          "cover_path",
+          "annotations_path",
+          "encoding_format",
+          "downloaded_at",
+          "description"
+        ],
+        "title": "BookDetail",
+        "type": "object"
+      },
       "BookFilter": {
         "additionalProperties": false,
         "description": "The library listing's filters, for a bulk action on everything they match.",
@@ -2978,7 +3231,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BookOut"
+                  "$ref": "#/components/schemas/BookDetail"
                 }
               }
             },
@@ -3030,7 +3283,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BookOut"
+                  "$ref": "#/components/schemas/BookDetail"
                 }
               }
             },
@@ -3208,7 +3461,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/BookOut"
+                  "$ref": "#/components/schemas/BookDetail"
                 }
               }
             },

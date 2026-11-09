@@ -135,6 +135,17 @@ def test_generate_metadata_handles_missing_optional_fields():
     assert "date" not in meta
 
 
+def test_generate_metadata_writes_the_description_as_plain_text():
+    meta = generate_metadata(make_book(description="<p>A <b>tale</b>.</p><p>Second.</p>"))
+
+    assert meta["description"] == "A tale.\n\nSecond."
+
+
+def test_generate_metadata_leaves_out_a_description_the_book_does_not_have():
+    assert "description" not in generate_metadata(make_book(description=None))
+    assert "description" not in generate_metadata(make_book(description="<p></p>"))
+
+
 @pytest.fixture
 def fake_ffmpeg(monkeypatch):
     """Replace subprocess.run with a recorder that captures argv and the FFMETADATA file before it is deleted."""
@@ -242,6 +253,25 @@ def test_decrypt_aaxc_oga_command_and_metadata(fake_ffmpeg, aaxc):
     assert block.startswith(b"\x00\x00\x00\x03\x00\x00\x00\x0aimage/jpeg")
     assert block.endswith(b"\xff\xd8jpeg")
     assert not Path(metadata_file).exists()
+
+
+def test_decrypt_aaxc_m4b_writes_the_description_under_its_own_key(fake_ffmpeg, aaxc):
+    book = make_book(asin="B0DESC", description="<p>One.</p><p>Two.</p>")
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=book)
+
+    # The MP4 muxer's own key (`desc`), its paragraphs escaped the way FFMETADATA reads them
+    assert "description=One.\\\n\\\nTwo.\n" in fake_ffmpeg.metadata
+    assert "comment=ASIN: B0DESC\n" in fake_ffmpeg.metadata
+
+
+def test_decrypt_aaxc_oga_writes_the_description_as_synopsis_beside_the_asin(fake_ffmpeg, aaxc):
+    book = make_book(asin="B0DESC", description="<p>One.</p>")
+    decrypt_aaxc(aaxc.book, aaxc.voucher, book_data=book, encoding_format="oga")
+
+    # FFmpeg writes `comment` as DESCRIPTION in Ogg: the summary must not be a second one
+    assert "synopsis=One.\n" in fake_ffmpeg.metadata
+    assert "description=" not in fake_ffmpeg.metadata
+    assert "comment=ASIN: B0DESC\n" in fake_ffmpeg.metadata
 
 
 def test_decrypt_aaxc_oga_without_cover_or_chapters(fake_ffmpeg, aaxc):
