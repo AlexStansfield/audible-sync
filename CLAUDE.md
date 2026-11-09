@@ -17,7 +17,7 @@ What the code cannot tell you: decisions, gotchas and how to test. For what a fu
 
 **Purpose:** sync an Audible library, download the books a user owns and decrypt them to M4B or Ogg Opus with metadata, cover and chapters. It does NOT crack DRM. Inspired by [BALD](https://github.com/damajor/BALD), using the same `audible` library.
 
-**State:** Milestones 1-4 are complete, released as v3.0.0; the fixes of 4.5 as v3.0.1 and v3.0.2, and 4.6, the package layout, as v3.1.0. `todo.md` is the roadmap.
+**State:** Milestones 1-4 are complete, released as v3.0.0; the fixes of 4.5 as v3.0.1 and v3.0.2, 4.6, the package layout, as v3.1.0, and the book descriptions, full refresh and claim heartbeat as v3.2.0. `todo.md` is the roadmap.
 
 ## Layout
 
