@@ -1,5 +1,5 @@
 /**
- * The Settings preview's port of `src/naming.py`: the same sanitizer, template engine
+ * The Settings preview's port of `src/audible_sync/pipeline/naming.py`: the same sanitizer, template engine
  * and primary-series rule, so the two sample paths show what the service would file.
  * Both suites run `tests/fixtures/naming_cases.json`, which is what keeps the two in
  * step - change one, change the other and the cases with it.

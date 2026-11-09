@@ -180,18 +180,18 @@ class Component extends DCLogic {
     const level = (this.state && this.state.level) || this.props.level || 'INFO';
     const C = { DEBUG: 'var(--muted)', INFO: 'var(--info)', WARNING: 'var(--accent-text)', ERROR: 'var(--bad)' };
     const all = [
-      ['14:00:00', 'INFO', 'audible_sync.scheduler', 'Starting scheduled run'],
+      ['14:00:00', 'INFO', 'audible_sync.pipeline.scheduler', 'Starting scheduled run'],
       ['14:00:01', 'INFO', 'audible_sync.cli', 'Syncing account Alex (UK)'],
-      ['14:00:01', 'DEBUG', 'audible_sync.sync', 'Cursor from last run start minus 1h'],
-      ['14:00:02', 'INFO', 'audible_sync.sync', 'Fetching books purchased since 2026-11-01T00:00:00Z'],
-      ['14:00:04', 'INFO', 'audible_sync.sync', '2 books seen, 2 added'],
-      ['14:00:05', 'INFO', 'audible_sync.downloader', '21 books waiting, taking up to 10'],
-      ['14:00:06', 'INFO', 'audible_sync.downloader', 'Downloading One Word Kill (B07P6B2Q1L)'],
-      ['14:06:41', 'INFO', 'audible_sync.downloader', 'Filed Mark Lawrence/Impossible Times/1 - One Word Kill/One Word Kill.m4b'],
-      ['14:06:42', 'WARNING', 'audible_sync.downloader', 'Licence denied for Dune Messiah, parked as unavailable'],
-      ['14:06:44', 'INFO', 'audible_sync.downloader', 'Downloading Limited Wish'],
-      ['14:13:02', 'DEBUG', 'audible_sync.downloader', 'ffmpeg finished in 21.4s'],
-      ['14:13:58', 'INFO', 'audible_sync.downloader', 'Downloading Red Rising'],
+      ['14:00:01', 'DEBUG', 'audible_sync.pipeline.sync', 'Cursor from last run start minus 1h'],
+      ['14:00:02', 'INFO', 'audible_sync.pipeline.sync', 'Fetching books purchased since 2026-11-01T00:00:00Z'],
+      ['14:00:04', 'INFO', 'audible_sync.pipeline.sync', '2 books seen, 2 added'],
+      ['14:00:05', 'INFO', 'audible_sync.pipeline.downloader', '21 books waiting, taking up to 10'],
+      ['14:00:06', 'INFO', 'audible_sync.pipeline.downloader', 'Downloading One Word Kill (B07P6B2Q1L)'],
+      ['14:06:41', 'INFO', 'audible_sync.pipeline.downloader', 'Filed Mark Lawrence/Impossible Times/1 - One Word Kill/One Word Kill.m4b'],
+      ['14:06:42', 'WARNING', 'audible_sync.pipeline.downloader', 'Licence denied for Dune Messiah, parked as unavailable'],
+      ['14:06:44', 'INFO', 'audible_sync.pipeline.downloader', 'Downloading Limited Wish'],
+      ['14:13:02', 'DEBUG', 'audible_sync.pipeline.downloader', 'ffmpeg finished in 21.4s'],
+      ['14:13:58', 'INFO', 'audible_sync.pipeline.downloader', 'Downloading Red Rising'],
     ];
     const min = order.indexOf(level);
     const logs = all.filter((l) => order.indexOf(l[1]) >= min).map(([t, lvl, logger, msg]) => ({ t, lvl, logger, msg, c: C[lvl] }));

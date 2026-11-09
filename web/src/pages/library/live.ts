@@ -7,7 +7,7 @@ import type { components } from "../../api/schema";
 type RunSnapshot = components["schemas"]["RunSnapshot"];
 
 /**
- * The downloader's names for a book's accessories (`src/downloader.py`), which follow the
+ * The downloader's names for a book's accessories (`src/audible_sync/pipeline/downloader.py`), which follow the
  * audio, and how to say them; anything else a transfer is called is the audio.
  */
 export const ACCESSORIES: ReadonlyMap<string, string> = new Map([

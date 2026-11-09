@@ -67,7 +67,7 @@ jobs:
         run: npm run build
 
       # The client's types are generated from the API's schema; fail when either is
-      # stale, i.e. src/schemas.py changed without `npm run gen:api`
+      # stale, i.e. src/audible_sync/api/schemas.py changed without `npm run gen:api`
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:

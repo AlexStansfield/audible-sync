@@ -1,16 +1,16 @@
 # CLAUDE.md - AI Assistant Guide for Audible-Sync
 
-What the code cannot tell you: decisions, gotchas and how to test. For what a function does, read the function; for the API, `src/schemas.py` and `docs/api.md`.
+What the code cannot tell you: decisions, gotchas and how to test. For what a function does, read the function; for the API, `src/audible_sync/api/schemas.py` and `docs/api.md`.
 
 ## Quick reference
 
 | Aspect | Details |
 |--------|---------|
 | **Language** | Python 3.12, uv (`pyproject.toml` + `uv.lock`); `requirements.txt` is generated |
-| **Entry points** | `python -m src.service` (the service); `python -m src.main` (one sync and exit, plus `login` and `reset-password`) |
+| **Entry points** | `python -m audible_sync.service` (the service); `audible-sync` or `python -m audible_sync` (`cli.py`: one sync and exit, plus `login` and `reset-password`) |
 | **Database** | SQLite (`data/audible_sync.db`), which also holds the live settings |
-| **Secrets** | Encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/crypto.py`) |
-| **Backend** | FastAPI + uvicorn; `src/api.py` puts together the routes of `src/api_*.py`, one module per area; `src/schemas.py` the contract |
+| **Secrets** | Encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/audible_sync/security/crypto.py`) |
+| **Backend** | FastAPI + uvicorn; `src/audible_sync/api/app.py` puts together the routes of `api/routes/`, one module per area; `src/audible_sync/api/schemas.py` the contract |
 | **Web app** | `web/`: Vite, React 19, TypeScript, TanStack Query, Biome, Vitest; served by the service from `web/dist`. Spec in `docs/design/DESIGN.md` |
 | **Checks** | `uv run ruff format .`, `uv run ruff check .`, `uv run pytest`; in `web/`: `npm run lint`, `typecheck`, `test`, `build`, and `npm run gen:api` after an API change |
 | **CI** | The same on every push and PR to `dev` and `main`, plus a stale-types check on `web/openapi.json` and `web/src/api/schema.d.ts`. Images are built on `v*` tags |
@@ -22,8 +22,8 @@ What the code cannot tell you: decisions, gotchas and how to test. For what a fu
 ## Layout
 
 ```
-src/        flat, no __init__.py, run as modules, absolute imports (from src.x import y)
-tests/      one file per module; fixtures/ has silence.m4b and naming_cases.json (shared with web/)
+src/audible_sync/  the package (src layout, uv_build, installed editable), absolute imports (from audible_sync.x import y)
+tests/      one file per module, under its name from before the package (test_main.py is cli.py); fixtures/ has silence.m4b and naming_cases.json (shared with web/)
 web/        the web app, see "Web app"
 docs/       user docs; design/ has the web app's spec and mockups; manual-testing.md the hand checks
 config/     config.ini, the defaults of a fresh database
@@ -32,7 +32,9 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules: `service` (wiring) → `api` (→ `api_auth`, `api_sync`, `api_settings`, `api_system`, `api_accounts`, `api_books`) + `schemas`, `scheduler` + `runstate` → `main.run_pipeline` (also the CLI) → `settings`, `audible_client`, `sync`, `downloader` (→ `naming`, `encoding`, `progress`). Beside those: `accounts` (credentials), `audible_login`, `library` (per-book actions), `webauth`, `apitoken`, `crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `notify`, `openapi_export`.
+Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `cli.run_pipeline` (also the CLI) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
+
+`database` stays one module, since tests point its `DB_FILE` at a temp file (and `conftest.scratch_database` does by default). `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: `paths.REPO_ROOT` is two levels above it, `/app` in the image.
 
 **Import rules, which exist to avoid cycles:**
 
@@ -40,8 +42,8 @@ Modules: `service` (wiring) → `api` (→ `api_auth`, `api_sync`, `api_settings
 - `crypto` is a leaf and must never import `database` (so `encrypt_stored_secrets` lives in `database`)
 - `database` must never import `settings` or `accounts` (so its accounts migration only creates a placeholder, which a login fills in)
 - `apitoken` is its own module because `api` needs `regenerate` and cannot import `service`
-- The `api_*` modules never import `api`, which includes them: each exposes a function that builds its router from what it is given (scheduler, run state, token), and a route patched in a test is patched on its own module (`api_accounts.authenticator_for`, `api_settings.send_webhook`)
-- The client module is `audible_client.py`, not `audible.py`, which would shadow the dependency. Do not bring that name back
+- The `api.routes` modules never import `api.app`, which includes them: each exposes a function that builds its router from what it is given (scheduler, run state, token), and a route patched in a test is patched on its own module (`api.routes.accounts.authenticator_for`, `api.routes.settings.send_webhook`; the tests import them as `api_accounts` and `api_settings`)
+- The Audible package is `audible_api/`, not `audible/`: with absolute imports it would not shadow the dependency, but it would read as if it did
 - `tqdm` is imported in `progress.py` and nowhere else
 
 **Paths:** never build one from a relative string; use `paths.resolve_path`. It deliberately does not `resolve()`: the audiobook folder is often a bind mount or a symlink to a share. Anything that becomes a path goes through `sanitize_filename`, which caps bytes as well as characters, since file systems limit a component in bytes.
@@ -50,7 +52,7 @@ Modules: `service` (wiring) → `api` (→ `api_auth`, `api_sync`, `api_settings
 
 All observed; the API is undocumented.
 
-- **Device registrations go stale.** From about 2026-10-21 Audible refuses download licences (`Denied`, "License not granted to customer") to devices registered with older profiles. `audible` must be ≥ 0.13.1, `audible_login.IPHONE` mirrors its profile (change them together), and an old registration has to be replaced by a login. That is why there is no auth-file import: an `audible-cli` file carries an old registration
+- **Device registrations go stale.** From about 2026-10-21 Audible refuses download licences (`Denied`, "License not granted to customer") to devices registered with older profiles. `audible` must be ≥ 0.13.1, `audible_api.login.IPHONE` mirrors its profile (change them together), and an old registration has to be replaced by a login. That is why there is no auth-file import: an `audible-cli` file carries an old registration
 - **Withdrawn Plus titles.** A title added while included in Plus stays in the library, stops being licensable (`customer_rights.is_consumable` false) and may come back. So `unavailable` is **not terminal**, and `is_consumable` **fails open** everywhere: defaulting to false would park a whole library in one sync
 - **A licence can be refused for a title the API calls consumable**, as with old purchases retired to streaming. Such a book stays parked until retried. `mark_book_unavailable` leaves `is_consumable` alone: writing 0 made the sync "restore" it every run, and two such books with `max-download = 2` blocked everything
 - **Series order is not stable**, not even between two books of a series in one response, and titles get typos ("His Dark Materialsik"). Read `Book.primary_series`, **never `series[0]`**. The rule, in `_series_sort_key`: lowest sequence, then title, then series ASIN; an entry with no title is never a candidate, or a book files under a bare `{author}/2 - {title}/`
@@ -115,7 +117,7 @@ All observed; the API is undocumented.
 - **One login, one account:** `store_login` gives the account holding the same `user_id` + marketplace the new credentials, since a second row would file every book again. The id is kept in the clear as `accounts.customer_id` with a partial unique index on it and the marketplace, so the rule holds across processes (a CLI login beside the service: a refused insert means look again) and for an account whose credentials cannot be read (a lost key: signing in restores it rather than adding another). Clearing credentials keeps it. A login not saying whose it is never matches. `backfill_customer_ids` fills it in at start (after the log buffer, so its warning reaches the Logs screen) and when an account is removed; of duplicates from before, the oldest gets it, the rest are left alone with a warning and may still sign in on their own row
 - **`replace_account_auth` stores first and nothing raises after that**, then deregisters. Deregistering first left a failed store with two dead devices. It refuses another customer's login (`AnotherCustomer`) and another account's (`LoginAlreadyHeld`), leaving the working device alone; on any exception the caller discards the new device, or nothing would ever hold it
 - **Requeueing:** the new device is the moment to retry licence-refused books, but `requeue_unavailable` skips titles Audible withdrew, which are a guaranteed refusal feeding the breaker
-- **Device code is the default login**, because the browser flow depends on the user's browser (Amazon refused a desktop one on 2026-10-31). It is the protocol of mkb79/Audible PR #914; once released, the library's client can replace the three functions in `audible_login.py`
+- **Device code is the default login**, because the browser flow depends on the user's browser (Amazon refused a desktop one on 2026-10-31). It is the protocol of mkb79/Audible PR #914; once released, the library's client can replace the three functions in `audible_api/login.py`
 - **`PendingLogins` is in memory on purpose:** a login is a minute's interaction and nothing secret needs keeping. A registration answered after a cancel is discarded, and a login being stored (`_busy`) is waited for rather than called expired
 - **`try_register`** treats 429, 5xx and a non-JSON 200 as "poll again"; only other answers fail the login
 
@@ -138,7 +140,7 @@ All observed; the API is undocumented.
 
 ## Web app
 
-- **Types come from the API.** `npm run gen:api` writes `web/openapi.json` and `src/api/schema.d.ts`; both are committed and CI checks them. Never hand-write a type the schema has. TypeScript stays on 5.x while `openapi-typescript` requires it
+- **Types come from the API.** `npm run gen:api` writes `web/openapi.json` and `web/src/api/schema.d.ts`; both are committed and CI checks them. Never hand-write a type the schema has. TypeScript stays on 5.x while `openapi-typescript` requires it
 - **URLs:** requests follow `<base href>`, so never write an absolute `/api` URL; a cover is `api/books/{id}/cover`, relative
 - **Theme:** `index.html` sets `data-theme` before first paint; `lib/theme.ts` and `useTheme` are the same rule, so keep them in step
 - **CSS:** shared classes are global in `styles/controls.css`, anything else a CSS Module. A Module class and a global one tie on specificity, so a card needing other padding defines its own background and border rather than overriding `.card`
@@ -149,7 +151,7 @@ All observed; the API is undocumented.
 - **Redownload and Delete files both confirm**, a step beyond the design: `library.redownload` deletes before fetching, so a refused licence would leave the book without files
 - **A `running` row that is not `current_run` is Interrupted**, but only once `GET /api/status` has answered
 - **Settings:** the form is what is saved overlaid with what was edited, so a save elsewhere never loses a change. Number boxes are `type="text"`, since a number input reads `5e` as `""`, which would save as no limit. Only one save runs at a time, as the service writes every setting on each. Leaving with unsaved changes asks, except on the way to `/login`, or a signed-out page would ask at every poll
-- **The naming preview is a port of `src/naming.py`.** Both suites run `tests/fixtures/naming_cases.json`, whose values `src/naming.py` computed: change the module, regenerate the cases and port the change
+- **The naming preview is a port of `src/audible_sync/pipeline/naming.py`.** Both suites run `tests/fixtures/naming_cases.json`, whose values `src/audible_sync/pipeline/naming.py` computed: change the module, regenerate the cases and port the change
 - **Check each screen in a real browser too**, at desktop and 390px, in both themes, against the built image
 
 ## Workflow
@@ -168,11 +170,11 @@ Every behaviour change ships with tests; a bug fix with one that reproduces it. 
 
 - `tests/conftest.py`: `make_book()` (fills in `id` and `account_id` like a row; `id=None` for one straight from the API), `make_settings(**overrides)`, `make_account()`. Import them as `from tests.conftest import ...`. Books hold decoded lists, never JSON strings
 - The autouse `secret_key` fixture configures a fresh key per test and moves `crypto.DEFAULT_KEY_FILE` under `tmp_path`. Reconfigure with `crypto.configure(crypto.generate_key())` to play the wrong key
-- Database tests point `src.database.DB_FILE` at a temp file and call `init_db()`; `tests/test_database.py`'s `_set` reaches states the API cannot
+- Database tests point `audible_sync.database.DB_FILE` at a temp file and call `init_db()`; `tests/test_database.py`'s `_set` reaches states the API cannot
 
 **By area:**
 
-- **`download_books`:** `_patch_pipeline` in `tests/test_downloader.py`. Everything is looked up as an attribute of `src.downloader`, so patch it there: miss one and the test writes to the real library database
+- **`download_books`:** `_patch_pipeline` in `tests/test_downloader.py`. Everything is looked up as an attribute of `audible_sync.pipeline.downloader`, so patch it there: miss one and the test writes to the scratch database rather than the one it set up
 - **`run_pipeline`:** `tests/test_main.py`'s `_patch_pipeline`, whose `synced=` and `stats=` may be exceptions, and `accounts=`. Tests call `main([])`, since `parse_args(None)` would read pytest's argv
 - **`decrypt_aaxc`:** the `fake_ffmpeg` fixture records the argv and must read the FFMETADATA file before it is deleted. `write_m4b_extra_tags` needs a real MP4: copy `tests/fixtures/silence.m4b`. For `read_embedded_asin`, set `©cmt` to `ASIN: ...` with mutagen
 - **Progress:** a fake response's `num_bytes_downloaded` must advance, as `_stream_to_file` takes deltas from it, not `len(chunk)`
@@ -180,7 +182,7 @@ Every behaviour change ships with tests; a bug fix with one that reproduces it. 
 - **Scheduler:** everything is injected. Call `_settle(scheduler)` before re-triggering, since `FakeRun` signals `finished` a moment before `running` flips
 - **Login:** `tests/test_audible_login.py`'s `FakeAmazon` on `httpx.MockTransport` serves scripted answers (`PENDING`, `REJECTED`, `registered_response()`); import it rather than building another. `join(login_id)` before reading a code login's outcome. Never call the real `register`
 - **Anything replacing credentials** patches `Authenticator.deregister_device` (`_deregistered` in `tests/test_accounts.py`)
-- **Webhook:** `httpx.MockTransport` for the POST; `tests/test_main.py` patches it on `src.main`
+- **Webhook:** `httpx.MockTransport` for the POST; `tests/test_main.py` patches it on `audible_sync.cli`
 - **`RingBufferHandler`** on a logger of its own with the level set: the default WARNING drops INFO before the handler sees it
 
 **Web:**
@@ -213,4 +215,4 @@ Means keeping the local collection in step with the Audible library: metadata in
 
 ---
 
-**Last updated:** 2026-11-06. **Primary branch:** `dev`
+**Last updated:** 2026-11-09. **Primary branch:** `dev`
