@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 import audible_sync.database as database
-from audible_sync import crypto, webauth
+from audible_sync.security import crypto, webauth
 
 NOW = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
 PASSWORD = "correct horse battery"

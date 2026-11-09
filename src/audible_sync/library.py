@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-from audible_sync.accounts import authenticator_for, persist_auth_if_changed
-from audible_sync.audible_client import Audible
+from audible_sync.audible_api.accounts import authenticator_for, persist_auth_if_changed
+from audible_sync.audible_api.client import Audible
 from audible_sync.database import (
     clear_book_files,
     get_account,
@@ -25,9 +25,9 @@ from audible_sync.database import (
     set_monitored,
     update_books,
 )
-from audible_sync.encoding import output_extension, read_embedded_asin
 from audible_sync.model import Book, BookStatus
-from audible_sync.naming import book_output_paths
+from audible_sync.pipeline.encoding import output_extension, read_embedded_asin
+from audible_sync.pipeline.naming import book_output_paths
 from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)

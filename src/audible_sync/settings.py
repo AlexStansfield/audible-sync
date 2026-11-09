@@ -11,7 +11,7 @@ Every route produces the same frozen `Settings` object, so a value is parsed, an
 and validated exactly once. Every path is anchored against the repo root (see
 `audible_sync.paths`), so the process can be started from any working directory.
 
-Note this module must never import `audible_sync.downloader`: the downloader imports
+Note this module must never import `audible_sync.pipeline.downloader`: the downloader imports
 `Settings`, so the reverse edge would be a circular import.
 """
 
@@ -23,9 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from audible_sync.database import get_settings, has_settings, save_settings
-from audible_sync.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
-from audible_sync.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
 from audible_sync.paths import REPO_ROOT, resolve_path
+from audible_sync.pipeline.encoding import DEFAULT_BITRATE, DEFAULT_FORMAT, validate_encoding
+from audible_sync.pipeline.naming import DEFAULT_FILENAME_TEMPLATE, DEFAULT_FOLDER_TEMPLATE, validate_templates
 
 logger = logging.getLogger(__name__)
 

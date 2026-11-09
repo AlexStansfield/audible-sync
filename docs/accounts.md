@@ -9,7 +9,7 @@ You add an Audible account by signing in to Amazon with a code, the way the Audi
 Without the web app:
 
 ```
-python -m audible_sync.main login --marketplace uk [--name "Main"] [--no-download-existing] [--account ID] [--browser]
+audible-sync login --marketplace uk [--name "Main"] [--no-download-existing] [--account ID] [--browser]
 ```
 
 In Docker, put `docker compose exec audible-sync uv run --no-sync` in front of it.

@@ -1,6 +1,6 @@
 import json
 
-from audible_sync import openapi_export
+from audible_sync.api import openapi_export
 
 
 def test_the_schema_lists_the_api_without_a_server_or_database(tmp_path, monkeypatch):

@@ -6,14 +6,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from audible_sync import webauth
-from audible_sync.apitoken import ApiToken, TokenFromEnv
-from audible_sync.database import (
-    save_settings,
-)
-from audible_sync.notify import send_webhook
-from audible_sync.scheduler import Scheduler
-from audible_sync.schemas import (
+from audible_sync.api.schemas import (
     ApiTokenInfo,
     Message,
     NewApiToken,
@@ -21,8 +14,15 @@ from audible_sync.schemas import (
     SettingsUpdate,
     WebhookTest,
 )
+from audible_sync.database import (
+    save_settings,
+)
+from audible_sync.pipeline.notify import send_webhook
+from audible_sync.pipeline.scheduler import Scheduler
+from audible_sync.security import webauth
+from audible_sync.security.apitoken import ApiToken, TokenFromEnv
+from audible_sync.security.webauth import SESSION_COOKIE
 from audible_sync.settings import Settings
-from audible_sync.webauth import SESSION_COOKIE
 
 
 def router(*, scheduler: Scheduler, api_token: ApiToken) -> APIRouter:

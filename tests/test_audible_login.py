@@ -9,8 +9,8 @@ import httpx
 import pytest
 from audible import Authenticator
 
-from audible_sync import audible_login
-from audible_sync.audible_login import (
+from audible_sync.audible_api import login as audible_login
+from audible_sync.audible_api.login import (
     IPHONE,
     MARKETPLACES,
     BrowserLogin,
@@ -791,7 +791,7 @@ def test_store_cancel_stops_a_pending_code_login(monkeypatch):
 
 def test_store_cancel_discards_a_device_amazon_registered_after_it(monkeypatch, caplog):
     """The user entered the code just as the dialog closed: nothing will hold that device."""
-    caplog.set_level("INFO", logger="audible_sync.audible_login")
+    caplog.set_level("INFO", logger="audible_sync.audible_api.login")
     deregistered = _deregistered(monkeypatch)
     gate = threading.Event()
     store, _ = _store(amazon=FakeAmazon(polls=[registered_response()], gate=gate))

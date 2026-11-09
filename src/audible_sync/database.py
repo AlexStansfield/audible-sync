@@ -7,9 +7,9 @@ import stat
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
-from audible_sync import crypto
 from audible_sync.model import Account, Book, BookStatus, RunBook, RunBookOutcome, SyncOutcome, SyncRun
 from audible_sync.paths import REPO_ROOT
+from audible_sync.security import crypto
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def init_db():
         )
     """)
     # Web app sign-ins. `id` is the SHA-256 of the cookie's token, never the token, so
-    # a copy of the database cannot be used to take over a session (`audible_sync.webauth`).
+    # a copy of the database cannot be used to take over a session (`audible_sync.security.webauth`).
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
@@ -1265,13 +1265,13 @@ def count_sync_runs(*, account_id: int | None = None) -> int:
 
 # --- accounts ------------------------------------------------------------------
 # One row per marketplace login. The credentials are stored as the JSON of
-# `Authenticator.to_dict()`, encrypted with the process's secret key (`audible_sync.crypto`);
-# `audible_sync.accounts` is the only thing that builds an `Authenticator` from the decoded
+# `Authenticator.to_dict()`, encrypted with the process's secret key (`audible_sync.security.crypto`);
+# `audible_sync.audible_api.accounts` is the only thing that builds an `Authenticator` from the decoded
 # blob, this layer keeps the text and does the encrypting.
 
 # The settings-table key the API token is stored under, encrypted like the credentials
 API_TOKEN_SETTING = "api_token"
-# ... and the web app password's hash (`audible_sync.webauth`)
+# ... and the web app password's hash (`audible_sync.security.webauth`)
 WEB_PASSWORD_SETTING = "web_password"
 
 # Accounts whose credentials do not decrypt, logged once per process rather than on
@@ -1632,7 +1632,7 @@ def has_settings() -> bool:
 
 
 # --- sessions ------------------------------------------------------------------
-# Web app sign-ins, keyed by the hash of the cookie's token. `audible_sync.webauth` owns the
+# Web app sign-ins, keyed by the hash of the cookie's token. `audible_sync.security.webauth` owns the
 # lifetimes and the hashing; this layer stores and compares the ISO 8601 text.
 
 

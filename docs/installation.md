@@ -31,7 +31,7 @@ docker compose logs audible-sync | grep "Web app sign-in"
 Open `http://localhost:8080`, sign in with it, and choose your own with **Change password** on the Dashboard. Forgotten the password? Reset it on the server; the new one is printed and every browser is signed out:
 
 ```
-docker compose exec audible-sync uv run --no-sync python -m audible_sync.main reset-password
+docker compose exec audible-sync uv run --no-sync audible-sync reset-password
 ```
 
 Add `--username` to set the username back to `admin` as well. Run it in the container as shown: a command run on the host with another secret key is refused, because the password it stored would be unreadable to the service.
@@ -43,7 +43,7 @@ Once there is an account, runs happen every `interval-minutes` (six hours by def
 For a single sync-and-exit instead of the service:
 
 ```
-docker compose run --rm audible-sync uv run --no-sync python -m audible_sync.main
+docker compose run --rm audible-sync uv run --no-sync audible-sync
 ```
 
 ## Running with Python (no Docker)
@@ -111,7 +111,7 @@ python -m audible_sync.service
 or a single sync-and-exit:
 
 ```
-python -m audible_sync.main
+audible-sync
 ```
 
 To add an account from here, see [Accounts](accounts.md#from-the-command-line). The service's environment variables are in [Configuration](configuration.md#environment-variables).

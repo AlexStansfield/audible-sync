@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from audible_sync.database import latest_sync_run_start
-from audible_sync.runstate import RunStage, RunState
+from audible_sync.pipeline.runstate import RunStage, RunState
 from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)

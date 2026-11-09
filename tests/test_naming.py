@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from audible_sync.model import Book
-from audible_sync.naming import (
+from audible_sync.pipeline.naming import (
     DEFAULT_FILENAME_TEMPLATE,
     DEFAULT_FOLDER_TEMPLATE,
     book_output_paths,

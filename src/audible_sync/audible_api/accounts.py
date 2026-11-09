@@ -10,7 +10,7 @@ An account with no credentials (`auth` NULL) is allowed on purpose. The migratio
 introduced accounts creates one when it has to rebuild a pre-accounts library, and a
 login can later be invalidated; either way the pipeline skips it and the API reports
 it as needing a login, rather than the whole service refusing to start. The way in is
-always a login (`audible_sync.audible_login`): a new account, or `replace_account_auth` for one
+always a login (`audible_sync.audible_api.login`): a new account, or `replace_account_auth` for one
 that has none or whose registration stopped working.
 """
 

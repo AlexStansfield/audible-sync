@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 import pytest
 
 import audible_sync.database as database
-from audible_sync import crypto
 from audible_sync.model import Account, Book, BookStatus, RunBookOutcome, SyncOutcome, SyncRun
+from audible_sync.security import crypto
 from tests.conftest import ACCOUNT_ID as ACCOUNT
 from tests.conftest import make_book, mark_downloaded
 

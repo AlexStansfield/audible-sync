@@ -11,8 +11,9 @@ import httpx
 import pytest
 from audible.exceptions import NotFoundError
 
-import audible_sync.downloader as downloader
-from audible_sync.downloader import (
+import audible_sync.pipeline.downloader as downloader
+from audible_sync.model import BookStatus
+from audible_sync.pipeline.downloader import (
     DownloadedBook,
     DownloadStats,
     LicenseError,
@@ -24,9 +25,8 @@ from audible_sync.downloader import (
     temp_book_folder,
     write_ffmpeg_metadata_file,
 )
-from audible_sync.encoding import output_extension
-from audible_sync.model import BookStatus
-from audible_sync.runstate import RunState
+from audible_sync.pipeline.encoding import output_extension
+from audible_sync.pipeline.runstate import RunState
 from tests.conftest import make_book, make_settings
 
 
@@ -411,7 +411,7 @@ def test_download_books_leaves_the_outcome_to_a_run_that_reclaimed_the_book(tmp_
     monkeypatch.setattr(downloader, "mark_book_downloaded", lambda book_id, **kw: False)
     monkeypatch.setattr(downloader, "mark_book_failed", lambda *a, **kw: None)
 
-    with caplog.at_level(logging.WARNING, logger="audible_sync.downloader"):
+    with caplog.at_level(logging.WARNING, logger="audible_sync.pipeline.downloader"):
         stats = downloader.download_books(object(), make_settings(download_folder=downloads, audiobook_folder=library))
 
     assert (stats.succeeded, stats.failed) == (2, 1)

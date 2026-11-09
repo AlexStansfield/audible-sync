@@ -5,9 +5,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 import audible_sync.database as database
-from audible_sync import crypto, service, webauth
-from audible_sync.apitoken import resolve_api_token
+from audible_sync import service
 from audible_sync.logbuffer import RingBufferHandler
+from audible_sync.security import crypto, webauth
+from audible_sync.security.apitoken import resolve_api_token
 from audible_sync.service import ServiceConfig
 
 

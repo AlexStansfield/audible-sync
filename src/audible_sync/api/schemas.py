@@ -15,8 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from audible_sync.library import BulkAction, SkipReason
 from audible_sync.model import BookStatus, SyncOutcome
-from audible_sync.runstate import RunStage
-from audible_sync.webauth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
+from audible_sync.pipeline.runstate import RunStage
+from audible_sync.security.webauth import MAX_PASSWORD_LENGTH, MAX_USERNAME_LENGTH
 
 
 class Health(BaseModel):
@@ -30,7 +30,7 @@ class Message(BaseModel):
     status: str
 
 
-# Capped here as well as in `audible_sync.webauth`, so an endpoint that needs no sign-in never
+# Capped here as well as in `audible_sync.security.webauth`, so an endpoint that needs no sign-in never
 # hashes a password of any length a client cares to send. The username cap
 # is loose: `webauth` enforces the real one when it is set.
 Password = Annotated[str, Field(max_length=MAX_PASSWORD_LENGTH)]

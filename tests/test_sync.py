@@ -4,8 +4,8 @@ from datetime import UTC, datetime
 import pytest
 from audible.exceptions import NotFoundError, NotResponding
 
-import audible_sync.sync as sync_module
-from audible_sync.sync import SyncResult, _api_timestamp, sync_library
+import audible_sync.pipeline.sync as sync_module
+from audible_sync.pipeline.sync import SyncResult, _api_timestamp, sync_library
 from tests.conftest import make_account, make_book
 
 ACCOUNT = make_account()

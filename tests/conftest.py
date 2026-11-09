@@ -4,8 +4,8 @@ from dataclasses import replace
 
 import pytest
 
-from audible_sync import crypto
 from audible_sync.model import Account, Book
+from audible_sync.security import crypto
 from audible_sync.settings import Settings
 
 

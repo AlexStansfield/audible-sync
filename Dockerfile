@@ -40,7 +40,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD python3 -c "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=4).status == 200 else 1)"
 
-# Run the background service. For a single sync and exit, run `python -m audible_sync.main` instead.
+# Run the background service. For a single sync and exit, run `audible-sync` instead.
 # --no-sync: the environment was installed above; without it `uv run` would re-sync at every
 # start, pulling the dev group in and needing the network just to boot.
 CMD ["uv", "run", "--no-sync", "python", "-m", "audible_sync.service"]

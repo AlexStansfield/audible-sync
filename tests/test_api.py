@@ -9,16 +9,19 @@ from audible import Authenticator
 from fastapi.testclient import TestClient
 
 import audible_sync.database as database
-from audible_sync import api as api_module
-from audible_sync import api_accounts, api_books, api_settings, webauth
-from audible_sync import audible_login as login_module
-from audible_sync.api import create_app, read_version
-from audible_sync.apitoken import ApiToken
-from audible_sync.audible_login import PendingLogins
+from audible_sync.api import app as api_module
+from audible_sync.api.app import create_app, read_version
+from audible_sync.api.routes import accounts as api_accounts
+from audible_sync.api.routes import books as api_books
+from audible_sync.api.routes import settings as api_settings
+from audible_sync.audible_api import login as login_module
+from audible_sync.audible_api.login import PendingLogins
 from audible_sync.logbuffer import RingBufferHandler
 from audible_sync.model import StoredLogin, SyncOutcome
 from audible_sync.paths import REPO_ROOT
-from audible_sync.runstate import RunStage, RunState
+from audible_sync.pipeline.runstate import RunStage, RunState
+from audible_sync.security import webauth
+from audible_sync.security.apitoken import ApiToken
 from audible_sync.settings import Settings
 from tests.test_accounts import AUTH_BLOB
 from tests.test_audible_login import PENDING, REJECTED, FakeAmazon, registered_response
@@ -2038,7 +2041,7 @@ def test_a_post_to_a_page_of_the_app_is_a_404(web):
 
 # --- served under a base path behind a reverse proxy ----------------------------------
 
-from audible_sync.api import normalise_base_path  # noqa: E402
+from audible_sync.api.app import normalise_base_path  # noqa: E402
 
 BASE = "/audible-sync"
 

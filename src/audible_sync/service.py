@@ -38,16 +38,16 @@ from pathlib import Path
 
 import uvicorn
 
-from audible_sync import crypto, webauth
-from audible_sync.api import create_app, normalise_base_path
-from audible_sync.apitoken import resolve_api_token
-from audible_sync.crypto import load_secret_key
+from audible_sync.api.app import create_app, normalise_base_path
+from audible_sync.cli import configure_logging, run_pipeline
 from audible_sync.database import backfill_customer_ids, encrypt_stored_secrets, init_db
 from audible_sync.logbuffer import RingBufferHandler
-from audible_sync.main import configure_logging, run_pipeline
 from audible_sync.paths import REPO_ROOT, resolve_path
-from audible_sync.runstate import RunState, StateProgress
-from audible_sync.scheduler import Scheduler
+from audible_sync.pipeline.runstate import RunState, StateProgress
+from audible_sync.pipeline.scheduler import Scheduler
+from audible_sync.security import crypto, webauth
+from audible_sync.security.apitoken import resolve_api_token
+from audible_sync.security.crypto import load_secret_key
 from audible_sync.settings import Settings, seed_settings_from_ini
 
 # Run as `python -m`, this module is `__main__`; name the logger after the module anyway
@@ -133,7 +133,7 @@ def ensure_web_user() -> None:
     user = webauth.current_user()
     logger.warning(
         "Web app sign-in: user %s, password %s - sign in and choose your own; it is not logged again "
-        "(forgotten, it is reset with: python -m audible_sync.main reset-password)",
+        "(forgotten, it is reset with: audible-sync reset-password)",
         user.username if user else webauth.DEFAULT_USERNAME,
         password,
     )

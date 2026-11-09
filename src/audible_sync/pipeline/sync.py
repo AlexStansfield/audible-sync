@@ -4,7 +4,7 @@ from typing import NamedTuple
 
 from audible.exceptions import NotFoundError
 
-from audible_sync.audible_client import Audible
+from audible_sync.audible_api.client import Audible
 from audible_sync.database import (
     delete_undownloaded_book,
     latest_date_added,

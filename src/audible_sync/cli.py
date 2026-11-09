@@ -2,8 +2,7 @@ import argparse
 import logging
 import threading
 
-from audible_sync import crypto, webauth
-from audible_sync.accounts import (
+from audible_sync.audible_api.accounts import (
     authenticator_for,
     check_marketplace,
     device_in_use,
@@ -11,9 +10,14 @@ from audible_sync.accounts import (
     replace_account_auth,
     store_login,
 )
-from audible_sync.audible_client import Audible
-from audible_sync.audible_login import MARKETPLACES, LoginFailed, discard_device, login_interactively, login_with_code
-from audible_sync.crypto import load_secret_key
+from audible_sync.audible_api.client import Audible
+from audible_sync.audible_api.login import (
+    MARKETPLACES,
+    LoginFailed,
+    discard_device,
+    login_interactively,
+    login_with_code,
+)
 from audible_sync.database import (
     backfill_customer_ids,
     count_unreadable_secrets,
@@ -26,16 +30,18 @@ from audible_sync.database import (
     mark_account_synced,
     start_sync_run,
 )
-from audible_sync.downloader import DownloadStats, download_books
 from audible_sync.model import Account, StoredLogin, SyncOutcome
-from audible_sync.notify import notify_run_finished
-from audible_sync.progress import Progress, TqdmProgress
-from audible_sync.runstate import RunStage, RunState
+from audible_sync.pipeline.downloader import DownloadStats, download_books
+from audible_sync.pipeline.notify import notify_run_finished
+from audible_sync.pipeline.progress import Progress, TqdmProgress
+from audible_sync.pipeline.runstate import RunStage, RunState
+from audible_sync.pipeline.sync import sync_library
+from audible_sync.security import crypto, webauth
+from audible_sync.security.crypto import load_secret_key
 from audible_sync.settings import Settings, seed_settings_from_ini
-from audible_sync.sync import sync_library
 
 # Run as `python -m`, this module is `__main__`; name the logger after the module anyway
-logger = logging.getLogger("audible_sync.main" if __name__ == "__main__" else __name__)
+logger = logging.getLogger("audible_sync.cli" if __name__ == "__main__" else __name__)
 
 
 def configure_logging(debug: bool = False) -> None:
@@ -93,10 +99,10 @@ def run_pipeline(
 
     Args:
         settings: Validated settings (see `Settings.from_db`)
-        progress: Where download byte progress is reported (see `audible_sync.progress`).
+        progress: Where download byte progress is reported (see `audible_sync.pipeline.progress`).
             Defaults to reporting nothing, which is what a headless host wants
         state: Where the stage, current book and queue position are reported (see
-            `audible_sync.runstate`). Defaults to one nobody reads
+            `audible_sync.pipeline.runstate`). Defaults to one nobody reads
         cancel: Event that stops the run once set; checked between accounts and,
             within an account, only during the download half (see `run_account`)
     """
@@ -352,7 +358,7 @@ def reset_password_command(*, reset_username: bool = False) -> None:
         raise SystemExit(
             "The stored password was written with another key than this command has, so a password set "
             "from here would not work in the service. Run the command where the service runs, e.g. "
-            "docker compose exec audible-sync uv run --no-sync python -m audible_sync.main reset-password, or set "
+            "docker compose exec audible-sync uv run --no-sync audible-sync reset-password, or set "
             "AUDIBLE_SYNC_SECRET_KEY or AUDIBLE_SYNC_SECRET_KEY_FILE to the service's key"
         )
     password = webauth.reset_password(reset_username=reset_username)
@@ -365,7 +371,7 @@ def reset_password_command(*, reset_username: bool = False) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="python -m audible_sync.main", description="Sync an Audible library to DRM-free files"
+        prog="audible-sync", description="Sync an Audible library to DRM-free files"
     )
     commands = parser.add_subparsers(dest="command")
     commands.add_parser("run", help="sync and download once, then exit (the default)")
