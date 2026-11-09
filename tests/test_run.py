@@ -1,7 +1,7 @@
 import logging
 import sqlite3
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import pytest
 
@@ -16,7 +16,6 @@ from tests.conftest import make_account, make_settings
 
 # Module-level singletons: ruff forbids constructing these in argument defaults
 _SYNCED = SyncResult(books_seen=5, books_added=3, full_refresh=False)
-_JUST_NOW = datetime.now(UTC).isoformat()
 _STATS = DownloadStats(attempted=2, succeeded=2, failed=0, unavailable=0)
 
 
@@ -83,7 +82,11 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
         ),
     )
     # No full refresh is due unless a test says when the last one was
-    monkeypatch.setattr(run_module, "latest_full_refresh_start", lambda account_id: calls.get("last_full", _JUST_NOW))
+    monkeypatch.setattr(
+        run_module,
+        "latest_full_refresh_start",
+        lambda account_id: calls.get("last_full", datetime.now(UTC).isoformat()),
+    )
     monkeypatch.setattr(run_module, "get_sync_run", lambda run_id: f"run-{run_id}")
     monkeypatch.setattr(
         run_module,
@@ -495,22 +498,31 @@ def test_a_full_refresh_asked_for_reaches_every_account(tmp_path, monkeypatch):
     assert calls["snapshot"]["full_refresh"] is True
 
 
-@pytest.mark.parametrize(
-    ("last_full", "due"),
-    [
-        (None, True),
-        ((datetime.now(UTC) - timedelta(days=1, minutes=1)).isoformat(), True),
-        ((datetime.now(UTC) - timedelta(hours=23)).isoformat(), False),
-    ],
-)
-def test_the_daily_full_refresh_is_due_a_day_after_the_last(tmp_path, monkeypatch, last_full, due):
-    calls = {"last_full": last_full}
+def test_the_daily_full_refresh_is_due_with_none_yet(tmp_path, monkeypatch):
+    calls = {"last_full": None}
     _patch_pipeline(monkeypatch, calls)
 
     run_pipeline(_settings(tmp_path))
 
-    assert calls["full"] == [due]
-    assert calls["started_full"] == [due]
+    assert calls["full"] == [True]
+    assert calls["started_full"] == [True]
+
+
+@pytest.mark.parametrize(
+    ("last_full", "now", "due"),
+    [
+        ("2026-11-09T00:05:00+00:00", "2026-11-09T23:55:00+00:00", False),
+        # Under 24 hours, but yesterday: the drift of a daily schedule must not skip a day
+        ("2026-11-08T06:10:00+00:00", "2026-11-09T06:05:00+00:00", True),
+        ("2026-11-08T23:55:00+00:00", "2026-11-09T00:05:00+00:00", True),
+        # A timestamp with another offset is compared as UTC
+        ("2026-11-09T01:00:00+02:00", "2026-11-09T12:00:00+00:00", True),
+    ],
+)
+def test_the_daily_full_refresh_is_due_once_per_utc_day(monkeypatch, last_full, now, due):
+    monkeypatch.setattr(run_module, "latest_full_refresh_start", lambda account_id: last_full)
+
+    assert run_module._full_refresh_due(1, make_settings(), datetime.fromisoformat(now)) is due
 
 
 def test_the_daily_full_refresh_is_never_due_when_switched_off(tmp_path, monkeypatch):
@@ -527,7 +539,9 @@ def test_the_daily_full_refresh_is_worked_out_per_account(tmp_path, monkeypatch)
     _patch_pipeline(monkeypatch, calls, accounts=[make_account(1), make_account(2, "Two (US)", "us")])
     # Only the second account has never had one
     monkeypatch.setattr(
-        run_module, "latest_full_refresh_start", lambda account_id: _JUST_NOW if account_id == 1 else None
+        run_module,
+        "latest_full_refresh_start",
+        lambda account_id: datetime.now(UTC).isoformat() if account_id == 1 else None,
     )
 
     run_pipeline(_settings(tmp_path))

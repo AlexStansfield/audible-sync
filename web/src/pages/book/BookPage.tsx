@@ -189,7 +189,7 @@ function BookDetail({
             {book.subtitle && <p className={styles.subtitle}>{book.subtitle}</p>}
           </div>
           <Credits book={book} />
-          <Description html={book.description_html} />
+          <Description key={book.id} html={book.description_html} />
 
           <dl className={styles.details}>
             <Detail term="Series">{series ?? "—"}</Detail>
@@ -418,6 +418,7 @@ function Description({ html }: { html: string }) {
   const [open, setOpen] = useState(false);
   const [folds, setFolds] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `html` is read through the element, which a description brought by a refresh only then creates
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element || open) return;
@@ -427,7 +428,7 @@ function Description({ html }: { html: string }) {
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [open]);
+  }, [open, html]);
 
   if (!html) return null;
   return (

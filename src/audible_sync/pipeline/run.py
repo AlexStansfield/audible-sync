@@ -7,7 +7,7 @@ configures anything on import, so a host process is not surprised.
 
 import logging
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from audible_sync.audible_api.accounts import (
     authenticator_for,
@@ -35,17 +35,24 @@ from audible_sync.settings import Settings
 
 logger = logging.getLogger(__name__)
 
+
 # How old an account's last full refresh may be before a run is one, with the daily
 # full refresh on
-FULL_REFRESH_EVERY = timedelta(days=1)
+def _full_refresh_due(account_id: int, settings: Settings, now: datetime | None = None) -> bool:
+    """
+    Whether the daily full refresh is on and this account has not had one today (UTC).
 
-
-def _full_refresh_due(account_id: int, settings: Settings) -> bool:
-    """Whether the daily full refresh is on and this account's last one is more than a day old."""
+    A calendar day rather than 24 hours since the last: each account's run starts later
+    by however long the accounts before it took, so with a daily schedule "a day since"
+    would fall a few minutes short and the refresh would skip to the day after.
+    """
     if not settings.daily_full_refresh:
         return False
     last = latest_full_refresh_start(account_id)
-    return last is None or datetime.now(UTC) - datetime.fromisoformat(last) >= FULL_REFRESH_EVERY
+    if last is None:
+        return True
+    now = now or datetime.now(UTC)
+    return datetime.fromisoformat(last).astimezone(UTC).date() < now.astimezone(UTC).date()
 
 
 def _outcome(stats: DownloadStats) -> SyncOutcome:

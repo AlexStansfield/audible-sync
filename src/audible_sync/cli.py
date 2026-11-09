@@ -227,7 +227,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     """CLI entry point: `run` (the default), `login` or `reset-password`."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.full and args.command not in (None, "run"):
+        # Only a run reads libraries; silently ignoring it would read as if it had
+        parser.error(f"--full applies to a sync run, not to {args.command}")
     if args.command == "reset-password":
         reset_password_command(reset_username=args.username)
     elif args.command == "login":

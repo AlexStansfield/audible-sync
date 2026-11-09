@@ -1,6 +1,7 @@
 import json
 import logging
 import shutil
+import sqlite3
 import subprocess
 import threading
 import time
@@ -80,7 +81,7 @@ def _renewing_claim(book_id: int, claim: str) -> Iterator[None]:
                 if not renew_claim(book_id, claim=claim):
                     logger.warning("Book %d is no longer this run's to download; no longer renewing its claim", book_id)
                     return
-            except Exception:
+            except sqlite3.Error:
                 # A locked or busy database: the next renewal is minutes away and
                 # the claim hours from going stale
                 logger.warning("Could not renew the claim on book %d, trying again", book_id, exc_info=True)

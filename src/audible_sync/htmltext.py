@@ -27,6 +27,9 @@ class _TextParser(HTMLParser):
     def handle_starttag(self, tag: str, attrs) -> None:
         if tag in _SKIPPED:
             self._skipping += 1
+        elif self._skipping:
+            # Nothing inside a skipped section is layout either
+            return
         elif tag in _BLOCKS:
             self.parts.append("\n\n")
         elif tag == "br":
@@ -36,13 +39,13 @@ class _TextParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs) -> None:
         # `<br/>`: only the line break, never a skipped section left open
-        if tag == "br":
+        if tag == "br" and not self._skipping:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _SKIPPED:
             self._skipping = max(self._skipping - 1, 0)
-        elif tag in _BLOCKS:
+        elif tag in _BLOCKS and not self._skipping:
             self.parts.append("\n\n")
 
     def handle_data(self, data: str) -> None:

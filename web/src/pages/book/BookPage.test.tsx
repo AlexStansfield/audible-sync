@@ -136,6 +136,27 @@ describe("Book detail", () => {
       await userEvent.click(less);
       expect(screen.getByRole("button", { name: "Show more" })).toBeInTheDocument();
     });
+
+    it("offers Show more for a description a refresh has just brought", async () => {
+      vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.id === "book-description" ? 200 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.id === "book-description" ? 80 : 0;
+      });
+      const api = page({ ...DUNE, description_html: "" });
+      const refreshed = { ...DUNE, description_html: "<p>A long summary.</p>" };
+      api.routes[`POST /api/books/${DUNE.id}/refresh`] = ok(refreshed);
+      renderApp(`/library/${DUNE.id}`);
+
+      const refresh = await screen.findByRole("button", { name: "Refresh from Audible" });
+      expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+      // What the page reads once the refresh has stored it
+      api.routes[`GET /api/books/${DUNE.id}`] = ok(refreshed);
+      await userEvent.click(refresh);
+
+      expect(await screen.findByRole("button", { name: "Show more" })).toBeInTheDocument();
+    });
   });
 
   it("is the book 404 for a book the API does not have, or an id that is not one", async () => {

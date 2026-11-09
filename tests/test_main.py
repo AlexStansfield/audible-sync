@@ -124,6 +124,18 @@ def test_full_asks_the_run_for_a_full_refresh(monkeypatch, argv):
     assert ("pipeline", settings, True) in order
 
 
+@pytest.mark.parametrize("argv", [["--full", "login", "--marketplace", "uk"], ["--full", "reset-password"]])
+def test_full_is_refused_beside_a_command_that_reads_no_library(monkeypatch, argv, capsys):
+    monkeypatch.setattr(main_module, "login_command", lambda *a, **k: pytest.fail("must not sign in"))
+    monkeypatch.setattr(main_module, "reset_password_command", lambda **k: pytest.fail("must not reset"))
+
+    with pytest.raises(SystemExit) as exited:
+        main(argv)
+
+    assert exited.value.code == 2
+    assert "--full applies to a sync run" in capsys.readouterr().err
+
+
 def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):
     order = []
     _patch_prepare(monkeypatch, order)

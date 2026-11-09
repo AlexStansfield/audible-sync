@@ -34,6 +34,11 @@ def test_script_and_style_content_is_never_text():
     assert html_to_text("<p>Kept</p><script>var x = '<p>no</p>';</script><style>p {}</style>") == "Kept"
 
 
+def test_tags_inside_a_skipped_section_are_not_layout():
+    # A line break in a head that never closed would otherwise split the text around it
+    assert html_to_text("Kept<head><br><div></div><li></head> on one line") == "Kept on one line"
+
+
 def test_attributes_never_reach_the_text():
     assert html_to_text('<p onclick="steal()"><a href="javascript:x">Link</a></p>') == "Link"
 

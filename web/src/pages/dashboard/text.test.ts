@@ -6,9 +6,9 @@ import {
   isInterrupted,
   nextRunText,
   runDetail,
+  stageLabel,
   subtitle,
   unavailableText,
-  stageLabel,
   upNextHeader,
 } from "./text";
 

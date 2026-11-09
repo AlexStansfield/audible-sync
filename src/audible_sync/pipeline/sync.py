@@ -2,7 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from audible.exceptions import NotFoundError
+from audible.exceptions import NotFoundError, RequestError, Unauthorized
 
 from audible_sync.audible_api.client import Audible
 from audible_sync.database import (
@@ -142,8 +142,19 @@ def sync_library(
             logger.info("Re-reading the full library for %s to refresh every book", account.name)
         else:
             logger.info("Re-reading the full library for %s to refresh availability", account.name)
-        update_books(account.id, audible.get_library(None), monitor_new=monitor_new)
-        full_refresh = full
+        try:
+            whole = audible.get_library(None)
+        except Unauthorized:
+            raise
+        except RequestError:
+            # The new purchases are stored already: a failed re-read must not cost the
+            # run its downloads. Not recorded as a full refresh, so one stays due
+            logger.warning(
+                "Could not re-read the full library for %s; trying again next run", account.name, exc_info=True
+            )
+        else:
+            update_books(account.id, whole, monitor_new=monitor_new)
+            full_refresh = full
 
     _remove_stored_podcasts(audible, account.id)
 
