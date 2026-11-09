@@ -292,7 +292,7 @@ Page padding drops to 20px top and 16px at the sides. The Dashboard totals and c
 2. **Sessions:** `POST /api/auth/login` (`username`, `password`, `remember`), `POST /api/auth/logout`, `GET /api/auth/me` (`username`, `generated_password`); an HTTP-only session cookie accepted by every route that now takes the bearer token; rate-limit failed sign-ins.
 3. **Changing the sign-in:** `PUT /api/auth/username` and `PUT /api/auth/password`, each requiring the current password; a password change ends every other session.
 4. **A way back from a forgotten password,** run on the server, since there is no email: for example a CLI command that resets the password and logs a new one. The sign-in screen's Forgot your password? card shows it: `docker compose exec audible-sync uv run --no-sync audible-sync reset-password`. Done: it refuses when the CLI holds another secret key than the service.
-5. **Serving the app:** mount the built `web/dist` in `src/audible_sync/api/app.py` with the `index.html` fallback, after the `/api` routes.
+5. **Serving the app:** mount the built `web/dist` in `src/audible_sync/api/web.py` with the `index.html` fallback, after the `/api` routes.
 6. **Docker:** a Node build stage that runs the `web/` build and copies `dist` into the image; `.dockerignore` for `web/node_modules`.
 7. **CI:** lint, type-check and build `web/` beside the Python checks.
 8. **Round 2:** `generated_password` on `GET /api/auth/me` (the dashboard banner); `POST /api/books/bulk`; the API-token endpoints and `GET /api/system`; optionally `GET /api/queue` for Up next; per-book run records and `GET /api/sync/runs/{id}/books` (lowest priority). Each is described under its screen in Round 2 above.

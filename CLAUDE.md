@@ -10,7 +10,7 @@ What the code cannot tell you: decisions, gotchas and how to test. For what a fu
 | **Entry points** | `python -m audible_sync.service` (the service); `audible-sync` or `python -m audible_sync` (`cli.py`: one sync and exit, plus `login` and `reset-password`) |
 | **Database** | SQLite (`data/audible_sync.db`), which also holds the live settings |
 | **Secrets** | Encrypted in the database; the key in `secrets/secret.key` or `AUDIBLE_SYNC_SECRET_KEY` (`src/audible_sync/security/crypto.py`) |
-| **Backend** | FastAPI + uvicorn; `src/audible_sync/api/app.py` puts together the routes of `api/routes/`, one module per area; `src/audible_sync/api/schemas.py` the contract |
+| **Backend** | FastAPI + uvicorn; `src/audible_sync/api/app.py` puts together the routes of `api/routes/`, one module per area, and `api/web.py` serves the web app; `src/audible_sync/api/schemas.py` the contract |
 | **Web app** | `web/`: Vite, React 19, TypeScript, TanStack Query, Biome, Vitest; served by the service from `web/dist`. Spec in `docs/design/DESIGN.md` |
 | **Checks** | `uv run ruff format .`, `uv run ruff check .`, `uv run pytest`; in `web/`: `npm run lint`, `typecheck`, `test`, `build`, and `npm run gen:api` after an API change |
 | **CI** | The same on every push and PR to `dev` and `main`, plus a stale-types check on `web/openapi.json` and `web/src/api/schema.d.ts`. Images are built on `v*` tags |
@@ -32,7 +32,7 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
+Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`; `api.web`: the base path and the web app) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
 
 `database` stays one module, since tests point its `DB_FILE` at a temp file (and `conftest.scratch_database` does by default). `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: `paths.REPO_ROOT` is two levels above it, `/app` in the image.
 

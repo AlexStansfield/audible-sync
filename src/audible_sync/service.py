@@ -38,7 +38,8 @@ from pathlib import Path
 
 import uvicorn
 
-from audible_sync.api.app import create_app, normalise_base_path
+from audible_sync.api.app import create_app
+from audible_sync.api.web import normalise_base_path
 from audible_sync.cli import configure_logging
 from audible_sync.database import backfill_customer_ids, encrypt_stored_secrets, init_db
 from audible_sync.logbuffer import RingBufferHandler

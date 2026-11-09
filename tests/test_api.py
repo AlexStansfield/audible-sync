@@ -9,7 +9,6 @@ from audible import Authenticator
 from fastapi.testclient import TestClient
 
 import audible_sync.database as database
-from audible_sync.api import app as api_module
 from audible_sync.api.app import create_app, read_version
 from audible_sync.api.routes import accounts as api_accounts
 from audible_sync.api.routes import books as api_books
@@ -2041,7 +2040,8 @@ def test_a_post_to_a_page_of_the_app_is_a_404(web):
 
 # --- served under a base path behind a reverse proxy ----------------------------------
 
-from audible_sync.api.app import normalise_base_path  # noqa: E402
+from audible_sync.api import web as web_module  # noqa: E402
+from audible_sync.api.web import normalise_base_path  # noqa: E402
 
 BASE = "/audible-sync"
 
@@ -2191,7 +2191,7 @@ def test_every_page_of_the_web_app_is_a_reserved_base_path():
     pages = {path.split("/")[0] for path in re.findall(r'path: "/?([^"*:]+)', routes)}
 
     assert pages >= {"login", "library", "profile"}
-    assert pages <= api_module._RESERVED_SEGMENTS
+    assert pages <= web_module._RESERVED_SEGMENTS
 
 
 def test_a_symlinked_index_html_still_gets_its_base(db, tmp_path):
