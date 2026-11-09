@@ -163,6 +163,7 @@ def run_account(
     With `full`, or with the daily full refresh due (`_full_refresh_due`), the sync
     re-reads the whole library (see `sync_library`), and the run row says so: a full
     refresh is a run like any other, so it cannot overlap another and can be cancelled.
+    An account's first sync is one too, and the row says that at the end.
     """
     state = state or RunState()
     full = full or _full_refresh_due(account.id, settings)

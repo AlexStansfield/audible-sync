@@ -68,7 +68,7 @@ A quick local version with no Audible access is a scratch database with an accou
 ## Since v3.1.0
 
 - [ ] Refresh all from Audible on the Dashboard: the run card says Refreshing all while it reads, the log reads the whole library once per account, Activity marks the run Full refresh, and a book's title edited in the database by hand is put back
-- [ ] With `daily-full-refresh` on, the first scheduled run after the upgrade is a full refresh for every account, and the next one only once a day has passed; with it off, no scheduled run is one (unless a withdrawn title is parked)
+- [ ] With `daily-full-refresh` on, the first scheduled run after the upgrade is a full refresh for every account, and the next one only once a day has passed; with it off, no run is one unless asked for. A run that re-reads the library because a withdrawn title is parked is not marked as one
 - [ ] After the first full refresh every book with a summary on Audible shows it on its Book page, folded with Show more when long, at desktop and 390px and in both themes
 - [ ] A new download carries the description: `ffprobe -show_format` shows `description` in the M4B, and with `format = oga` `SYNOPSIS` among the stream tags beside `comment=ASIN: ...`; the ASIN is still read back from the file (`library.audio_path_for` finds it)
 - [ ] A download taking longer than a few minutes renews its claim (`claim_renewed_at` moves every five minutes while `last_attempt_at` stays), and with `STALE_CLAIM_SECONDS` made short a second process does not take the book

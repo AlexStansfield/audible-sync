@@ -535,8 +535,8 @@ def test_the_daily_full_refresh_is_worked_out_per_account(tmp_path, monkeypatch)
     assert calls["full"] == [False, True]
 
 
-def test_the_run_records_whether_the_sync_read_the_whole_library(tmp_path, monkeypatch):
-    """A parked book makes an ordinary run read everything, and the run says so."""
+def test_the_run_records_whether_the_sync_was_a_full_refresh(tmp_path, monkeypatch):
+    """An account's first sync is one without being asked, and the run says so."""
     calls = {}
     _patch_pipeline(monkeypatch, calls, synced=SyncResult(books_seen=1, books_added=0, full_refresh=True))
 

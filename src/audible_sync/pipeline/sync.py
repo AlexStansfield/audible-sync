@@ -29,7 +29,9 @@ class SyncResult(NamedTuple):
 
     books_seen: int
     books_added: int
-    # Whether the whole library was read, so every stored book's data is up to date
+    # Whether this was a full refresh: one asked for, or the account's first sync. The
+    # re-read for a parked book reads everything too, but is not one: with a withdrawn
+    # title parked for good it happens on every run, and would mark them all
     full_refresh: bool
 
 
@@ -114,8 +116,9 @@ def sync_library(
     the library keeps whatever the user set.
 
     Returns how many books the incremental fetch read and how many of them were new,
-    and whether the whole library was read. The full re-read counts towards neither
-    number: folding it in would report the library size as this run's work.
+    and whether it was a full refresh (see `SyncResult`). The full re-read counts
+    towards neither number: folding it in would report the library size as this run's
+    work.
     """
     purchased_after = _sync_cursor(account.id)
     if purchased_after is None:
@@ -140,7 +143,7 @@ def sync_library(
         else:
             logger.info("Re-reading the full library for %s to refresh availability", account.name)
         update_books(account.id, audible.get_library(None), monitor_new=monitor_new)
-        full_refresh = True
+        full_refresh = full
 
     _remove_stored_podcasts(audible, account.id)
 

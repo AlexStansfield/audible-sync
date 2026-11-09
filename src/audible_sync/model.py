@@ -395,7 +395,8 @@ class SyncRun:
     error: str | None = None
     # Whether the run recorded its books in `sync_run_books`; False on runs from before
     books_recorded: bool = False
-    # Whether it read the whole library rather than only new purchases
+    # Whether it was a full refresh, re-reading the whole library: asked for or due, or
+    # the account's first sync
     full_refresh: bool = False
 
     @classmethod

@@ -115,6 +115,21 @@ def test_sync_library_rereads_the_whole_library_while_a_book_is_parked(monkeypat
     assert "refresh availability" in caplog.text
 
 
+def test_the_re_read_for_a_parked_book_is_not_a_full_refresh(monkeypatch):
+    """A withdrawn title can stay parked for good; marking every run would say nothing."""
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
+
+    assert sync_library(FakeAudible([make_book("B001")]), ACCOUNT).full_refresh is False
+
+
+def test_a_full_refresh_with_a_book_parked_reads_the_library_once(monkeypatch):
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
+    audible = FakeAudible([make_book("B001")])
+
+    assert sync_library(audible, ACCOUNT, full=True).full_refresh is True
+    assert audible.calls == ["2024-01-01T00:00:00Z", None]
+
+
 def test_sync_library_reads_only_new_purchases_on_an_ordinary_run(monkeypatch):
     _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
     audible = FakeAudible([make_book("B001")])
@@ -149,7 +164,7 @@ def test_sync_library_counts_only_the_incremental_fetch(monkeypatch):
     _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
     audible = FakeAudible([make_book("B001"), make_book("B002")])
 
-    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=2, books_added=2, full_refresh=True)
+    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=2, books_added=2, full_refresh=False)
 
 
 def test_sync_library_does_not_refresh_twice_on_a_first_full_sync(monkeypatch):

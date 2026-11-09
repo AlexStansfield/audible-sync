@@ -128,8 +128,8 @@ class SyncRunOut(BaseModel):
     # Whether `GET /api/sync/runs/{id}/books` has anything to say: false on runs from
     # before the per-book records
     books_recorded: bool
-    # Whether the run read the whole library from Audible, bringing every stored book's
-    # data up to date, rather than only what was purchased since the last run
+    # Whether the run was a full refresh, reading the whole library from Audible to bring
+    # every stored book's data up to date: asked for, due, or the account's first sync
     full_refresh: bool
 
 

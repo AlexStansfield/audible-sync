@@ -10,10 +10,10 @@ Interactive documentation is served at `/docs` (OpenAPI at `/openapi.json`). Eve
 | `GET /api/auth/me` | `username` and `generated_password` (still using the generated one) |
 | `PUT /api/auth/username` | Change the username; needs `current_password` (`403` when wrong) |
 | `PUT /api/auth/password` | Change the password (12 characters or more); needs `current_password`. Every other session is signed out |
-| `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer, and `full_refresh` when it re-reads every library in full) and the last run |
+| `GET /api/status` | The schedule (`enabled`, `interval_minutes`, `next_run_at`, `running`), the run in flight (stage, current book, queue position, bytes of the current transfer, and `full_refresh` when it is a full refresh) and the last run |
 | `POST /api/sync` | Start a run now; `409` if one is already running. With `{"full": true}` a full refresh: after reading new purchases it re-reads each account's whole library, bringing every book's title, authors, series, cover, description and availability up to date. Without a body, an ordinary run - which is a full refresh anyway for an account whose last one is more than a day old while `daily_full_refresh` is on |
 | `POST /api/sync/cancel` | Stop the run in flight; `409` if there is none. The book being downloaded goes back to the queue |
-| `GET /api/sync/runs?limit=&offset=&account_id=` | Run history, newest first, with a `total`; optionally one account's. `full_refresh` says whether a run read the whole library: one asked for or due, an account's first sync, or one made to while a withdrawn title is parked |
+| `GET /api/sync/runs?limit=&offset=&account_id=` | Run history, newest first, with a `total`; optionally one account's. `full_refresh` says whether a run was a full refresh: asked for, due, or an account's first sync |
 | `GET /api/sync/runs/{id}` | One run |
 | `GET /api/sync/runs/{id}/books` | The run's books in three lists - `downloaded` (with size and time), `failed` and `refused` (with the error) - each in the order the run finished them; `recorded: false` for a run from before the per-book records |
 | `GET /api/settings` | Every runtime setting |

@@ -106,9 +106,9 @@ def init_db():
             -- 1 on runs that record their books in sync_run_books; 0 on runs from
             -- before there was that table, so "no books" and "not recorded" differ
             books_recorded BOOLEAN NOT NULL DEFAULT 0,
-            -- 1 on a run that read the account's whole library rather than what was
-            -- purchased since the last run: a full refresh, asked for or due, or the
-            -- account's first sync
+            -- 1 on a full refresh, which read the account's whole library rather than
+            -- what was purchased since the last run: asked for or due, or the account's
+            -- first sync
             full_refresh BOOLEAN NOT NULL DEFAULT 0
         )
     """)
@@ -1147,7 +1147,7 @@ def start_sync_run(account_id: int | None = None, *, full_refresh: bool = False)
     Written before anything is fetched, so a run that is killed leaves a row that is
     still `running` with no `finished_at` - the record that tells a run which died half
     way from one that completed and found nothing. `full_refresh` is whether the run
-    sets out to read the whole library; `finish_sync_run` records whether it did.
+    sets out to be a full refresh; `finish_sync_run` records whether it was one.
     """
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
@@ -1182,8 +1182,9 @@ def finish_sync_run(
         books_downloaded: Books downloaded, decrypted and filed
         books_failed: Books that were tried and did not finish
         error: The exception that stopped the run, if one did
-        full_refresh: Whether the run read the whole library; None leaves what
-            `start_sync_run` recorded, which is what a run that failed before reading says
+        full_refresh: Whether the run was a full refresh (an account's first sync is,
+            unasked); None leaves what `start_sync_run` recorded, which is what a run that
+            failed before reading says
     """
     with closing(_get_connection()) as conn:
         conn.execute(
