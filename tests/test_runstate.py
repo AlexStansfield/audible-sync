@@ -21,7 +21,20 @@ def test_begin_starts_a_fresh_picture():
     assert snapshot["book"] is None
     assert (snapshot["books_done"], snapshot["books_total"]) == (0, 0)
     assert snapshot["transfer"] is None
+    assert snapshot["full_refresh"] is False
     assert state.running is True
+
+
+def test_begin_says_whether_the_run_is_a_full_refresh():
+    state = RunState()
+
+    state.begin(7, full_refresh=True)
+    assert state.snapshot()["full_refresh"] is True
+
+    # The next run starts from nothing
+    state.end()
+    state.begin(8)
+    assert state.snapshot()["full_refresh"] is False
 
 
 def test_end_clears_everything():

@@ -141,9 +141,9 @@ def ensure_web_user() -> None:
     )
 
 
-def _run(settings: Settings, state: RunState, cancel: threading.Event) -> None:
+def _run(settings: Settings, state: RunState, cancel: threading.Event, *, full: bool = False) -> None:
     """The pipeline as the scheduler calls it, with progress reported into the run state."""
-    run_pipeline(settings, progress=StateProgress(state), state=state, cancel=cancel)
+    run_pipeline(settings, progress=StateProgress(state), state=state, cancel=cancel, full=full)
 
 
 def build(config: ServiceConfig):

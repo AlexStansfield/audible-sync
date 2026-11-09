@@ -13,6 +13,7 @@ from audible_sync.api.schemas import (
     Status,
     SyncRunList,
     SyncRunOut,
+    SyncStart,
 )
 from audible_sync.database import (
     count_sync_runs,
@@ -42,8 +43,9 @@ def router(*, scheduler: Scheduler, state: RunState) -> APIRouter:
         )
 
     @router.post("/sync", response_model=Message, status_code=202)
-    def start_sync() -> Message:
-        if not scheduler.trigger():
+    def start_sync(body: SyncStart | None = None) -> Message:
+        """Start a run now; with `{"full": true}` one that re-reads every library in full."""
+        if not scheduler.trigger(full=body is not None and body.full):
             raise HTTPException(status_code=409, detail="A sync is already running")
         return Message(status="started")
 

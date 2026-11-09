@@ -21,14 +21,16 @@ class FakeRun:
 
     def __init__(self, *, block=False, raise_once=None):
         self.calls = []
+        self.full = []
         self.started = threading.Event()
         self.finished = threading.Event()
         self.release = threading.Event()
         self.block = block
         self.raise_once = raise_once
 
-    def __call__(self, settings, state, cancel):
+    def __call__(self, settings, state, cancel, *, full):
         self.calls.append((settings, state, cancel))
+        self.full.append(full)
         self.started.set()
         try:
             if self.block:
@@ -308,3 +310,43 @@ def test_wake_makes_a_changed_interval_take_effect(scheduler_factory):
     scheduler.wake()
 
     assert run.finished.wait(2)
+
+
+def test_a_trigger_can_ask_for_a_full_refresh(scheduler_factory):
+    run = FakeRun()
+    scheduler = scheduler_factory(run, settings=make_settings(sync_enabled=False))
+    scheduler.start()
+
+    assert scheduler.trigger(full=True) is True
+    assert run.finished.wait(2)
+    _settle(scheduler)
+    run.finished.clear()
+    # The ask is for that run only
+    assert scheduler.trigger() is True
+    assert run.finished.wait(2)
+
+    assert run.full == [True, False]
+
+
+def test_a_scheduled_run_is_not_asked_for_a_full_refresh(scheduler_factory):
+    """Whether one is due is the pipeline's to work out, per account."""
+    run = FakeRun()
+    scheduler = scheduler_factory(run, last=None)
+    scheduler.start()
+
+    assert run.finished.wait(2)
+    assert run.full[0] is False
+
+
+def test_two_asks_before_the_run_starts_are_one_full_refresh(scheduler_factory):
+    run = FakeRun()
+    scheduler = scheduler_factory(run, settings=make_settings(sync_enabled=False))
+
+    # Not started yet, so both asks are waiting when the thread first looks
+    assert scheduler.trigger() is True
+    assert scheduler.trigger(full=True) is True
+    scheduler.start()
+
+    assert run.finished.wait(2)
+    _settle(scheduler)
+    assert run.full == [True]

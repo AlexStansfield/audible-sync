@@ -969,6 +969,7 @@ def test_init_db_creates_sync_runs_table_with_all_columns(db):
         "books_failed",
         "error",
         "books_recorded",
+        "full_refresh",
     }
 
 
@@ -2027,3 +2028,57 @@ def test_runs_from_before_the_records_say_so(tmp_path, monkeypatch):
 
     assert old.books_recorded is False
     assert new.books_recorded is True
+
+
+# --- full refresh ---------------------------------------------------------------
+
+
+def test_a_run_says_whether_it_set_out_to_be_a_full_refresh(db):
+    plain = database.start_sync_run(ACCOUNT)
+    full = database.start_sync_run(ACCOUNT, full_refresh=True)
+
+    assert database.get_sync_run(plain).full_refresh is False
+    assert database.get_sync_run(full).full_refresh is True
+
+
+@pytest.mark.parametrize(
+    ("started", "finished", "recorded"), [(False, True, True), (True, None, True), (True, False, False)]
+)
+def test_finish_sync_run_records_whether_the_whole_library_was_read(db, started, finished, recorded):
+    """A parked book can make any run read everything; one that failed first says what it meant to do."""
+    run_id = database.start_sync_run(ACCOUNT, full_refresh=started)
+
+    database.finish_sync_run(run_id, outcome=SyncOutcome.SUCCESS, full_refresh=finished)
+
+    assert database.get_sync_run(run_id).full_refresh is recorded
+
+
+def _full_run(account_id, outcome, started_at, monkeypatch, *, full=True):
+    monkeypatch.setattr(database, "_utcnow", lambda: started_at)
+    run_id = database.start_sync_run(account_id, full_refresh=full)
+    database.finish_sync_run(run_id, outcome=outcome)
+    return run_id
+
+
+def test_latest_full_refresh_start_is_none_without_one(db, monkeypatch):
+    _full_run(ACCOUNT, SyncOutcome.SUCCESS, "2026-11-01T10:00:00+00:00", monkeypatch, full=False)
+
+    assert database.latest_full_refresh_start(ACCOUNT) is None
+
+
+def test_latest_full_refresh_start_takes_the_newest_that_read_the_library(db, monkeypatch):
+    _full_run(ACCOUNT, SyncOutcome.SUCCESS, "2026-11-01T10:00:00+00:00", monkeypatch)
+    _full_run(ACCOUNT, SyncOutcome.CANCELLED, "2026-11-02T10:00:00+00:00", monkeypatch)
+    # Failed before reading, or not a full one: neither counts
+    _full_run(ACCOUNT, SyncOutcome.FAILED, "2026-11-03T10:00:00+00:00", monkeypatch)
+    _full_run(ACCOUNT, SyncOutcome.SUCCESS, "2026-11-04T10:00:00+00:00", monkeypatch, full=False)
+
+    assert database.latest_full_refresh_start(ACCOUNT) == "2026-11-02T10:00:00+00:00"
+
+
+def test_latest_full_refresh_start_is_per_account(db, monkeypatch):
+    other = database.add_account("Other (US)", "us", auth=None)
+    _full_run(other, SyncOutcome.SUCCESS, "2026-11-04T10:00:00+00:00", monkeypatch)
+
+    assert database.latest_full_refresh_start(ACCOUNT) is None
+    assert database.latest_full_refresh_start(other) == "2026-11-04T10:00:00+00:00"

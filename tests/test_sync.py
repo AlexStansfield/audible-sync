@@ -62,7 +62,7 @@ def test_sync_library_fetches_everything_on_an_empty_database(monkeypatch):
     _patch(monkeypatch)
     audible = FakeAudible([make_book("B001")])
 
-    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=1, books_added=1)
+    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=1, books_added=1, full_refresh=True)
     assert audible.calls == [None]
 
 
@@ -115,12 +115,41 @@ def test_sync_library_rereads_the_whole_library_while_a_book_is_parked(monkeypat
     assert "refresh availability" in caplog.text
 
 
+def test_sync_library_reads_only_new_purchases_on_an_ordinary_run(monkeypatch):
+    _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
+    audible = FakeAudible([make_book("B001")])
+
+    assert sync_library(audible, ACCOUNT).full_refresh is False
+
+
+def test_a_full_refresh_reads_the_new_purchases_then_the_whole_library(monkeypatch, caplog):
+    """Every stored book is given to `update_books` again, which brings its data up to date."""
+    caplog.set_level(logging.INFO)
+    updated = _patch(monkeypatch, cursor="2024-01-01T00:00:00Z")
+    audible = FakeAudible([make_book("B001")])
+
+    result = sync_library(audible, ACCOUNT, full=True)
+
+    assert audible.calls == ["2024-01-01T00:00:00Z", None]
+    assert len(updated) == 2
+    assert result.full_refresh is True
+    assert "refresh every book" in caplog.text
+
+
+def test_a_full_refresh_on_a_first_sync_reads_the_library_once(monkeypatch):
+    _patch(monkeypatch)
+    audible = FakeAudible([make_book("B001")])
+
+    assert sync_library(audible, ACCOUNT, full=True).full_refresh is True
+    assert audible.calls == [None]
+
+
 def test_sync_library_counts_only_the_incremental_fetch(monkeypatch):
     """The refresh pass re-reads everything, so folding it in would report the library size."""
     _patch(monkeypatch, cursor="2024-01-01T00:00:00Z", needs_refresh=True)
     audible = FakeAudible([make_book("B001"), make_book("B002")])
 
-    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=2, books_added=2)
+    assert sync_library(audible, ACCOUNT) == SyncResult(books_seen=2, books_added=2, full_refresh=True)
 
 
 def test_sync_library_does_not_refresh_twice_on_a_first_full_sync(monkeypatch):
@@ -223,7 +252,7 @@ def test_a_failed_check_costs_neither_the_run_nor_more_timeouts(monkeypatch, cap
     with caplog.at_level(logging.WARNING):
         result = sync_library(audible, ACCOUNT)
 
-    assert result == SyncResult(books_seen=0, books_added=0)
+    assert result == SyncResult(books_seen=0, books_added=0, full_refresh=True)
     assert audible.asked == ["FIRST"]
     assert removed == []
     assert "Could not check whether FIRST is a podcast" in caplog.text

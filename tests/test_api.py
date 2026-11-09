@@ -35,6 +35,7 @@ class FakeScheduler:
     def __init__(self, *, running=False):
         self.running = running
         self.triggered = 0
+        self.full = []
         self.cancelled = 0
         self.woken = 0
         self.started = 0
@@ -46,10 +47,11 @@ class FakeScheduler:
     def stop(self):
         self.stopped += 1
 
-    def trigger(self):
+    def trigger(self, *, full=False):
         if self.running:
             return False
         self.triggered += 1
+        self.full.append(full)
         return True
 
     def cancel(self):
@@ -379,6 +381,24 @@ def test_start_sync_triggers_the_scheduler(api):
     assert response.status_code == 202
     assert response.json() == {"status": "started"}
     assert api.scheduler.triggered == 1
+    # Without a body it is an ordinary run
+    assert api.scheduler.full == [False]
+
+
+@pytest.mark.parametrize(("body", "full"), [({"full": True}, True), ({"full": False}, False), ({}, False)])
+def test_start_sync_asks_for_a_full_refresh_when_told_to(api, body, full):
+    response = api.post("/api/sync", headers=AUTH, json=body)
+
+    assert response.status_code == 202
+    assert api.scheduler.full == [full]
+
+
+@pytest.mark.parametrize("body", [{"full": "yes please"}, {"fulll": True}])
+def test_start_sync_refuses_a_body_it_does_not_understand(api, body):
+    response = api.post("/api/sync", headers=AUTH, json=body)
+
+    assert response.status_code == 422
+    assert api.scheduler.triggered == 0
 
 
 def test_start_sync_is_a_conflict_while_one_is_running(api):
@@ -454,6 +474,7 @@ def test_get_run(api, monkeypatch):
         "books_failed": 0,
         "error": None,
         "books_recorded": True,
+        "full_refresh": False,
     }
 
 

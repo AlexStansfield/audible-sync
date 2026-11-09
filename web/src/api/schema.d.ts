@@ -594,7 +594,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Start Sync */
+        /**
+         * Start Sync
+         * @description Start a run now; with `{"full": true}` one that re-reads every library in full.
+         */
         post: operations["start_sync_api_sync_post"];
         delete?: never;
         options?: never;
@@ -1270,6 +1273,8 @@ export interface components {
             books_done: number;
             /** Books Total */
             books_total: number;
+            /** Full Refresh */
+            full_refresh: boolean;
             /** Run Id */
             run_id: number;
             stage: components["schemas"]["RunStage"] | null;
@@ -1314,6 +1319,8 @@ export interface components {
             auto_monitor_new: boolean;
             /** Bitrate */
             bitrate: number;
+            /** Daily Full Refresh */
+            daily_full_refresh: boolean;
             /** Debug */
             debug: boolean;
             /** Download Folder */
@@ -1356,6 +1363,8 @@ export interface components {
             auto_monitor_new?: boolean | null;
             /** Bitrate */
             bitrate?: number | null;
+            /** Daily Full Refresh */
+            daily_full_refresh?: boolean | null;
             /** Debug */
             debug?: boolean | null;
             /** Download Folder */
@@ -1473,11 +1482,24 @@ export interface components {
             error: string | null;
             /** Finished At */
             finished_at: string | null;
+            /** Full Refresh */
+            full_refresh: boolean;
             /** Id */
             id: number;
             outcome: components["schemas"]["SyncOutcome"] | null;
             /** Started At */
             started_at: string;
+        };
+        /**
+         * SyncStart
+         * @description What `POST /api/sync` may be sent; the body itself is optional.
+         */
+        SyncStart: {
+            /**
+             * Full
+             * @default false
+             */
+            full: boolean;
         };
         /** SystemInfo */
         SystemInfo: {
@@ -2531,7 +2553,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SyncStart"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             202: {
@@ -2540,6 +2566,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Message"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

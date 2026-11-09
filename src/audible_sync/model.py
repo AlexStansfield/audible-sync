@@ -395,6 +395,8 @@ class SyncRun:
     error: str | None = None
     # Whether the run recorded its books in `sync_run_books`; False on runs from before
     books_recorded: bool = False
+    # Whether it read the whole library rather than only new purchases
+    full_refresh: bool = False
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "SyncRun":
@@ -412,6 +414,7 @@ class SyncRun:
             books_failed=data.get("books_failed") or 0,
             error=data.get("error"),
             books_recorded=bool(data.get("books_recorded")),
+            full_refresh=bool(data.get("full_refresh")),
         )
 
 

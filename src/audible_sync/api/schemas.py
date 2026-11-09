@@ -63,6 +63,16 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class SyncStart(BaseModel):
+    """What `POST /api/sync` may be sent; the body itself is optional."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Re-read every account's whole library, bringing each book's data up to date,
+    # rather than only what was bought since the last run
+    full: bool = False
+
+
 class SchedulerStatus(BaseModel):
     enabled: bool
     interval_minutes: int
@@ -91,6 +101,8 @@ class RunSnapshot(BaseModel):
 
     run_id: int
     started_at: str
+    # Whether it sets out to read the whole library from Audible (`SyncRunOut.full_refresh`)
+    full_refresh: bool
     stage: RunStage | None
     account: dict[str, Any] | None
     book: BookRef | None
@@ -116,6 +128,9 @@ class SyncRunOut(BaseModel):
     # Whether `GET /api/sync/runs/{id}/books` has anything to say: false on runs from
     # before the per-book records
     books_recorded: bool
+    # Whether the run read the whole library from Audible, bringing every stored book's
+    # data up to date, rather than only what was purchased since the last run
+    full_refresh: bool
 
 
 class RunBookOut(BaseModel):
@@ -502,6 +517,7 @@ class SettingsOut(BaseModel):
     max_attempts: int
     max_consecutive_failures: int | None
     auto_monitor_new: bool
+    daily_full_refresh: bool
     download_folder: str
     audiobook_folder: str
     folder_template: str
@@ -539,6 +555,7 @@ class SettingsUpdate(BaseModel):
     max_attempts: int | None = None
     max_consecutive_failures: int | None = None
     auto_monitor_new: bool | None = None
+    daily_full_refresh: bool | None = None
     download_folder: str | None = Field(default=None, min_length=1)
     audiobook_folder: str | None = Field(default=None, min_length=1)
     folder_template: str | None = None
@@ -553,6 +570,7 @@ class SettingsUpdate(BaseModel):
         "sync_interval_minutes",
         "max_attempts",
         "auto_monitor_new",
+        "daily_full_refresh",
         "download_folder",
         "audiobook_folder",
         "folder_template",

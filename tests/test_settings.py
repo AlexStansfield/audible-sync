@@ -251,6 +251,7 @@ _CHANGED = {
     "max_attempts": 5,
     "max_consecutive_failures": 9,
     "auto_monitor_new": False,
+    "daily_full_refresh": False,
     "download_folder": Path("/var/tmp/dl"),
     "audiobook_folder": Path("/mnt/books"),
     "folder_template": "{author}/{title}",

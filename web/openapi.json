@@ -1607,6 +1607,10 @@
             "title": "Books Total",
             "type": "integer"
           },
+          "full_refresh": {
+            "title": "Full Refresh",
+            "type": "boolean"
+          },
           "run_id": {
             "title": "Run Id",
             "type": "integer"
@@ -1639,6 +1643,7 @@
         "required": [
           "run_id",
           "started_at",
+          "full_refresh",
           "stage",
           "account",
           "book",
@@ -1752,6 +1757,10 @@
             "title": "Bitrate",
             "type": "integer"
           },
+          "daily_full_refresh": {
+            "title": "Daily Full Refresh",
+            "type": "boolean"
+          },
           "debug": {
             "title": "Debug",
             "type": "boolean"
@@ -1826,6 +1835,7 @@
           "max_attempts",
           "max_consecutive_failures",
           "auto_monitor_new",
+          "daily_full_refresh",
           "download_folder",
           "audiobook_folder",
           "folder_template",
@@ -1874,6 +1884,17 @@
               }
             ],
             "title": "Bitrate"
+          },
+          "daily_full_refresh": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Full Refresh"
           },
           "debug": {
             "anyOf": [
@@ -2219,6 +2240,10 @@
             ],
             "title": "Finished At"
           },
+          "full_refresh": {
+            "title": "Full Refresh",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -2249,9 +2274,23 @@
           "books_downloaded",
           "books_failed",
           "error",
-          "books_recorded"
+          "books_recorded",
+          "full_refresh"
         ],
         "title": "SyncRunOut",
+        "type": "object"
+      },
+      "SyncStart": {
+        "additionalProperties": false,
+        "description": "What `POST /api/sync` may be sent; the body itself is optional.",
+        "properties": {
+          "full": {
+            "default": false,
+            "title": "Full",
+            "type": "boolean"
+          }
+        },
+        "title": "SyncStart",
         "type": "object"
       },
       "SystemInfo": {
@@ -3899,7 +3938,25 @@
     },
     "/api/sync": {
       "post": {
+        "description": "Start a run now; with `{\"full\": true}` one that re-reads every library in full.",
         "operationId": "start_sync_api_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SyncStart"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {
@@ -3910,6 +3967,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "security": [

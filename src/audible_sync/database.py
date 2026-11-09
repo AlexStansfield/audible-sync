@@ -99,7 +99,11 @@ def init_db():
             error TEXT,
             -- 1 on runs that record their books in sync_run_books; 0 on runs from
             -- before there was that table, so "no books" and "not recorded" differ
-            books_recorded BOOLEAN NOT NULL DEFAULT 0
+            books_recorded BOOLEAN NOT NULL DEFAULT 0,
+            -- 1 on a run that read the account's whole library rather than what was
+            -- purchased since the last run: a full refresh, asked for or due, or the
+            -- account's first sync
+            full_refresh BOOLEAN NOT NULL DEFAULT 0
         )
     """)
     # One row per book a run took on and finished with: downloaded, failed, or refused
@@ -247,6 +251,10 @@ def _migrate_schema(conn):
     if "books_recorded" not in run_columns:
         # Every existing run predates the per-book records, hence the default 0
         cursor.execute("ALTER TABLE sync_runs ADD COLUMN books_recorded BOOLEAN NOT NULL DEFAULT 0")
+    if "full_refresh" not in run_columns:
+        # Not known for the runs before; none of them counts as one, so the first run
+        # after the upgrade is a full refresh while the daily one is on
+        cursor.execute("ALTER TABLE sync_runs ADD COLUMN full_refresh BOOLEAN NOT NULL DEFAULT 0")
 
     conn.commit()
 
@@ -1104,18 +1112,20 @@ def downloaded_file_paths(*, account_id: int | None = None) -> list[str]:
 _CURSOR_OUTCOMES = (SyncOutcome.SUCCESS, SyncOutcome.PARTIAL, SyncOutcome.CANCELLED, SyncOutcome.ABORTED)
 
 
-def start_sync_run(account_id: int | None = None) -> int:
+def start_sync_run(account_id: int | None = None, *, full_refresh: bool = False) -> int:
     """
     Open a run row for one account and return its id.
 
     Written before anything is fetched, so a run that is killed leaves a row that is
     still `running` with no `finished_at` - the record that tells a run which died half
-    way from one that completed and found nothing.
+    way from one that completed and found nothing. `full_refresh` is whether the run
+    sets out to read the whole library; `finish_sync_run` records whether it did.
     """
     with closing(_get_connection()) as conn:
         cursor = conn.execute(
-            "INSERT INTO sync_runs (account_id, started_at, outcome, books_recorded) VALUES (?, ?, ?, 1)",
-            (account_id, _utcnow(), SyncOutcome.RUNNING),
+            "INSERT INTO sync_runs (account_id, started_at, outcome, books_recorded, full_refresh) "
+            "VALUES (?, ?, ?, 1, ?)",
+            (account_id, _utcnow(), SyncOutcome.RUNNING, full_refresh),
         )
         conn.commit()
         return cursor.lastrowid
@@ -1130,6 +1140,7 @@ def finish_sync_run(
     books_downloaded: int = 0,
     books_failed: int = 0,
     error: str | None = None,
+    full_refresh: bool | None = None,
 ) -> None:
     """
     Close a run row with its outcome and counters.
@@ -1143,6 +1154,8 @@ def finish_sync_run(
         books_downloaded: Books downloaded, decrypted and filed
         books_failed: Books that were tried and did not finish
         error: The exception that stopped the run, if one did
+        full_refresh: Whether the run read the whole library; None leaves what
+            `start_sync_run` recorded, which is what a run that failed before reading says
     """
     with closing(_get_connection()) as conn:
         conn.execute(
@@ -1154,10 +1167,11 @@ def finish_sync_run(
                 books_added = ?,
                 books_downloaded = ?,
                 books_failed = ?,
-                error = ?
+                error = ?,
+                full_refresh = COALESCE(?, full_refresh)
             WHERE id = ?
             """,
-            (_utcnow(), outcome, books_seen, books_added, books_downloaded, books_failed, error, run_id),
+            (_utcnow(), outcome, books_seen, books_added, books_downloaded, books_failed, error, full_refresh, run_id),
         )
         conn.commit()
 
@@ -1186,6 +1200,27 @@ def latest_successful_sync_start(account_id: int | None = None) -> str | None:
             SELECT MAX(started_at) FROM sync_runs
              WHERE outcome IN ({placeholders})
                AND account_id IS ?
+            """,
+            (*_CURSOR_OUTCOMES, account_id),
+        ).fetchone()[0]
+
+
+def latest_full_refresh_start(account_id: int) -> str | None:
+    """
+    When one account's last full refresh that read the library through started, or None.
+
+    What the daily full refresh is due from. Kept per account, so an account added later
+    or one whose refresh failed is not skipped because another's ran; a run that failed
+    before reading does not count, and one asked for by hand does, like any other.
+    """
+    placeholders = ", ".join("?" for _ in _CURSOR_OUTCOMES)
+    with closing(_get_connection()) as conn:
+        return conn.execute(
+            f"""
+            SELECT MAX(started_at) FROM sync_runs
+             WHERE outcome IN ({placeholders})
+               AND account_id = ?
+               AND full_refresh = 1
             """,
             (*_CURSOR_OUTCOMES, account_id),
         ).fetchone()[0]

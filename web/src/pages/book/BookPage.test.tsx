@@ -40,6 +40,7 @@ function running(bookId: number): Status {
       stage: "downloading",
       account: null,
       book: { id: bookId, asin: "B0", title: "One Word Kill" },
+      full_refresh: false,
       books_done: 2,
       books_total: 10,
       transfer: { desc: "One Word Kill", bytes: 243e6, total: 405e6 },

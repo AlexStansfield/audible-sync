@@ -9,6 +9,7 @@ const LIVE = {
   stage: "downloading" as const,
   account: null,
   book: { id: 7, asin: "B0", title: "Red Rising" },
+  full_refresh: false,
   books_done: 2,
   books_total: 10,
   transfer: null,

@@ -41,7 +41,9 @@ def test_main_reads_settings_before_configuring_logging(monkeypatch):
     monkeypatch.setattr(main_module, "encrypt_stored_secrets", lambda: order.append("encrypt"))
     monkeypatch.setattr(main_module, "backfill_customer_ids", lambda: order.append("customers"))
     monkeypatch.setattr(main_module, "count_unreadable_secrets", lambda: order.append("check key") or 0)
-    monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s, progress)))
+    monkeypatch.setattr(
+        main_module, "run_pipeline", lambda s, progress=None, full=False: order.append(("pipeline", s, progress))
+    )
 
     main([])
 
@@ -99,12 +101,27 @@ def test_a_command_says_nothing_when_the_key_reads_the_stored_secrets(monkeypatc
 def test_run_is_the_default_command(monkeypatch):
     order = []
     settings = _patch_prepare(monkeypatch, order)
-    monkeypatch.setattr(main_module, "run_pipeline", lambda s, progress=None: order.append(("pipeline", s)))
+    monkeypatch.setattr(
+        main_module, "run_pipeline", lambda s, progress=None, full=False: order.append(("pipeline", s, full))
+    )
 
     main(["run"])
     main([])
 
-    assert order.count(("pipeline", settings)) == 2
+    assert order.count(("pipeline", settings, False)) == 2
+
+
+@pytest.mark.parametrize("argv", [["--full"], ["run", "--full"], ["--full", "run"]])
+def test_full_asks_the_run_for_a_full_refresh(monkeypatch, argv):
+    order = []
+    settings = _patch_prepare(monkeypatch, order)
+    monkeypatch.setattr(
+        main_module, "run_pipeline", lambda s, progress=None, full=False: order.append(("pipeline", s, full))
+    )
+
+    main(argv)
+
+    assert ("pipeline", settings, True) in order
 
 
 def test_login_command_adds_an_account_from_a_code_login(monkeypatch, capsys):

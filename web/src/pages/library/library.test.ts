@@ -211,6 +211,7 @@ describe("the book a run is downloading", () => {
     stage: "downloading" as const,
     account: null,
     book: { id: 7, asin: "B0", title: "Dune" },
+    full_refresh: false,
     books_done: 0,
     books_total: 10,
     transfer,
