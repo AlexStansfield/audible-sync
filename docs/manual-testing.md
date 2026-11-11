@@ -77,8 +77,8 @@ A quick local version with no Audible access is a scratch database with an accou
 
 The installable web app. A browser registers the service worker only over https or at `localhost`, so check it at `http://localhost:8080` or behind an https proxy; at a LAN address over plain http nothing is registered and the app is an ordinary page.
 
-- [ ] In the browser's developer tools (Application): the manifest has its name, both icons and the maskable one, and no errors; the service worker is activated with its scope the app's root (`/` or `/audible-sync/`); the cache `audible-sync-<version>` holds `index.html` (as the app's root), the script, the style sheet, the manifest and the icons, and nothing under `api/`
+- [x] In the browser's developer tools (Application): the manifest has its name, both icons and the maskable one, and no errors; the service worker is activated with its scope the app's root (`/` or `/audible-sync/`); the cache `audible-sync-<version>` holds `index.html` (as the app's root), the script, the style sheet, the manifest and the icons, and nothing under `api/` (checked 2026-11-11 in Chrome at `localhost`, at the root and under `/audible-sync`)
 - [ ] Install it: Chrome on a computer (Install app), Android Chrome and iPhone Safari (Add to Home Screen), at the root and under `AUDIBLE_SYNC_BASE_PATH`, both over https. It opens in a window of its own with the amber icon, at the Dashboard, the title bar in the theme's colour
 - [ ] Stop the service and open the installed app: it opens on Cannot reach Audible Sync, and comes back on its own when the service is started again
 - [ ] Deploy a new build with the app open: within the hour, or on coming back to the window, it says Update available; the open page stays on its build until Reload, which moves it to the new one; Dismiss puts the notice away. With another window of the app open, that one is not reloaded under you
-- [ ] `/docs` and `/redoc` still open the service's own pages, not the web app's Page not found
+- [x] `/docs` and `/redoc` still open the service's own pages, not the web app's Page not found
