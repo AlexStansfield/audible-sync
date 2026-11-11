@@ -1,11 +1,12 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
+import { serviceWorker } from "./src/pwa/serviceWorker.ts";
 
 // The service writes <base href="{base path}/"> into index.html when it serves it, so
 // the build uses relative URLs and one build works at the root or under any path
 export default defineConfig({
   base: "./",
-  plugins: [react()],
+  plugins: [react(), serviceWorker()],
   server: {
     // Same origin in development too, so the session cookie works as in production
     proxy: {

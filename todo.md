@@ -246,10 +246,10 @@ The web app can be installed on a phone or a desktop, opening in its own window,
 
 ### Tasks
 
-- [ ] Web: PWA - a web app manifest (name, short name, `display: standalone`, the theme's colours, icons at 192 and 512 px with a maskable one, an `apple-touch-icon`), its `start_url` and `scope` relative, so one build installs at the root and under `AUDIBLE_SYNC_BASE_PATH`
-- [ ] Web: PWA - a service worker that caches the app shell (`index.html` and the build's hashed `assets/`) and never anything under `api/`. A new build is offered as "Update available" rather than swapped under an open page; with the service down the shell still loads and shows Cannot reach Audible Sync
-- [ ] Backend: PWA - serve the manifest and the service worker with the right content type and `no-cache` (only `assets/` is `immutable`), at the root and under a base path
-- [ ] Docs: in the installation guide, that a browser offers Install only over https or on `localhost`, so a plain http address on a LAN stays an ordinary page; CLAUDE.md
+- [x] Web: PWA - a web app manifest (name, short name, `display: standalone`, the theme's colours, icons at 192 and 512 px with a maskable one, an `apple-touch-icon`), its `start_url` and `scope` relative, so one build installs at the root and under `AUDIBLE_SYNC_BASE_PATH`
+- [x] Web: PWA - a service worker that caches the app shell (`index.html` and the build's hashed `assets/`) and never anything under `api/`. A new build is offered as "Update available" rather than swapped under an open page; with the service down the shell still loads and shows Cannot reach Audible Sync
+- [x] Backend: PWA - serve the manifest and the service worker with the right content type and `no-cache` (only `assets/` is `immutable`), at the root and under a base path
+- [x] Docs: in the installation guide, that a browser offers Install only over https or on `localhost`, so a plain http address on a LAN stays an ordinary page; CLAUDE.md
 - [ ] Checked live: the app installed on a phone over https, at the root and under a base path, and updated by a new build; with the service stopped it opens on Cannot reach Audible Sync
 
 ## v3.4.0: Wishlist and catalogue search

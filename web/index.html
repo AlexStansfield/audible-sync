@@ -8,10 +8,15 @@
     <meta name="color-scheme" content="dark light" />
     <title>Audible Sync</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Audible Sync" />
+    <!-- The colour of an installed app's title bar; the script below sets it to the theme's -->
+    <meta name="theme-color" content="#12141a" />
     <script>
       // The theme before the first paint, so a light-theme browser never flashes dark.
       // Mirrors src/lib/theme.ts: "light" | "dark" stored under this key, anything else
-      // (nothing stored) follows the system
+      // (nothing stored) follows the system; the title bar takes THEME_COLOR's colour
       (() => {
         let choice = null;
         try {
@@ -20,6 +25,7 @@
         const dark =
           choice === "dark" || (choice !== "light" && !matchMedia("(prefers-color-scheme: light)").matches);
         document.documentElement.dataset.theme = dark ? "dark" : "light";
+        document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#12141a" : "#ffffff");
       })();
     </script>
   </head>

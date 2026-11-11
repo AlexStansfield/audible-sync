@@ -1783,6 +1783,8 @@ def web(db, tmp_path):
     (dist / "index.html").write_text("<!doctype html><title>Audible Sync</title>")
     (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
     (dist / "favicon.svg").write_text("<svg/>")
+    (dist / "manifest.webmanifest").write_text('{"name": "Audible Sync"}')
+    (dist / "sw.js").write_text("const BUILD = {};")
     (tmp_path / "secret.txt").write_text("outside")
     app = create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), web_dir=dist)
     return TestClient(app)
@@ -1810,6 +1812,19 @@ def test_a_file_outside_assets_is_served_without_the_long_cache(web):
 
     assert response.text == "<svg/>"
     assert "immutable" not in response.headers.get("cache-control", "")
+
+
+@pytest.mark.parametrize(
+    ("path", "media_type"),
+    [("/manifest.webmanifest", "application/manifest+json"), ("/sw.js", "text/javascript")],
+)
+def test_the_manifest_and_service_worker_are_checked_on_every_load(web, path, media_type):
+    # A changed sw.js is how an installed app finds a new build, so no cache may hide it
+    response = web.get(path)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].split(";")[0] == media_type
+    assert response.headers["cache-control"] == "no-cache"
 
 
 def test_a_missing_asset_is_a_404_not_the_page(web):
@@ -2127,6 +2142,8 @@ def prefixed(db, tmp_path):
     # Spelled as Vite writes it out of web/index.html
     (dist / "index.html").write_text('<!doctype html><head><base href="/" /></head><title>Audible Sync</title>')
     (dist / "assets" / "app-1a2b.js").write_text("console.log('app')")
+    (dist / "manifest.webmanifest").write_text('{"start_url": "./"}')
+    (dist / "sw.js").write_text("const BUILD = {};")
     app = create_app(
         scheduler=FakeScheduler(),
         state=RunState(),
@@ -2153,6 +2170,16 @@ def test_the_page_tells_the_web_app_its_base(prefixed, prefix, page):
     assert '<base href="/audible-sync/">' in response.text
     assert '<base href="/"' not in response.text
     assert response.headers["cache-control"] == "no-cache"
+
+
+@pytest.mark.parametrize("prefix", [BASE, ""], ids=["passed through", "stripped"])
+@pytest.mark.parametrize("path", ["/manifest.webmanifest", "/sw.js"])
+def test_the_manifest_and_service_worker_are_served_under_the_base(prefixed, prefix, path):
+    response = prefixed.get(f"{prefix}{path}")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert "<base" not in response.text
 
 
 @pytest.mark.parametrize("prefix", [BASE, ""], ids=["passed through", "stripped"])
@@ -2265,6 +2292,14 @@ def test_every_page_of_the_web_app_is_a_reserved_base_path():
 
     assert pages >= {"login", "library", "profile"}
     assert pages <= web_module._RESERVED_SEGMENTS
+
+
+def test_every_file_the_build_serves_at_its_top_is_a_reserved_base_path():
+    # web/public is copied to the top of the build beside index.html and assets/
+    public = {entry.name for entry in (REPO_ROOT / "web" / "public").iterdir()}
+
+    assert public >= {"favicon.svg", "manifest.webmanifest", "icons"}
+    assert public | {"sw.js"} <= web_module._RESERVED_SEGMENTS
 
 
 def test_a_symlinked_index_html_still_gets_its_base(db, tmp_path):

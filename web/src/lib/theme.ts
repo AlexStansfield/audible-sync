@@ -9,6 +9,9 @@ export const THEME_KEY = "audible-sync.theme";
 export type ThemeChoice = "system" | "light" | "dark";
 export type Theme = "light" | "dark";
 
+/** The title bar of an installed app: the sidebar's colour (`--nav` in theme.css). */
+export const THEME_COLOR: Record<Theme, string> = { dark: "#12141a", light: "#ffffff" };
+
 export function readThemeChoice(storage: Pick<Storage, "getItem"> | null = safeStorage()): ThemeChoice {
   const stored = storage?.getItem(THEME_KEY);
   return stored === "light" || stored === "dark" ? stored : "system";
@@ -33,6 +36,7 @@ export function applyThemeChoice(choice: ThemeChoice, storage: Storage | null = 
   }
   const theme = resolveTheme(choice, systemPrefersLight());
   document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[theme]);
   return theme;
 }
 

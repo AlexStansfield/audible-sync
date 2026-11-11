@@ -28,7 +28,8 @@ export function useToast(): Toaster {
   return toaster;
 }
 
-export function ToastProvider({ children }: { children: ReactNode }) {
+/** `pinned` stays below the toasts, for a notice of its own such as Update available. */
+export function ToastProvider({ children, pinned }: { children: ReactNode; pinned?: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const next = useRef(1);
 
@@ -58,6 +59,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         {toasts.map((toast) => (
           <ToastItem key={toast.id} toast={toast} dismiss={dismiss} />
         ))}
+        {pinned}
       </section>
     </ToastContext.Provider>
   );

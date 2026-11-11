@@ -72,3 +72,13 @@ A quick local version with no Audible access is a scratch database with an accou
 - [x] After the first full refresh every book with a summary on Audible shows it on its Book page, folded with Show more when long, at desktop and 390px and in both themes
 - [x] A new download carries the description: `ffprobe -show_format` shows `description` in the M4B, and with `format = oga` `SYNOPSIS` among the stream tags beside `comment=ASIN: ...`; the ASIN is still read back from the file (`library.audio_path_for` finds it)
 - [x] A download taking longer than a few minutes renews its claim (`claim_renewed_at` moves every five minutes while `last_attempt_at` stays), and with `STALE_CLAIM_SECONDS` made short a second process does not take the book (checked 2026-11-09)
+
+## Since v3.2.0
+
+The installable web app. A browser registers the service worker only over https or at `localhost`, so check it at `http://localhost:8080` or behind an https proxy; at a LAN address over plain http nothing is registered and the app is an ordinary page.
+
+- [x] In the browser's developer tools (Application): the manifest has its name, both icons and the maskable one, and no errors; the service worker is activated with its scope the app's root (`/` or `/audible-sync/`); the cache `audible-sync-<version>` holds `index.html` (as the app's root), the script, the style sheet, the manifest and the icons, and nothing under `api/` (checked 2026-11-11 in Chrome at `localhost`, at the root and under `/audible-sync`)
+- [ ] Install it: Chrome on a computer (Install app), Android Chrome and iPhone Safari (Add to Home Screen), at the root and under `AUDIBLE_SYNC_BASE_PATH`, both over https. It opens in a window of its own with the amber icon, at the Dashboard, the title bar in the theme's colour
+- [ ] Stop the service and open the installed app: it opens on Cannot reach Audible Sync, and comes back on its own when the service is started again
+- [ ] Deploy a new build with the app open: within the hour, or on coming back to the window, it says Update available; the open page stays on its build until Reload, which moves it to the new one; Dismiss puts the notice away. With another window of the app open, that one is not reloaded under you
+- [x] `/docs` and `/redoc` still open the service's own pages, not the web app's Page not found
