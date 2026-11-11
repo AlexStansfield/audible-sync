@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { positiveId } from "./ids";
 import { loginPath, safeNext } from "./next";
 import { passwordStrength } from "./password";
-import { applyThemeChoice, readThemeChoice, resolveTheme, THEME_KEY } from "./theme";
+import { applyThemeChoice, readThemeChoice, resolveTheme, THEME_COLOR, THEME_KEY } from "./theme";
 
 describe("safeNext", () => {
   it.each([
@@ -69,6 +69,20 @@ describe("theme", () => {
     expect(applyThemeChoice("system")).toBe("dark");
     expect(localStorage.getItem(THEME_KEY)).toBeNull();
     expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("gives an installed app's title bar the theme's colour", () => {
+    const meta = document.createElement("meta");
+    meta.name = "theme-color";
+    document.head.append(meta);
+    try {
+      applyThemeChoice("light");
+      expect(meta.content).toBe(THEME_COLOR.light);
+      applyThemeChoice("dark");
+      expect(meta.content).toBe(THEME_COLOR.dark);
+    } finally {
+      meta.remove();
+    }
   });
 });
 

@@ -118,9 +118,17 @@ audible-sync [--full]
 
 To add an account from here, see [Accounts](accounts.md#from-the-command-line). The service's environment variables are in [Configuration](configuration.md#environment-variables).
 
+## Installing the web app
+
+The web app can be installed on a phone or a computer, so it opens in a window of its own with its own icon: **Add to Home Screen** in Safari's share menu on an iPhone, **Install app** in Chrome's or Edge's menu. With the service down, an installed app still opens and says Cannot reach Audible Sync.
+
+A browser offers this only over **https**, or at `http://localhost`. At a plain http address on a LAN, such as `http://192.168.1.10:8080`, the web app works as an ordinary page and nothing is installed. To install it, serve it over https from a reverse proxy, at the root of a domain or under a path (below), with `AUDIBLE_SYNC_SECURE_COOKIE=true`.
+
+An installed app keeps the build it opened with. After an upgrade it says **Update available**, and **Reload** moves it to the new one. Closing every window of it does too. The service's state, your library and the settings are never kept on the device: they are read from the service every time.
+
 ## Behind a reverse proxy, under a path
 
-To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`. The path cannot start with one of the app's own (`/api`, `/assets`, `/docs`, `/library`, `/settings` and the other pages); the service refuses to start with one.
+To serve the app at `https://my.domain/audible-sync/` rather than at the root of a domain, set `AUDIBLE_SYNC_BASE_PATH=/audible-sync` and `AUDIBLE_SYNC_SECURE_COOKIE=true` (the proxy serves https; the service only sees http). The proxy may strip the prefix or pass it on; the service accepts either. The web app is the same build either way: the service tells it the path when it serves the page, and scopes the sign-in cookie to it. `/docs` is then at `/audible-sync/docs`. The path cannot start with one of the app's own (`/api`, `/assets`, `/docs`, `/library`, `/settings` and the other pages, or a file such as `/sw.js`); the service refuses to start with one. Installed under a path, the web app is a separate app from one at the root of the same domain.
 
 nginx, stripping the prefix (the trailing `/` on both lines matters):
 

@@ -44,6 +44,11 @@
   color: var(--ok);
 }
 
+.markInfo {
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+}
+
 .markBad {
   background: color-mix(in srgb, var(--bad) 14%, transparent);
   color: var(--bad);

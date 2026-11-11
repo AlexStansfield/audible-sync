@@ -6,12 +6,19 @@ import { makeQueryClient } from "./api/queryClient";
 import { App } from "./app/App";
 import { basenameFrom, routes } from "./app/routes";
 import { ToastProvider } from "./components/Toasts";
+import { UpdateNotice } from "./pwa/UpdateNotice";
+import { startUpdates } from "./pwa/updates";
 import "./styles/fonts";
 import "./styles/theme.css";
 import "./styles/controls.css";
 
 const queryClient = makeQueryClient();
 const router = createBrowserRouter(routes, { basename: basenameFrom(document.baseURI) });
+
+// Not in development, where Vite serves files that change on every save
+if (import.meta.env.PROD) {
+  startUpdates();
+}
 
 const root = document.getElementById("root");
 if (!root) {
@@ -21,7 +28,7 @@ if (!root) {
 createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
+      <ToastProvider pinned={<UpdateNotice />}>
         <App router={router} />
       </ToastProvider>
     </QueryClientProvider>

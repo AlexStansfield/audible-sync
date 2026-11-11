@@ -24,6 +24,7 @@ _BASE_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
 # `/api` cannot be told from one that kept it, so such a base is refused
 _RESERVED_SEGMENTS = frozenset(
     {"api", "assets", "docs", "redoc", "openapi.json", "index.html", "favicon.svg"}
+    | {"manifest.webmanifest", "sw.js", "icons"}
     | {"login", "library", "accounts", "activity", "settings", "profile"}
 )
 
@@ -84,8 +85,13 @@ class BasePath:
 
 # Vite names everything under assets/ after its content, so a file there never changes
 _IMMUTABLE = {"Cache-Control": "public, max-age=31536000, immutable"}
-# index.html names the current assets, so it is checked on every load, however it is asked for
+# Everything else keeps its name from build to build, so it is checked on every load:
+# index.html names the current assets, and a changed sw.js is how an installed app
+# learns of a new build
 _REVALIDATE = {"Cache-Control": "no-cache"}
+# Named here rather than guessed from the platform's table, which varies by host and
+# may not know a manifest
+_MEDIA_TYPES = {".webmanifest": "application/manifest+json", ".js": "text/javascript"}
 _ALL_METHODS = ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 
 
@@ -149,8 +155,8 @@ def serve_web_app(app: FastAPI, web_dir: Path, base_path: str = "") -> None:
                 # resolve() follows a symlinked index.html, so compare it resolved too
                 if candidate == index.resolve():
                     return index_page()
-                headers = _IMMUTABLE if candidate.is_relative_to(root / "assets") else None
-                return FileResponse(candidate, headers=headers)
+                headers = _IMMUTABLE if candidate.is_relative_to(root / "assets") else _REVALIDATE
+                return FileResponse(candidate, headers=headers, media_type=_MEDIA_TYPES.get(candidate.suffix))
             if path.startswith("assets/"):
                 raise HTTPException(status_code=404, detail="Not Found")
         return index_page()
