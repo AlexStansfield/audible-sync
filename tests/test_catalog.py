@@ -2,8 +2,8 @@ import pytest
 
 import audible_sync.database as database
 from audible_sync import catalog as catalog_module
-from audible_sync.catalog import AccountNeedsLogin, Catalog, NoAccount, TTLCache, holdings
-from audible_sync.model import CatalogBook
+from audible_sync.catalog import AccountNeedsLogin, Catalog, NoAccount, TTLCache, marks
+from audible_sync.model import CatalogBook, WishlistItem
 from tests.conftest import make_book
 
 
@@ -188,24 +188,32 @@ def test_a_series_is_found_through_its_books(account):
     assert fake.calls[0][1]["author"] == "John Scalzi"
 
 
-# --- holdings ---------------------------------------------------------------------------
+# --- marks ----------------------------------------------------------------------------------
 
 
-def test_holdings_count_every_library_of_the_marketplace(account):
+def test_marks_list_every_copy_and_wishlist_of_the_marketplace(account):
     other = database.add_account("Alex too (UK)", "UK", auth={"locale_code": "uk"})
     us = database.add_account("Alex (US)", "us", auth={"locale_code": "us"})
     database.update_books(account.id, [make_book("B000000001", id=None, account_id=None)])
-    database.update_books(other, [make_book("B000000002", id=None, account_id=None)])
+    database.update_books(other, [make_book("B000000001", id=None, account_id=None)])
     database.update_books(us, [make_book("B000000003", id=None, account_id=None)])
+    database.replace_wishlist(other, [WishlistItem(account_id=other, book=CatalogBook(asin="B000000002", title=""))])
+    database.replace_wishlist(us, [WishlistItem(account_id=us, book=CatalogBook(asin="B000000002", title=""))])
 
-    held = holdings(account, [CatalogBook(asin=asin, title="") for asin in ("B000000001", "B000000002", "B000000003")])
+    found = marks("uk", ["B000000001", "B000000002", "B000000003"])
 
-    assert set(held) == {"B000000001", "B000000002"}
-    assert held["B000000001"] == database.get_book_by_asin("B000000001").id
+    first = database.get_book_by_asin("B000000001", account_id=account.id)
+    assert [(copy.account_id, copy.book_id, copy.status) for copy in found["B000000001"].library] == [
+        (account.id, first.id, "waiting_download"),
+        (other, database.get_book_by_asin("B000000001", account_id=other).id, "waiting_download"),
+    ]
+    # Another marketplace's library and wishlist do not count
+    assert found["B000000002"].on_wishlist == [other]
+    assert found["B000000003"].library == []
 
 
-def test_no_books_hold_nothing(account):
-    assert holdings(account, []) == {}
+def test_no_books_have_no_marks(account):
+    assert marks("uk", []) == {}
 
 
 def test_the_module_caches_for_minutes():

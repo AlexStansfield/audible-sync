@@ -3,7 +3,7 @@ import logging
 import audible
 
 from audible_sync.audible_api import products
-from audible_sync.model import Book, CatalogBook, CatalogSeries, SeriesBook, sort_series
+from audible_sync.model import Book, CatalogBook, CatalogSeries, SeriesBook, WishlistItem, sort_series
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +254,47 @@ class Audible:
     def get_categories(self) -> list[dict]:
         """The catalogue's categories, two levels deep, as {id, name, children}."""
         return products.categories(self.client.get("catalog/categories"))
+
+    # The wishlist: one per marketplace login
+
+    def get_wishlist(self, account_id: int) -> list[WishlistItem]:
+        """
+        Every book on the wishlist, newest first, in fifties (Audible's limit), with the
+        time each was added. Like the catalogue, it counts its pages from 0.
+        """
+        items: list[WishlistItem] = []
+        page = 0
+        while True:
+            answer = self.client.get(
+                "wishlist",
+                params={
+                    "num_results": products.MAX_PAGE_SIZE,
+                    "page": page,
+                    "sort_by": "-DateAdded",
+                    "response_groups": products.SEARCH_RESPONSE_GROUPS,
+                    "image_sizes": products.IMAGE_SIZES,
+                },
+            )
+            page_products = answer.get("products") or []
+            added = {product.get("asin"): product.get("added_timestamp") for product in page_products}
+            items.extend(
+                WishlistItem(account_id=account_id, book=book, added_at=added.get(book.asin))
+                for book in products.to_catalog_books(page_products)
+            )
+            if len(page_products) < products.MAX_PAGE_SIZE:
+                return items
+            page += 1
+
+    def add_to_wishlist(self, asin: str) -> None:
+        """
+        Put a book on the wishlist. Audible answers the same whether it was already
+        there or not (checked 2026-11-06), so the caller says which from its own table.
+        """
+        self.client.post("wishlist", body={"asin": asin})
+
+    def remove_from_wishlist(self, asin: str) -> None:
+        """Take a book off the wishlist; as silent as adding when it was not there."""
+        self.client.delete(f"wishlist/{asin}")
 
     def search_authors(self, name: str) -> list[dict[str, str | None]]:
         """

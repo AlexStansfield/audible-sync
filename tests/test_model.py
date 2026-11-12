@@ -2,7 +2,18 @@ import sqlite3
 
 import pytest
 
-from audible_sync.model import Account, Book, BookStatus, fold_text, sort_series
+from audible_sync.model import (
+    Account,
+    Book,
+    BookStatus,
+    CatalogAuthor,
+    CatalogBook,
+    CatalogPrice,
+    catalog_book_from_json,
+    catalog_book_to_json,
+    fold_text,
+    sort_series,
+)
 from tests.conftest import make_book
 
 ALL_COLUMNS = (
@@ -317,3 +328,25 @@ def test_an_account_is_runnable_when_enabled_with_credentials(enabled, auth, run
 )
 def test_fold_text_ignores_case_quotes_and_spacing(text, expected):
     assert fold_text(text) == expected
+
+
+def test_a_catalogue_book_survives_json():
+    book = CatalogBook(
+        asin="B06XNYQJTX",
+        title="Old Man's War",
+        authors=[CatalogAuthor(name="John Scalzi", asin="B001IGJOCA")],
+        series=[{"title": "Old Man's War", "sequence": "1", "series_asin": "B00HNXRO2O"}],
+        price=CatalogPrice(currency="GBP", list_price=8.61, member_price=6.49, credits=1.0),
+        plus=True,
+        multipart=True,
+    )
+
+    assert catalog_book_from_json(catalog_book_to_json(book)) == book
+
+
+def test_a_catalogue_book_from_another_version_still_reads():
+    text = '{"asin": "B1", "title": "T", "authors": [{"name": "A", "asin": null}], "colour": "red"}'
+
+    book = catalog_book_from_json(text)
+
+    assert (book.asin, book.authors[0].name, book.price, book.multipart) == ("B1", "A", None, False)

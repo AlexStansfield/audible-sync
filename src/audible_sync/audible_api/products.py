@@ -208,6 +208,7 @@ def to_catalog_book(product: dict) -> CatalogBook:
         rating_count=rating_count,
         price=_price(product),
         plus=any(plan.get("plan_name") in PLUS_PLANS for plan in product.get("plans") or []),
+        multipart=product.get("content_delivery_type") == "MultiPartBook",
         description=product.get("publisher_summary") or None,
     )
 

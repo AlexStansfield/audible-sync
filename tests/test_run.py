@@ -71,6 +71,11 @@ def _patch_pipeline(monkeypatch, calls, *, synced=_SYNCED, stats=_STATS, account
         run_module, "persist_auth_if_changed", lambda account, auth: calls.setdefault("persisted", []).append(auth)
     )
     monkeypatch.setattr(run_module, "mark_account_synced", lambda account_id: calls.__setitem__("marked", account_id))
+    monkeypatch.setattr(
+        run_module,
+        "read_wishlist",
+        lambda client, account: calls.setdefault("wishlists", []).append((client, account.id)) or True,
+    )
     monkeypatch.setattr(run_module, "init_db", lambda: calls.__setitem__("init_db", True))
     monkeypatch.setattr(run_module, "sync_library", fake_sync)
     monkeypatch.setattr(run_module, "download_books", fake_download)
@@ -570,3 +575,30 @@ def test_a_run_failing_before_the_read_leaves_what_it_set_out_to_do(tmp_path, mo
     _, recorded = calls["finished"]
     assert recorded["outcome"] is SyncOutcome.FAILED
     assert recorded["full_refresh"] is None
+
+
+def test_a_run_reads_the_wishlist_after_the_library_and_before_the_downloads(monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls)
+    order = []
+    original_download = run_module.download_books
+    monkeypatch.setattr(run_module, "read_wishlist", lambda client, account: order.append("wishlist") or True)
+    monkeypatch.setattr(
+        run_module,
+        "download_books",
+        lambda *args, **kwargs: order.append("download") or original_download(*args, **kwargs),
+    )
+
+    run_pipeline(make_settings())
+
+    assert order == ["wishlist", "download"]
+
+
+def test_a_run_whose_sync_fails_reads_no_wishlist(monkeypatch):
+    calls = {}
+    _patch_pipeline(monkeypatch, calls, synced=RuntimeError("sync broke"))
+
+    with pytest.raises(RuntimeError):
+        run_pipeline(make_settings())
+
+    assert "wishlists" not in calls

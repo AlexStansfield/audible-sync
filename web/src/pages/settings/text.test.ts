@@ -31,6 +31,7 @@ describe("Settings' wording", () => {
       accounts: [],
       books: counts({ downloaded: 4 }),
       bytes_on_disk: 1.64e9,
+      wishlist: 0,
       last_run: null,
       next_run_at: null,
     };

@@ -2,7 +2,7 @@ import json
 import math
 import re
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, NamedTuple
 
@@ -559,6 +559,8 @@ class CatalogBook:
     price: CatalogPrice | None = None
     # Included in the membership's Plus catalogue, from the title's `plans`
     plus: bool = False
+    # Delivered in parts (`MultiPartBook`): an edition of a title whose name does not say so
+    multipart: bool = False
     # HTML as Audible gives it; only a single book's answer carries it
     description: str | None = None
 
@@ -573,6 +575,35 @@ class CatalogBook:
     @property
     def description_html(self) -> str:
         return safe_html(self.description)
+
+
+def catalog_book_to_json(book: CatalogBook) -> str:
+    """A catalogue book as JSON, for the wishlist table; `catalog_book_from_json` reverses it."""
+    return json.dumps(asdict(book))
+
+
+def catalog_book_from_json(text: str) -> CatalogBook:
+    """
+    A catalogue book from `catalog_book_to_json`'s JSON. A key this build does not know
+    is dropped and a missing one takes its default, so a row written by another version
+    still reads.
+    """
+    data = json.loads(text)
+    known = set(CatalogBook.__dataclass_fields__)
+    data = {key: value for key, value in data.items() if key in known}
+    data["authors"] = [CatalogAuthor(**author) for author in data.get("authors") or []]
+    if data.get("price"):
+        data["price"] = CatalogPrice(**data["price"])
+    return CatalogBook(**data)
+
+
+@dataclass
+class WishlistItem:
+    """A book on one account's wishlist, and when it was put there (as Audible says, in UTC)."""
+
+    account_id: int
+    book: CatalogBook
+    added_at: str | None = None
 
 
 @dataclass

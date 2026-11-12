@@ -97,11 +97,16 @@
                 "type": "null"
               }
             ]
+          },
+          "wishlist": {
+            "title": "Wishlist",
+            "type": "integer"
           }
         },
         "required": [
           "account",
           "books",
+          "wishlist",
           "bytes_on_disk",
           "last_run"
         ],
@@ -1148,6 +1153,14 @@
             ],
             "title": "Length Seconds"
           },
+          "library": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LibraryCopyOut"
+            },
+            "title": "Library",
+            "type": "array"
+          },
           "library_book_id": {
             "anyOf": [
               {
@@ -1159,11 +1172,23 @@
             ],
             "title": "Library Book Id"
           },
+          "multipart": {
+            "title": "Multipart",
+            "type": "boolean"
+          },
           "narrators": {
             "items": {
               "type": "string"
             },
             "title": "Narrators",
+            "type": "array"
+          },
+          "on_wishlist": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "On Wishlist",
             "type": "array"
           },
           "plus": {
@@ -1262,6 +1287,7 @@
           "rating_count",
           "price",
           "plus",
+          "multipart",
           "description",
           "description_html"
         ],
@@ -1338,6 +1364,14 @@
             ],
             "title": "Length Seconds"
           },
+          "library": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LibraryCopyOut"
+            },
+            "title": "Library",
+            "type": "array"
+          },
           "library_book_id": {
             "anyOf": [
               {
@@ -1349,11 +1383,23 @@
             ],
             "title": "Library Book Id"
           },
+          "multipart": {
+            "title": "Multipart",
+            "type": "boolean"
+          },
           "narrators": {
             "items": {
               "type": "string"
             },
             "title": "Narrators",
+            "type": "array"
+          },
+          "on_wishlist": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "On Wishlist",
             "type": "array"
           },
           "plus": {
@@ -1451,7 +1497,8 @@
           "rating",
           "rating_count",
           "price",
-          "plus"
+          "plus",
+          "multipart"
         ],
         "title": "CatalogBookOut",
         "type": "object"
@@ -1669,6 +1716,36 @@
           "version"
         ],
         "title": "Health",
+        "type": "object"
+      },
+      "LibraryCopyOut": {
+        "description": "A library's copy of a catalogue book: whose, its id there, and where it is in the pipeline.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "book_id": {
+            "title": "Book Id",
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BookStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "account_id",
+          "book_id",
+          "status"
+        ],
+        "title": "LibraryCopyOut",
         "type": "object"
       },
       "LogEntry": {
@@ -2785,11 +2862,16 @@
               }
             ],
             "title": "Next Run At"
+          },
+          "wishlist": {
+            "title": "Wishlist",
+            "type": "integer"
           }
         },
         "required": [
           "accounts",
           "books",
+          "wishlist",
           "bytes_on_disk",
           "last_run",
           "next_run_at"
@@ -3155,6 +3237,365 @@
           }
         },
         "title": "WebhookTest",
+        "type": "object"
+      },
+      "WishlistAccountOut": {
+        "description": "Where one account's wishlist stands: when it was last read, and a read that failed since.",
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "error_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error At"
+          },
+          "needs_login": {
+            "title": "Needs Login",
+            "type": "boolean"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          }
+        },
+        "required": [
+          "account_id",
+          "read_at",
+          "error",
+          "error_at",
+          "needs_login"
+        ],
+        "title": "WishlistAccountOut",
+        "type": "object"
+      },
+      "WishlistAdd": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "asin": {
+            "pattern": "^[A-Za-z0-9]{10}$",
+            "title": "Asin",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "asin"
+        ],
+        "title": "WishlistAdd",
+        "type": "object"
+      },
+      "WishlistItemOut": {
+        "description": "A book on one account's wishlist: a catalogue book, the account and when it was added.",
+        "properties": {
+          "abridged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abridged"
+          },
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "added_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added At"
+          },
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "authors": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAuthorOut"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "in_library": {
+            "default": false,
+            "title": "In Library",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "length_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Seconds"
+          },
+          "library": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/LibraryCopyOut"
+            },
+            "title": "Library",
+            "type": "array"
+          },
+          "library_book_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Book Id"
+          },
+          "multipart": {
+            "title": "Multipart",
+            "type": "boolean"
+          },
+          "narrators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Narrators",
+            "type": "array"
+          },
+          "on_wishlist": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "On Wishlist",
+            "type": "array"
+          },
+          "plus": {
+            "title": "Plus",
+            "type": "boolean"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogPriceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primary_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SeriesEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "rating_count": {
+            "title": "Rating Count",
+            "type": "integer"
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesEntry"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "subtitle": {
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asin",
+          "title",
+          "subtitle",
+          "authors",
+          "narrators",
+          "series",
+          "primary_series",
+          "genres",
+          "length_seconds",
+          "release_date",
+          "language",
+          "publisher",
+          "abridged",
+          "cover_url",
+          "rating",
+          "rating_count",
+          "price",
+          "plus",
+          "multipart",
+          "account_id",
+          "added_at"
+        ],
+        "title": "WishlistItemOut",
+        "type": "object"
+      },
+      "WishlistOut": {
+        "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/WishlistAccountOut"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WishlistItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size",
+          "accounts"
+        ],
+        "title": "WishlistOut",
+        "type": "object"
+      },
+      "WishlistRefresh": {
+        "additionalProperties": false,
+        "description": "Read one account's wishlist again, or every signed-in account's.",
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          }
+        },
+        "title": "WishlistRefresh",
         "type": "object"
       }
     },
@@ -5465,6 +5906,268 @@
           }
         ],
         "summary": "Get System"
+      }
+    },
+    "/api/wishlist": {
+      "get": {
+        "description": "Every account's wishlist in one list, or one account's, as last read from Audible.\n\n`sort` is `date_added` (newest first), `title` (A to Z) or `release_date` (newest\nfirst); `order` turns it round. A book on two accounts' wishlists is two items.\nEach is a catalogue book (marked in a library and on wishlists, as the catalogue's\nare) with its `account_id` and `added_at`. `accounts` says when each account's\nwishlist was last read, and the error of a read that failed since: its books are\nthen as of the last read that worked.",
+        "operationId": "get_wishlist_api_wishlist_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "date_added",
+              "enum": [
+                "date_added",
+                "title",
+                "release_date"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "asc",
+                    "desc"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Order"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WishlistOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Wishlist"
+      },
+      "post": {
+        "description": "Put a book on an account's wishlist, on Audible and here: `201` when it was not\non it, `200` when it was (Audible does not say; the table does). `409` for a\nbook the account owns, which does not go on its wishlist, or an account that\nneeds a sign-in; `404` for an ASIN Audible does not know or an unknown account.",
+        "operationId": "add_to_wishlist_api_wishlist_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WishlistAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WishlistItemOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add To Wishlist"
+      }
+    },
+    "/api/wishlist/refresh": {
+      "post": {
+        "description": "Read the wishlists from Audible again now: one account's (`account_id`) or every\nsigned-in account's. A wishlist that cannot be read is not an error here: the\nanswer says so per account, as `GET /api/wishlist` does, and the others are read.",
+        "operationId": "refresh_wishlists_api_wishlist_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/WishlistRefresh"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WishlistAccountOut"
+                  },
+                  "title": "Response Refresh Wishlists Api Wishlist Refresh Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh Wishlists"
+      }
+    },
+    "/api/wishlist/{account_id}/{asin}": {
+      "delete": {
+        "description": "Take a book off an account's wishlist, on Audible and here. Audible is told even\nwhen the book was not on it as last read, so one added on Audible since comes off\ntoo; `404` then, since as far as the list knew it was not there.",
+        "operationId": "remove_from_wishlist_api_wishlist__account_id___asin__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asin",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9]{10}$",
+              "title": "Asin",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove From Wishlist"
       }
     }
   }

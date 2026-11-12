@@ -32,6 +32,7 @@ from audible_sync.pipeline.progress import Progress
 from audible_sync.pipeline.runstate import RunStage, RunState
 from audible_sync.pipeline.sync import sync_library
 from audible_sync.settings import Settings
+from audible_sync.wishlist import read_wishlist
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,8 @@ def run_account(
     full: bool = False,
 ) -> None:
     """
-    One account's pass: sync its library, then download what it has waiting.
+    One account's pass: sync its library and read its wishlist, then download what it
+    has waiting.
 
     The pass is recorded as one `sync_runs` row, which is both the run history a UI
     reads and the cursor the account's next sync starts from. The row is opened before
@@ -196,6 +198,8 @@ def run_account(
             synced = True
             mark_account_synced(account.id)
             logger.info("%d books synced to database for %s", books_added, account.name)
+            # Never raises: a wishlist that cannot be read leaves the run's outcome alone
+            read_wishlist(audible, account)
 
             state.set_stage(RunStage.DOWNLOADING)
             stats = download_books(

@@ -2622,3 +2622,196 @@ def test_catalogue_audibles_own_404_is_a_404(catalogue):
 
     assert response.status_code == 404
     assert response.json()["detail"] == "No series B00HNXRO2O in the catalogue"
+
+
+# --- wishlist ----------------------------------------------------------------------
+
+
+@pytest.fixture
+def wishlist_api(db):
+    """An app whose wishlist calls reach `tests/test_wishlist.py`'s fake, with one signed-in UK account."""
+    from audible_sync.catalog import Catalog
+    from audible_sync.wishlist import Wishlists
+    from tests.test_wishlist import FakeAudible
+
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    fake = FakeAudible(
+        database.get_account(account_id), on_audible=["B000000009"], catalogue=["B000000001", "B000000002"]
+    )
+    app = create_app(
+        scheduler=FakeScheduler(),
+        state=RunState(),
+        api_token=ApiToken(TOKEN, "stored"),
+        version="test",
+        catalog=Catalog(client_for=lambda account: fake),
+        wishlists=Wishlists(client_for=lambda account: fake),
+    )
+    client = TestClient(app)
+    client.fake = fake
+    client.account_id = account_id
+    return client
+
+
+def test_wishlist_add_then_add_again_then_remove(wishlist_api):
+    body = {"account_id": wishlist_api.account_id, "asin": "B000000001"}
+
+    added = wishlist_api.post("/api/wishlist", json=body, headers=AUTH)
+    again = wishlist_api.post("/api/wishlist", json=body, headers=AUTH)
+
+    assert added.status_code == 201
+    assert again.status_code == 200
+    item = added.json()
+    assert (item["asin"], item["account_id"], item["on_wishlist"]) == (
+        "B000000001",
+        wishlist_api.account_id,
+        [wishlist_api.account_id],
+    )
+    assert item["added_at"].endswith("Z")
+
+    listed = wishlist_api.get("/api/wishlist", headers=AUTH).json()
+    assert [entry["asin"] for entry in listed["items"]] == ["B000000001"]
+
+    removed = wishlist_api.delete(f"/api/wishlist/{wishlist_api.account_id}/B000000001", headers=AUTH)
+    gone = wishlist_api.delete(f"/api/wishlist/{wishlist_api.account_id}/B000000001", headers=AUTH)
+
+    assert removed.json() == {"status": "removed"}
+    assert gone.status_code == 404
+    assert wishlist_api.get("/api/wishlist", headers=AUTH).json()["total"] == 0
+
+
+def test_wishlist_refuses_a_book_the_account_owns(wishlist_api):
+    database.update_books(wishlist_api.account_id, [make_book("B000000001", id=None, account_id=None)])
+
+    response = wishlist_api.post(
+        "/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "B000000001"}, headers=AUTH
+    )
+
+    assert response.status_code == 409
+    assert "owns this book" in response.json()["detail"]
+    assert wishlist_api.fake.calls == []
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [
+        ({"account_id": 1, "asin": "B0ZZZZZZZZ"}, 404),  # Audible has no such book
+        ({"account_id": 999, "asin": "B000000001"}, 404),
+        ({"account_id": 1, "asin": "nope"}, 422),
+        ({"account_id": 1, "asin": "B000000001", "colour": "red"}, 422),
+    ],
+)
+def test_wishlist_add_refusals(wishlist_api, body, status):
+    response = wishlist_api.post("/api/wishlist", json=body, headers=AUTH)
+
+    assert response.status_code == status
+
+
+def test_wishlist_for_an_account_that_needs_a_sign_in_is_a_409(wishlist_api):
+    pending = database.add_account("Pending", "us", auth=None)
+
+    add = wishlist_api.post("/api/wishlist", json={"account_id": pending, "asin": "B000000001"}, headers=AUTH)
+    remove = wishlist_api.delete(f"/api/wishlist/{pending}/B000000001", headers=AUTH)
+
+    assert (add.status_code, remove.status_code) == (409, 409)
+
+
+def test_wishlist_when_audible_does_not_answer_is_a_502(wishlist_api):
+    from audible.exceptions import NetworkError
+
+    wishlist_api.fake.fail = NetworkError()
+
+    response = wishlist_api.post(
+        "/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "B000000001"}, headers=AUTH
+    )
+
+    assert response.status_code == 502
+    assert database.get_wishlist_item(wishlist_api.account_id, "B000000001") is None
+
+
+def test_wishlist_refresh_reads_and_reports_each_account(wishlist_api):
+    pending = database.add_account("Pending", "us", auth=None)
+
+    response = wishlist_api.post("/api/wishlist/refresh", headers=AUTH)
+
+    states = {state["account_id"]: state for state in response.json()}
+    assert states[wishlist_api.account_id]["read_at"] is not None
+    assert states[wishlist_api.account_id]["error"] is None
+    assert states[pending] == {
+        "account_id": pending,
+        "read_at": None,
+        "error": None,
+        "error_at": None,
+        "needs_login": True,
+    }
+    listed = wishlist_api.get("/api/wishlist", headers=AUTH).json()
+    assert [item["asin"] for item in listed["items"]] == ["B000000009"]
+
+
+def test_wishlist_refresh_that_fails_says_so_and_keeps_the_books(wishlist_api):
+    wishlist_api.post("/api/wishlist/refresh", headers=AUTH)
+    wishlist_api.fake.fail = RuntimeError("Audible down")
+
+    response = wishlist_api.post("/api/wishlist/refresh", json={"account_id": wishlist_api.account_id}, headers=AUTH)
+
+    assert response.status_code == 200
+    (state,) = response.json()
+    assert state["error"] == "RuntimeError: Audible down"
+    assert state["read_at"] is not None
+    assert wishlist_api.get("/api/wishlist", headers=AUTH).json()["total"] == 1
+
+
+def test_wishlist_marks_a_book_a_library_holds(wishlist_api):
+    other = database.add_account("Sam (UK)", "uk", auth=dict(AUTH_BLOB))
+    database.update_books(other, [make_book("B000000001", id=None, account_id=None)])
+    wishlist_api.post("/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "B000000001"}, headers=AUTH)
+
+    (item,) = wishlist_api.get("/api/wishlist", headers=AUTH).json()["items"]
+
+    held = database.get_book_by_asin("B000000001", account_id=other)
+    assert item["in_library"] is True
+    assert item["library"] == [{"account_id": other, "book_id": held.id, "status": "waiting_download"}]
+
+
+def test_wishlist_list_filters_sorts_and_404s(wishlist_api):
+    from audible_sync.model import CatalogBook, WishlistItem
+
+    account_id = wishlist_api.account_id
+    database.replace_wishlist(
+        account_id,
+        [
+            WishlistItem(account_id, CatalogBook(asin="B000000001", title="Beta"), "2026-01-02T00:00:00Z"),
+            WishlistItem(account_id, CatalogBook(asin="B000000002", title="alpha"), "2026-01-01T00:00:00Z"),
+        ],
+    )
+
+    def asins(**params):
+        return [item["asin"] for item in wishlist_api.get("/api/wishlist", params=params, headers=AUTH).json()["items"]]
+
+    assert asins() == ["B000000001", "B000000002"]
+    assert asins(sort="title") == ["B000000002", "B000000001"]
+    assert asins(sort="title", order="desc") == ["B000000001", "B000000002"]
+    assert asins(account_id=account_id, page_size=1, page=2) == ["B000000002"]
+    assert wishlist_api.get("/api/wishlist", params={"account_id": 999}, headers=AUTH).status_code == 404
+    assert wishlist_api.get("/api/wishlist", params={"sort": "price"}, headers=AUTH).status_code == 422
+
+
+def test_catalogue_books_say_which_wishlists_hold_them(wishlist_api):
+    wishlist_api.post("/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "B000000001"}, headers=AUTH)
+
+    book = wishlist_api.get("/api/catalog/books/B000000001", headers=AUTH).json()
+
+    assert book["on_wishlist"] == [wishlist_api.account_id]
+    assert book["multipart"] is False
+
+
+def test_stats_count_the_wishlists(wishlist_api):
+    wishlist_api.post("/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "B000000001"}, headers=AUTH)
+
+    stats = wishlist_api.get("/api/stats", headers=AUTH).json()
+
+    assert stats["wishlist"] == 1
+    assert stats["accounts"][0]["wishlist"] == 1
+
+
+def test_wishlist_needs_the_token(wishlist_api):
+    assert TestClient(wishlist_api.app).get("/api/wishlist").status_code == 401

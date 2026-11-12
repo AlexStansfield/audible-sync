@@ -4,7 +4,8 @@ categories and authors, each through an account and cached for a few minutes.
 
 The catalogue is the marketplace's, not the account's, but the account is what picks
 the marketplace and what Audible tells the member's price to. What only Audible Sync
-can add is what the libraries know: `holdings` says which books one already holds.
+can add is what the accounts know: `marks` says which libraries hold a book and which
+wishlists it is on.
 """
 
 import logging
@@ -18,7 +19,7 @@ from typing import Any, TypeVar
 from audible_sync.audible_api.accounts import authenticator_for, keeping_credentials
 from audible_sync.audible_api.client import Audible
 from audible_sync.audible_api.products import reachable_results
-from audible_sync.database import get_account, get_accounts, library_book_ids
+from audible_sync.database import get_account, get_accounts, library_holdings, wishlist_accounts
 from audible_sync.model import Account, CatalogBook, CatalogSeries, fold_text
 
 logger = logging.getLogger(__name__)
@@ -228,6 +229,35 @@ class Catalog:
         return self._ask(account, ("authors", name.strip().casefold()), lambda audible: audible.search_authors(name))
 
 
-def holdings(account: Account, books: list[CatalogBook]) -> dict[str, int]:
-    """Which of these books a library of the account's marketplace holds, ASIN to row id."""
-    return library_book_ids([book.asin for book in books], account.country_code)
+@dataclass
+class LibraryCopy:
+    """A library's copy of a book: the account, the library book's id and its status."""
+
+    account_id: int
+    book_id: int
+    status: str | None
+
+
+@dataclass
+class Marks:
+    """What the accounts of a marketplace have of a catalogue book."""
+
+    library: list[LibraryCopy]
+    on_wishlist: list[int]
+
+
+def marks(country_code: str, asins: list[str]) -> dict[str, Marks]:
+    """
+    For each ASIN, the libraries holding it and the wishlists it is on, among the
+    accounts of the marketplace: worked out per answer, never cached, so a book
+    downloaded or wishlisted a moment ago shows at once.
+    """
+    held = library_holdings(asins, country_code)
+    wished = wishlist_accounts(asins, country_code)
+    return {
+        asin: Marks(
+            library=[LibraryCopy(*copy) for copy in held.get(asin, [])],
+            on_wishlist=wished.get(asin, []),
+        )
+        for asin in asins
+    }

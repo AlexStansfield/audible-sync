@@ -15,6 +15,9 @@ from audible_sync.model import (
     RunBookOutcome,
     SyncOutcome,
     SyncRun,
+    WishlistItem,
+    catalog_book_from_json,
+    catalog_book_to_json,
     fold_text,
 )
 from audible_sync.paths import REPO_ROOT
@@ -161,6 +164,32 @@ def init_db():
             created_at TEXT NOT NULL,
             last_seen_at TEXT NOT NULL,
             expires_at TEXT NOT NULL
+        )
+    """)
+    # Each account's wishlist as last read from Audible, the book kept whole as JSON
+    # (`catalog_book_to_json`), since it is a catalogue book rather than a library one.
+    # `title` and `release_date` are copied out of it for sorting. Replaced whole on
+    # every read, and kept in step by an add or a remove in between, as Audible answers
+    # both the same whether they changed anything or not.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS wishlist (
+            account_id INTEGER NOT NULL,
+            asin TEXT NOT NULL,
+            added_at TEXT,
+            title TEXT NOT NULL DEFAULT '',
+            release_date TEXT,
+            book TEXT NOT NULL,
+            PRIMARY KEY (account_id, asin)
+        )
+    """)
+    # When each account's wishlist was last read, and the error of a read that failed
+    # since (cleared by the next that works): the rows above are then as of `read_at`.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS wishlist_reads (
+            account_id INTEGER PRIMARY KEY,
+            read_at TEXT,
+            error TEXT,
+            error_at TEXT
         )
     """)
     conn.commit()
@@ -1132,29 +1161,34 @@ def list_books(
         return [Book.from_row(row) for row in rows], total
 
 
-def library_book_ids(asins: list[str], country_code: str) -> dict[str, int]:
+def library_holdings(asins: list[str], country_code: str) -> dict[str, list[tuple[int, int, str | None]]]:
     """
-    Which of these ASINs a library of the marketplace holds, as ASIN to row id.
+    Which of these ASINs the libraries of a marketplace hold, as ASIN to (account id, row
+    id, status) for every copy, oldest row first.
 
     Every account of the marketplace counts, since a book in another login's library is
-    as much at hand; of two copies the older row is the one named.
+    as much at hand.
     """
-    found: dict[str, int] = {}
-    unique = list(dict.fromkeys(asins))
+    found: dict[str, list[tuple[int, int, str | None]]] = {}
     with closing(_get_connection()) as conn:
-        # In chunks, well under SQLite's limit on parameters
-        for start in range(0, len(unique), 500):
-            chunk = unique[start : start + 500]
+        for chunk in _chunks(asins):
             marks = ", ".join("?" * len(chunk))
             rows = conn.execute(
-                "SELECT library.asin, MIN(library.id) FROM library "
+                "SELECT library.asin, library.account_id, library.id, library.status FROM library "
                 "JOIN accounts ON accounts.id = library.account_id "
                 f"WHERE lower(accounts.country_code) = lower(?) AND library.asin IN ({marks}) "
-                "GROUP BY library.asin",
+                "ORDER BY library.id",
                 (country_code, *chunk),
             )
-            found.update((row[0], row[1]) for row in rows)
+            for asin, account_id, book_id, status in rows:
+                found.setdefault(asin, []).append((account_id, book_id, status))
     return found
+
+
+def _chunks(values: list[str], size: int = 500) -> list[list[str]]:
+    """Distinct values in chunks well under SQLite's limit on parameters."""
+    unique = list(dict.fromkeys(values))
+    return [unique[start : start + size] for start in range(0, len(unique), size)]
 
 
 def book_ids_matching(
@@ -1745,7 +1779,7 @@ def mark_account_synced(account_id: int) -> None:
 
 def delete_account(account_id: int) -> None:
     """
-    Remove an account with its library rows and run history.
+    Remove an account with its library rows, wishlist and run history.
 
     The files on disk are left alone: they are the user's, and a re-added account files
     the same book to the same path and reuses them.
@@ -1761,9 +1795,151 @@ def delete_account(account_id: int) -> None:
             (account_id,),
         )
         conn.execute("DELETE FROM sync_runs WHERE account_id = ?", (account_id,))
+        conn.execute("DELETE FROM wishlist WHERE account_id = ?", (account_id,))
+        conn.execute("DELETE FROM wishlist_reads WHERE account_id = ?", (account_id,))
         conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
         conn.commit()
     backfill_customer_ids()
+
+
+# --- wishlist ------------------------------------------------------------------
+
+# The wishlist's sorts and the direction each takes by default
+WISHLIST_SORT_COLUMNS = {
+    "date_added": "added_at",
+    "title": "title COLLATE NOCASE",
+    "release_date": "release_date",
+}
+
+
+def _wishlist_row(item: WishlistItem) -> tuple:
+    book = item.book
+    return (item.account_id, book.asin, item.added_at, book.title, book.release_date, catalog_book_to_json(book))
+
+
+_WISHLIST_INSERT = (
+    "INSERT INTO wishlist (account_id, asin, added_at, title, release_date, book) VALUES (?, ?, ?, ?, ?, ?)"
+)
+
+
+def _wishlist_item(row: sqlite3.Row) -> WishlistItem:
+    return WishlistItem(
+        account_id=row["account_id"], added_at=row["added_at"], book=catalog_book_from_json(row["book"])
+    )
+
+
+def replace_wishlist(account_id: int, items: list[WishlistItem]) -> None:
+    """Store a wishlist read whole from Audible in place of the last, and record the read."""
+    with closing(_get_connection()) as conn:
+        conn.execute("DELETE FROM wishlist WHERE account_id = ?", (account_id,))
+        # A book listed twice is stored once
+        conn.executemany(
+            _WISHLIST_INSERT.replace("INSERT", "INSERT OR IGNORE", 1),
+            [_wishlist_row(item) for item in items if item.account_id == account_id],
+        )
+        conn.execute(
+            "INSERT INTO wishlist_reads (account_id, read_at, error, error_at) VALUES (?, ?, NULL, NULL) "
+            "ON CONFLICT(account_id) DO UPDATE SET read_at = excluded.read_at, error = NULL, error_at = NULL",
+            (account_id, _utcnow()),
+        )
+        conn.commit()
+
+
+def record_wishlist_failure(account_id: int, error: str) -> None:
+    """Record a read of the wishlist that failed; the stored books stay as of the last good one."""
+    with closing(_get_connection()) as conn:
+        conn.execute(
+            "INSERT INTO wishlist_reads (account_id, read_at, error, error_at) VALUES (?, NULL, ?, ?) "
+            "ON CONFLICT(account_id) DO UPDATE SET error = excluded.error, error_at = excluded.error_at",
+            (account_id, error, _utcnow()),
+        )
+        conn.commit()
+
+
+def wishlist_reads() -> dict[int, dict[str, str | None]]:
+    """Each account's last wishlist read: `read_at`, and `error` with `error_at` when one failed since."""
+    with closing(_get_connection()) as conn:
+        rows = conn.execute("SELECT account_id, read_at, error, error_at FROM wishlist_reads")
+        return {
+            row["account_id"]: {"read_at": row["read_at"], "error": row["error"], "error_at": row["error_at"]}
+            for row in rows
+        }
+
+
+def add_wishlist_item(item: WishlistItem) -> bool:
+    """Store a book just put on a wishlist; False when it was there already, which is left as it was."""
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute(_WISHLIST_INSERT.replace("INSERT", "INSERT OR IGNORE", 1), _wishlist_row(item))
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def remove_wishlist_item(account_id: int, asin: str) -> bool:
+    """Forget a book taken off a wishlist; False when it was not there."""
+    with closing(_get_connection()) as conn:
+        cursor = conn.execute("DELETE FROM wishlist WHERE account_id = ? AND asin = ?", (account_id, asin))
+        conn.commit()
+        return cursor.rowcount == 1
+
+
+def get_wishlist_item(account_id: int, asin: str) -> WishlistItem | None:
+    with closing(_get_connection()) as conn:
+        row = conn.execute("SELECT * FROM wishlist WHERE account_id = ? AND asin = ?", (account_id, asin)).fetchone()
+        return _wishlist_item(row) if row is not None else None
+
+
+def list_wishlist(
+    *,
+    account_id: int | None = None,
+    sort: str = "date_added",
+    descending: bool = True,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[WishlistItem], int]:
+    """
+    A page of the wishlists, every account's or one's, and how many there are in all.
+
+    Raises:
+        ValueError: for a `sort` not in `WISHLIST_SORT_COLUMNS`
+    """
+    if sort not in WISHLIST_SORT_COLUMNS:
+        raise ValueError(f"sort must be one of {', '.join(WISHLIST_SORT_COLUMNS)}, got {sort!r}")
+    clause = "" if account_id is None else " WHERE account_id = ?"
+    params: tuple = () if account_id is None else (account_id,)
+    direction = "DESC" if descending else "ASC"
+    # A missing date sorts last either way
+    column = WISHLIST_SORT_COLUMNS[sort]
+    order = f" ORDER BY {column.split()[0]} IS NULL, {column} {direction}, account_id, asin"
+    with closing(_get_connection()) as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM wishlist{clause}", params).fetchone()[0]
+        rows = conn.execute(f"SELECT * FROM wishlist{clause}{order} LIMIT ? OFFSET ?", (*params, limit, offset))
+        return [_wishlist_item(row) for row in rows], total
+
+
+def wishlist_accounts(asins: list[str], country_code: str) -> dict[str, list[int]]:
+    """Which accounts of a marketplace have each of these ASINs on their wishlist, ASIN to account ids."""
+    found: dict[str, list[int]] = {}
+    with closing(_get_connection()) as conn:
+        for chunk in _chunks(asins):
+            marks = ", ".join("?" * len(chunk))
+            rows = conn.execute(
+                "SELECT wishlist.asin, wishlist.account_id FROM wishlist "
+                "JOIN accounts ON accounts.id = wishlist.account_id "
+                f"WHERE lower(accounts.country_code) = lower(?) AND wishlist.asin IN ({marks}) "
+                "ORDER BY wishlist.account_id",
+                (country_code, *chunk),
+            )
+            for asin, account_id in rows:
+                found.setdefault(asin, []).append(account_id)
+    return found
+
+
+def wishlist_count(*, account_id: int | None = None) -> int:
+    """How many books are on the wishlists, every account's or one's."""
+    clause = "" if account_id is None else " WHERE account_id = ?"
+    params: tuple = () if account_id is None else (account_id,)
+    with closing(_get_connection()) as conn:
+        return conn.execute(f"SELECT COUNT(*) FROM wishlist{clause}", params).fetchone()[0]
 
 
 # --- settings ------------------------------------------------------------------
