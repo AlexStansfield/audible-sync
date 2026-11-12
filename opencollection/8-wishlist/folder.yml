@@ -1,0 +1,10 @@
+info:
+  name: Wishlist
+  type: folder
+  seq: 8
+docs:
+  content: |
+    Every account's Audible wishlist: list it, add and remove books, read it again.
+    A run reads each account's after its library. Adding and removing go to Audible,
+    then to the list kept here.
+  type: text/markdown

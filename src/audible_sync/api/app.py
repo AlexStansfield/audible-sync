@@ -37,6 +37,7 @@ from audible_sync.api.routes import catalog as api_catalog
 from audible_sync.api.routes import settings as api_settings
 from audible_sync.api.routes import sync as api_sync
 from audible_sync.api.routes import system as api_system
+from audible_sync.api.routes import wishlist as api_wishlist
 from audible_sync.api.schemas import (
     Health,
 )
@@ -50,6 +51,7 @@ from audible_sync.pipeline.scheduler import Scheduler
 from audible_sync.security import webauth
 from audible_sync.security.apitoken import ApiToken
 from audible_sync.security.webauth import SESSION_COOKIE, LoginThrottle
+from audible_sync.wishlist import Wishlists
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,7 @@ def create_app(
     web_dir: Path | None = None,
     base_path: str = "",
     catalog: Catalog | None = None,
+    wishlists: Wishlists | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -129,8 +132,10 @@ def create_app(
             stripped, the web app is told it in `<base href>`, and the session cookie
             is scoped to it
         catalog: How the catalogue is asked, and its cache; defaults to a fresh one
+        wishlists: How the wishlists are changed and read again; defaults to a fresh one
     """
     base_path = normalise_base_path(base_path)
+    catalog = catalog or Catalog()
     cookie_path = f"{base_path}/"
     logins = logins or PendingLogins()
     throttle = login_throttle or LoginThrottle()
@@ -193,6 +198,7 @@ def create_app(
         api_accounts.router(state=state, logins=logins),
         api_books.router(),
         api_catalog.router(catalog=catalog),
+        api_wishlist.router(catalog=catalog, wishlists=wishlists),
     ):
         app.include_router(routes, prefix="/api", dependencies=[Depends(_require_auth(api_token))])
 

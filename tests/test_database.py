@@ -2218,3 +2218,124 @@ def test_latest_full_refresh_start_is_per_account(db, monkeypatch):
 
     assert database.latest_full_refresh_start(ACCOUNT) is None
     assert database.latest_full_refresh_start(other) == "2026-11-04T10:00:00+00:00"
+
+
+# --- wishlist ----------------------------------------------------------------------
+
+
+def _wished(asin, title=None, added_at=None, release_date=None, account_id=ACCOUNT):
+    from audible_sync.model import CatalogBook, WishlistItem
+
+    return WishlistItem(
+        account_id=account_id,
+        book=CatalogBook(asin=asin, title=title or asin, release_date=release_date),
+        added_at=added_at,
+    )
+
+
+def test_a_wishlist_read_replaces_the_last_and_is_recorded(db):
+    database.replace_wishlist(ACCOUNT, [_wished("B1"), _wished("B2")])
+    database.replace_wishlist(ACCOUNT, [_wished("B2"), _wished("B3"), _wished("B3")])
+
+    items, total = database.list_wishlist()
+    assert sorted(item.book.asin for item in items) == ["B2", "B3"]
+    assert total == 2
+    read = database.wishlist_reads()[ACCOUNT]
+    assert read["read_at"] is not None and read["error"] is None
+
+
+def test_a_failed_read_keeps_the_books_and_the_last_good_time(db):
+    database.replace_wishlist(ACCOUNT, [_wished("B1")])
+    good = database.wishlist_reads()[ACCOUNT]["read_at"]
+
+    database.record_wishlist_failure(ACCOUNT, "NetworkError: down")
+
+    read = database.wishlist_reads()[ACCOUNT]
+    assert (read["read_at"], read["error"]) == (good, "NetworkError: down")
+    assert database.list_wishlist()[1] == 1
+    # The next read that works clears it
+    database.replace_wishlist(ACCOUNT, [])
+    assert database.wishlist_reads()[ACCOUNT]["error"] is None
+
+
+def test_a_failed_first_read_has_no_read_time(db):
+    database.record_wishlist_failure(ACCOUNT, "boom")
+
+    assert database.wishlist_reads()[ACCOUNT]["read_at"] is None
+
+
+def test_adding_and_removing_say_whether_anything_changed(db):
+    assert database.add_wishlist_item(_wished("B1", title="First")) is True
+    assert database.add_wishlist_item(_wished("B1", title="Again")) is False
+    assert database.get_wishlist_item(ACCOUNT, "B1").book.title == "First"
+
+    assert database.remove_wishlist_item(ACCOUNT, "B1") is True
+    assert database.remove_wishlist_item(ACCOUNT, "B1") is False
+    assert database.get_wishlist_item(ACCOUNT, "B1") is None
+
+
+def test_the_wishlist_sorts_and_filters(db):
+    other = database.add_account("Other (UK)", "uk", auth=None)
+    database.replace_wishlist(
+        ACCOUNT,
+        [
+            _wished("B1", "beta", "2026-01-02T00:00:00Z", "2020-01-01"),
+            _wished("B2", "Alpha", "2026-01-03T00:00:00Z", None),
+            _wished("B3", "gamma", None, "2024-01-01"),
+        ],
+    )
+    database.replace_wishlist(other, [_wished("B4", "delta", "2026-01-01T00:00:00Z", account_id=other)])
+
+    def asins(**kwargs):
+        return [item.book.asin for item in database.list_wishlist(**kwargs)[0]]
+
+    # A missing date sorts last whichever way
+    assert asins(sort="date_added") == ["B2", "B1", "B4", "B3"]
+    assert asins(sort="date_added", descending=False) == ["B4", "B1", "B2", "B3"]
+    assert asins(sort="title", descending=False) == ["B2", "B1", "B4", "B3"]
+    # Newest release first, the books with none (B2, B4) after, by account and ASIN
+    assert asins(sort="release_date") == ["B3", "B1", "B2", "B4"]
+    assert asins(account_id=other) == ["B4"]
+    assert asins(limit=2, offset=1) == ["B1", "B4"]
+    assert database.wishlist_count() == 4
+    assert database.wishlist_count(account_id=other) == 1
+    with pytest.raises(ValueError, match="sort must be one of"):
+        database.list_wishlist(sort="price")
+
+
+def test_wishlist_accounts_are_the_marketplaces(db):
+    other = database.add_account("Other (UK)", "UK", auth=None)
+    us = database.add_account("Alex (US)", "us", auth=None)
+    database.replace_wishlist(ACCOUNT, [_wished("B1")])
+    database.replace_wishlist(other, [_wished("B1", account_id=other)])
+    database.replace_wishlist(us, [_wished("B1", account_id=us), _wished("B2", account_id=us)])
+
+    assert database.wishlist_accounts(["B1", "B2"], "uk") == {"B1": [ACCOUNT, other]}
+
+
+def test_removing_an_account_removes_its_wishlist(db):
+    database.replace_wishlist(ACCOUNT, [_wished("B1")])
+
+    database.delete_account(ACCOUNT)
+
+    assert database.list_wishlist()[1] == 0
+    assert database.wishlist_reads() == {}
+
+
+def test_a_wishlist_of_a_removed_account_is_not_stored(db):
+    other = database.add_account("Other (UK)", "uk", auth=None)
+    database.delete_account(other)
+
+    assert database.replace_wishlist(other, [_wished("B1", account_id=other)]) is False
+    assert database.add_wishlist_item(_wished("B2", account_id=other)) is False
+    database.record_wishlist_failure(other, "boom")
+
+    assert database.wishlist_count() == 0
+    assert database.wishlist_reads() == {}
+
+
+def test_library_holdings_tolerate_a_status_this_build_does_not_know(db):
+    database.update_books(ACCOUNT, [make_book("B1")])
+    _set("B1", status="archived")
+
+    assert database.library_holdings(["B1"], "uk")["B1"][0][2] is None

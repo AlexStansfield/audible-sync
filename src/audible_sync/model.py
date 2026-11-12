@@ -2,7 +2,7 @@ import json
 import math
 import re
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, NamedTuple
 
@@ -159,7 +159,7 @@ def fold_text(text: object) -> str:
     return re.sub(r"\s+", " ", text.translate(_QUOTES)).strip().casefold()
 
 
-def _book_status(value: str | None) -> BookStatus | None:
+def parse_book_status(value: str | None) -> BookStatus | None:
     """
     Map the stored `status` text onto the enum, tolerating anything unrecognised.
 
@@ -181,7 +181,7 @@ def _sync_outcome(value: str | None) -> SyncOutcome | None:
     """
     Map the stored `outcome` text onto the enum, tolerating anything unrecognised.
 
-    Same reasoning as `_book_status`: a database written by another version has to stay
+    Same reasoning as `parse_book_status`: a database written by another version has to stay
     readable, and the cursor query selects on the SQL value rather than the Python one.
     """
     if value is None:
@@ -286,7 +286,7 @@ class Book:
             # legacy library as unavailable.
             is_consumable=bool(data["is_consumable"]) if data.get("is_consumable") is not None else True,
             description=data.get("description"),
-            status=_book_status(data.get("status")),
+            status=parse_book_status(data.get("status")),
             # A row from before the column existed is wanted, like every row was then
             monitored=bool(monitored) if monitored is not None else True,
             attempts=data.get("attempts") or 0,
@@ -559,6 +559,8 @@ class CatalogBook:
     price: CatalogPrice | None = None
     # Included in the membership's Plus catalogue, from the title's `plans`
     plus: bool = False
+    # Delivered in parts (`MultiPartBook`): an edition of a title whose name does not say so
+    multipart: bool = False
     # HTML as Audible gives it; only a single book's answer carries it
     description: str | None = None
 
@@ -573,6 +575,38 @@ class CatalogBook:
     @property
     def description_html(self) -> str:
         return safe_html(self.description)
+
+
+def catalog_book_to_json(book: CatalogBook) -> str:
+    """A catalogue book as JSON, for the wishlist table; `catalog_book_from_json` reverses it."""
+    return json.dumps(asdict(book))
+
+
+def catalog_book_from_json(text: str) -> CatalogBook:
+    """
+    A catalogue book from `catalog_book_to_json`'s JSON. A key this build does not know
+    is dropped and a missing one takes its default, so a row written by another version
+    still reads.
+    """
+    data = _known(CatalogBook, json.loads(text))
+    data["authors"] = [CatalogAuthor(**_known(CatalogAuthor, author)) for author in data.get("authors") or []]
+    if data.get("price"):
+        data["price"] = CatalogPrice(**_known(CatalogPrice, data["price"]))
+    return CatalogBook(**data)
+
+
+def _known(cls: type, data: dict) -> dict:
+    """The keys of `data` that are fields of the dataclass `cls`."""
+    return {key: value for key, value in data.items() if key in cls.__dataclass_fields__}
+
+
+@dataclass
+class WishlistItem:
+    """A book on one account's wishlist, and when it was put there (as Audible says, in UTC)."""
+
+    account_id: int
+    book: CatalogBook
+    added_at: str | None = None
 
 
 @dataclass

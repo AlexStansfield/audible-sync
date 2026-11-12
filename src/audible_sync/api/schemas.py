@@ -496,6 +496,8 @@ class BookCounts(BaseModel):
 class AccountStats(BaseModel):
     account: AccountOut
     books: BookCounts
+    # Books on the account's wishlist, as last read
+    wishlist: int
     bytes_on_disk: int
     last_run: SyncRunOut | None
 
@@ -503,6 +505,8 @@ class AccountStats(BaseModel):
 class Stats(BaseModel):
     accounts: list[AccountStats]
     books: BookCounts
+    # Books on every wishlist, as last read
+    wishlist: int
     bytes_on_disk: int
     last_run: SyncRunOut | None
     next_run_at: str | None
@@ -645,9 +649,25 @@ class CatalogBookOut(BaseModel):
     price: CatalogPriceOut | None
     # Included in the membership's Plus catalogue (checked for the UK and US marketplaces)
     plus: bool
-    # Held by a library of this marketplace, any account's; the id is that library book's
+    # Delivered in parts (Audible's `MultiPartBook`), which the title does not say
+    multipart: bool
+    # Held by a library of this marketplace, any account's; the id is the oldest copy's
     in_library: bool = False
     library_book_id: int | None = None
+    # Every library of this marketplace holding it
+    library: list["LibraryCopyOut"] = []
+    # The accounts of this marketplace with it on their wishlist
+    on_wishlist: list[int] = []
+
+
+class LibraryCopyOut(BaseModel):
+    """A library's copy of a catalogue book: whose, its id there, and where it is in the pipeline."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    account_id: int
+    book_id: int
+    status: BookStatus | None
 
 
 class CatalogBookDetail(CatalogBookOut):
@@ -705,3 +725,57 @@ class AuthorOut(BaseModel):
     asin: str
     name: str
     image_url: str | None
+
+
+# The wishlists
+
+
+class WishlistItemOut(CatalogBookOut):
+    """A book on one account's wishlist: a catalogue book, the account and when it was added."""
+
+    account_id: int
+    # As Audible gives it, UTC
+    added_at: str | None
+
+
+class WishlistAccountOut(BaseModel):
+    """Where one account's wishlist stands: when it was last read, and a read that failed since."""
+
+    account_id: int
+    # The last read that worked; the account's books are as of then. Null if never read
+    read_at: str | None
+    # The error of a read that failed since, and when; null when the last read worked
+    error: str | None
+    error_at: str | None
+    # The account has no working credentials, so its wishlist cannot be read
+    needs_login: bool
+
+
+class WishlistOut(BaseModel):
+    items: list[WishlistItemOut]
+    total: int
+    page: int
+    page_size: int
+    # Every account, whether or not its wishlist has books
+    accounts: list[WishlistAccountOut]
+
+
+class WishlistAdd(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int
+    asin: Annotated[str, Field(pattern=r"^[A-Za-z0-9]{10}$")]
+
+    @field_validator("asin")
+    @classmethod
+    def _upper(cls, asin: str) -> str:
+        # Audible's ASINs are upper case, and every comparison here is exact
+        return asin.upper()
+
+
+class WishlistRefresh(BaseModel):
+    """Read one account's wishlist again, or every signed-in account's."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: int | None = None

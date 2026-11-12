@@ -302,3 +302,96 @@ def test_author_search_names_the_site():
     assert audible.search_authors("Scalzi") == []
     # Audible answers 400 without it
     assert audible.client.calls[0][1] == {"key_strokes": "Scalzi", "site_variant": "desktop"}
+
+
+def test_an_edition_in_parts_says_so():
+    assert products.to_catalog_book(make_product(content_delivery_type="MultiPartBook")).multipart is True
+    assert products.to_catalog_book(make_product()).multipart is False
+
+
+# --- the wishlist ---------------------------------------------------------------------
+
+
+class FakeWishlistClient(FakeClient):
+    def __init__(self, answers):
+        super().__init__(answers)
+        self.posts = []
+        self.deletes = []
+
+    def post(self, path, body=None, **kwargs):
+        self.posts.append((path, body))
+        return {}
+
+    def delete(self, path, **kwargs):
+        self.deletes.append(path)
+        return {}
+
+
+def test_the_wishlist_is_read_in_fifties_from_page_0_with_the_dates_added():
+    def answer(params):
+        start = params["page"] * 50
+        asins = [f"B{n:09d}" for n in range(start, min(start + 50, 60))]
+        return {
+            "products": [
+                make_product(asin, added_timestamp=f"2026-01-01T00:00:{n:02d}Z") for n, asin in enumerate(asins)
+            ]
+        }
+
+    audible = Audible.__new__(Audible)
+    audible.client = FakeWishlistClient({"wishlist": answer})
+
+    items = audible.get_wishlist(7)
+
+    assert len(items) == 60
+    assert {item.account_id for item in items} == {7}
+    assert items[0].added_at == "2026-01-01T00:00:00Z"
+    assert [params["page"] for _, params in audible.client.calls] == [0, 1]
+    assert audible.client.calls[0][1]["sort_by"] == "-DateAdded"
+
+
+def test_the_wishlist_is_changed_by_asin():
+    audible = Audible.__new__(Audible)
+    audible.client = FakeWishlistClient({})
+
+    audible.add_to_wishlist("B06XNYQJTX")
+    audible.remove_from_wishlist("B06XNYQJTX")
+
+    assert audible.client.posts == [("wishlist", {"asin": "B06XNYQJTX"})]
+    assert audible.client.deletes == ["wishlist/B06XNYQJTX"]
+
+
+def _endless_wishlist(repeat=False, total=None):
+    """Full pages for ever: new books each page, or the same page again."""
+
+    def answer(params):
+        page = 0 if repeat else params["page"]
+        products_ = [make_product(f"B{page:04d}{n:05d}") for n in range(50)]
+        return {"products": products_, "total_results": total}
+
+    audible = Audible.__new__(Audible)
+    audible.client = FakeWishlistClient({"wishlist": answer})
+    return audible
+
+
+def test_a_wishlist_that_repeats_its_page_stops():
+    audible = _endless_wishlist(repeat=True)
+
+    assert len(audible.get_wishlist(1)) == 50
+    assert len(audible.client.calls) == 2
+
+
+def test_a_wishlist_read_stops_at_audibles_total():
+    audible = _endless_wishlist(total=100)
+
+    assert len(audible.get_wishlist(1)) == 100
+    assert len(audible.client.calls) == 2
+
+
+def test_a_wishlist_read_stops_at_the_cap_whatever_happens(monkeypatch):
+    import audible_sync.audible_api.client as client_module
+
+    monkeypatch.setattr(client_module, "_MAX_WISHLIST_PAGES", 3)
+    audible = _endless_wishlist()
+
+    assert len(audible.get_wishlist(1)) == 150
+    assert len(audible.client.calls) == 3

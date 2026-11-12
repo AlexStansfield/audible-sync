@@ -20,6 +20,7 @@ from audible_sync.database import (
     get_accounts,
     get_sync_runs,
     library_stats,
+    wishlist_count,
 )
 from audible_sync.logbuffer import RingBufferHandler
 from audible_sync.pipeline.scheduler import Scheduler
@@ -65,6 +66,7 @@ def router(*, scheduler: Scheduler, log_buffer: RingBufferHandler | None, versio
                 AccountStats(
                     account=account,
                     books=library_stats(account_id=account.id),
+                    wishlist=wishlist_count(account_id=account.id),
                     bytes_on_disk=_bytes_on_disk(downloaded_file_paths(account_id=account.id)),
                     last_run=last[0] if last else None,
                 )
@@ -73,6 +75,7 @@ def router(*, scheduler: Scheduler, log_buffer: RingBufferHandler | None, versio
         return Stats(
             accounts=per_account,
             books=library_stats(),
+            wishlist=wishlist_count(),
             bytes_on_disk=sum(a.bytes_on_disk for a in per_account),
             last_run=last[0] if last else None,
             next_run_at=scheduler.status(settings)["next_run_at"],

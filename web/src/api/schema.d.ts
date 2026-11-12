@@ -834,6 +834,84 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/wishlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Wishlist
+         * @description Every account's wishlist in one list, or one account's, as last read from Audible.
+         *
+         *     `sort` is `date_added` (newest first), `title` (A to Z) or `release_date` (newest
+         *     first); `order` turns it round. A book on two accounts' wishlists is two items.
+         *     Each is a catalogue book (marked in a library and on wishlists, as the catalogue's
+         *     are) with its `account_id` and `added_at`. `accounts` says when each account's
+         *     wishlist was last read, and the error of a read that failed since: its books are
+         *     then as of the last read that worked.
+         */
+        get: operations["get_wishlist_api_wishlist_get"];
+        put?: never;
+        /**
+         * Add To Wishlist
+         * @description Put a book on an account's wishlist, on Audible and here: `201` when it was not
+         *     on it, `200` when it was (Audible does not say; the table does). `409` for a
+         *     book the account owns, which does not go on its wishlist, or an account that
+         *     needs a sign-in; `404` for an ASIN Audible does not know or an unknown account.
+         */
+        post: operations["add_to_wishlist_api_wishlist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/wishlist/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh Wishlists
+         * @description Read the wishlists from Audible again now: one account's (`account_id`) or every
+         *     signed-in account's. A wishlist that cannot be read is not an error here: the
+         *     answer says so per account, as `GET /api/wishlist` does, and the others are read.
+         */
+        post: operations["refresh_wishlists_api_wishlist_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/wishlist/{account_id}/{asin}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove From Wishlist
+         * @description Take a book off an account's wishlist, on Audible and here. Audible is told even
+         *     when the book was not on it as last read, so one added on Audible since comes off
+         *     too; `404` then, since as far as the list knew it was not there.
+         */
+        delete: operations["remove_from_wishlist_api_wishlist__account_id___asin__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -869,6 +947,8 @@ export interface components {
             /** Bytes On Disk */
             bytes_on_disk: number;
             last_run: components["schemas"]["SyncRunOut"] | null;
+            /** Wishlist */
+            wishlist: number;
         };
         /** AccountUpdate */
         AccountUpdate: {
@@ -1195,10 +1275,22 @@ export interface components {
             language: string | null;
             /** Length Seconds */
             length_seconds: number | null;
+            /**
+             * Library
+             * @default []
+             */
+            library: components["schemas"]["LibraryCopyOut"][];
             /** Library Book Id */
             library_book_id?: number | null;
+            /** Multipart */
+            multipart: boolean;
             /** Narrators */
             narrators: string[];
+            /**
+             * On Wishlist
+             * @default []
+             */
+            on_wishlist: number[];
             /** Plus */
             plus: boolean;
             price: components["schemas"]["CatalogPriceOut"] | null;
@@ -1242,10 +1334,22 @@ export interface components {
             language: string | null;
             /** Length Seconds */
             length_seconds: number | null;
+            /**
+             * Library
+             * @default []
+             */
+            library: components["schemas"]["LibraryCopyOut"][];
             /** Library Book Id */
             library_book_id?: number | null;
+            /** Multipart */
+            multipart: boolean;
             /** Narrators */
             narrators: string[];
+            /**
+             * On Wishlist
+             * @default []
+             */
+            on_wishlist: number[];
             /** Plus */
             plus: boolean;
             price: components["schemas"]["CatalogPriceOut"] | null;
@@ -1334,6 +1438,17 @@ export interface components {
             status: string;
             /** Version */
             version: string;
+        };
+        /**
+         * LibraryCopyOut
+         * @description A library's copy of a catalogue book: whose, its id there, and where it is in the pipeline.
+         */
+        LibraryCopyOut: {
+            /** Account Id */
+            account_id: number;
+            /** Book Id */
+            book_id: number;
+            status: components["schemas"]["BookStatus"] | null;
         };
         /** LogEntry */
         LogEntry: {
@@ -1743,6 +1858,8 @@ export interface components {
             last_run: components["schemas"]["SyncRunOut"] | null;
             /** Next Run At */
             next_run_at: string | null;
+            /** Wishlist */
+            wishlist: number;
         };
         /** Status */
         Status: {
@@ -1880,6 +1997,113 @@ export interface components {
         WebhookTest: {
             /** Url */
             url?: string | null;
+        };
+        /**
+         * WishlistAccountOut
+         * @description Where one account's wishlist stands: when it was last read, and a read that failed since.
+         */
+        WishlistAccountOut: {
+            /** Account Id */
+            account_id: number;
+            /** Error */
+            error: string | null;
+            /** Error At */
+            error_at: string | null;
+            /** Needs Login */
+            needs_login: boolean;
+            /** Read At */
+            read_at: string | null;
+        };
+        /** WishlistAdd */
+        WishlistAdd: {
+            /** Account Id */
+            account_id: number;
+            /** Asin */
+            asin: string;
+        };
+        /**
+         * WishlistItemOut
+         * @description A book on one account's wishlist: a catalogue book, the account and when it was added.
+         */
+        WishlistItemOut: {
+            /** Abridged */
+            abridged: boolean | null;
+            /** Account Id */
+            account_id: number;
+            /** Added At */
+            added_at: string | null;
+            /** Asin */
+            asin: string;
+            /** Authors */
+            authors: components["schemas"]["CatalogAuthorOut"][];
+            /** Cover Url */
+            cover_url: string | null;
+            /** Genres */
+            genres: string[];
+            /**
+             * In Library
+             * @default false
+             */
+            in_library: boolean;
+            /** Language */
+            language: string | null;
+            /** Length Seconds */
+            length_seconds: number | null;
+            /**
+             * Library
+             * @default []
+             */
+            library: components["schemas"]["LibraryCopyOut"][];
+            /** Library Book Id */
+            library_book_id?: number | null;
+            /** Multipart */
+            multipart: boolean;
+            /** Narrators */
+            narrators: string[];
+            /**
+             * On Wishlist
+             * @default []
+             */
+            on_wishlist: number[];
+            /** Plus */
+            plus: boolean;
+            price: components["schemas"]["CatalogPriceOut"] | null;
+            primary_series: components["schemas"]["SeriesEntry"] | null;
+            /** Publisher */
+            publisher: string | null;
+            /** Rating */
+            rating: number | null;
+            /** Rating Count */
+            rating_count: number;
+            /** Release Date */
+            release_date: string | null;
+            /** Series */
+            series: components["schemas"]["SeriesEntry"][];
+            /** Subtitle */
+            subtitle: string;
+            /** Title */
+            title: string;
+        };
+        /** WishlistOut */
+        WishlistOut: {
+            /** Accounts */
+            accounts: components["schemas"]["WishlistAccountOut"][];
+            /** Items */
+            items: components["schemas"]["WishlistItemOut"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * WishlistRefresh
+         * @description Read one account's wishlist again, or every signed-in account's.
+         */
+        WishlistRefresh: {
+            /** Account Id */
+            account_id?: number | null;
         };
     };
     responses: never;
@@ -3239,6 +3463,139 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SystemInfo"];
+                };
+            };
+        };
+    };
+    get_wishlist_api_wishlist_get: {
+        parameters: {
+            query?: {
+                account_id?: number | null;
+                sort?: "date_added" | "title" | "release_date";
+                order?: ("asc" | "desc") | null;
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WishlistOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    add_to_wishlist_api_wishlist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WishlistAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WishlistItemOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_wishlists_api_wishlist_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["WishlistRefresh"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WishlistAccountOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_from_wishlist_api_wishlist__account_id___asin__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: number;
+                asin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Message"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
