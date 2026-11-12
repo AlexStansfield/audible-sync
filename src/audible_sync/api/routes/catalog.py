@@ -12,6 +12,7 @@ from typing import Annotated, Literal
 
 from audible.exceptions import AudibleError, NotFoundError, Unauthorized
 from fastapi import APIRouter, HTTPException, Path, Query
+from pydantic import AfterValidator
 
 from audible_sync.api.schemas import (
     AuthorOut,
@@ -31,8 +32,9 @@ from audible_sync.model import Account, CatalogBook
 logger = logging.getLogger(__name__)
 
 
-# ASINs are ten letters and digits; checked here, as one goes into Audible's URL
-Asin = Annotated[str, Path(pattern=r"^[A-Za-z0-9]{10}$")]
+# ASINs are ten letters and digits; checked here, as one goes into Audible's URL, and
+# made upper case, as Audible's are and every comparison here is exact
+Asin = Annotated[str, Path(pattern=r"^[A-Za-z0-9]{10}$"), AfterValidator(str.upper)]
 Term = Annotated[str | None, Query(min_length=1, max_length=200)]
 Sort = Literal[tuple(SORTS)]  # type: ignore[valid-type]
 

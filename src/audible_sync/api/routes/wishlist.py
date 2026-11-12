@@ -35,7 +35,7 @@ def router(*, catalog: Catalog | None = None, wishlists: Wishlists | None = None
     """The wishlist's routes; `catalog` picks the accounts, `wishlists` makes the requests."""
     router = APIRouter()
     catalog = catalog or Catalog()
-    wishlists = wishlists or Wishlists()
+    wishlists = wishlists or Wishlists(catalog=catalog)
 
     def items_out(items: list[WishlistItem]) -> list[WishlistItemOut]:
         accounts = {account.id: account for account in get_accounts()}

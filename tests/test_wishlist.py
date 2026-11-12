@@ -174,3 +174,46 @@ def test_a_failed_add_leaves_the_table_alone(account):
         make_wishlists(fake).add(account, "B000000001")
 
     assert database.get_wishlist_item(account.id, "B000000001") is None
+
+
+def test_an_add_during_a_read_waits_for_it_and_survives(account):
+    import threading
+
+    go = threading.Event()
+    reading = threading.Event()
+    fake = FakeAudible(account, on_audible=["B000000009"], catalogue=["B000000001"])
+    original = fake.get_wishlist
+
+    def slow_read(account_id):
+        # The list as it was when the read started, before the add
+        items = original(account_id)
+        reading.set()
+        go.wait(5)
+        return items
+
+    fake.get_wishlist = slow_read
+    reader = threading.Thread(target=lambda: read_wishlist(fake, account))
+    reader.start()
+    reading.wait(5)
+    adder = threading.Thread(target=lambda: make_wishlists(fake).add(account, "B000000001"))
+    adder.start()
+    adder.join(0.3)
+
+    # Without the lock the add finished here, and the read then wiped it out
+    assert adder.is_alive()
+    go.set()
+    reader.join(5)
+    adder.join(5)
+    assert database.get_wishlist_item(account.id, "B000000001") is not None
+
+
+def test_adding_reads_the_book_through_the_catalogues_cache(account):
+    from audible_sync.catalog import Catalog
+
+    fake = FakeAudible(account, catalogue=["B000000001"])
+    catalog = Catalog(client_for=lambda account: fake)
+    catalog.book(account, "B000000001")
+
+    Wishlists(client_for=lambda account: fake, catalog=catalog).add(account, "B000000001")
+
+    assert [call[0] for call in fake.calls] == ["book", "add"]

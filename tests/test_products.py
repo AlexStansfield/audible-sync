@@ -358,3 +358,40 @@ def test_the_wishlist_is_changed_by_asin():
 
     assert audible.client.posts == [("wishlist", {"asin": "B06XNYQJTX"})]
     assert audible.client.deletes == ["wishlist/B06XNYQJTX"]
+
+
+def _endless_wishlist(repeat=False, total=None):
+    """Full pages for ever: new books each page, or the same page again."""
+
+    def answer(params):
+        page = 0 if repeat else params["page"]
+        products_ = [make_product(f"B{page:04d}{n:05d}") for n in range(50)]
+        return {"products": products_, "total_results": total}
+
+    audible = Audible.__new__(Audible)
+    audible.client = FakeWishlistClient({"wishlist": answer})
+    return audible
+
+
+def test_a_wishlist_that_repeats_its_page_stops():
+    audible = _endless_wishlist(repeat=True)
+
+    assert len(audible.get_wishlist(1)) == 50
+    assert len(audible.client.calls) == 2
+
+
+def test_a_wishlist_read_stops_at_audibles_total():
+    audible = _endless_wishlist(total=100)
+
+    assert len(audible.get_wishlist(1)) == 100
+    assert len(audible.client.calls) == 2
+
+
+def test_a_wishlist_read_stops_at_the_cap_whatever_happens(monkeypatch):
+    import audible_sync.audible_api.client as client_module
+
+    monkeypatch.setattr(client_module, "_MAX_WISHLIST_PAGES", 3)
+    audible = _endless_wishlist()
+
+    assert len(audible.get_wishlist(1)) == 150
+    assert len(audible.client.calls) == 3

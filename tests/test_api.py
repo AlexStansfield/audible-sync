@@ -2815,3 +2815,32 @@ def test_stats_count_the_wishlists(wishlist_api):
 
 def test_wishlist_needs_the_token(wishlist_api):
     assert TestClient(wishlist_api.app).get("/api/wishlist").status_code == 401
+
+
+def test_wishlist_takes_an_asin_in_any_case(wishlist_api):
+    database.update_books(wishlist_api.account_id, [make_book("B000000002", id=None, account_id=None)])
+
+    owned = wishlist_api.post(
+        "/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "b000000002"}, headers=AUTH
+    )
+    added = wishlist_api.post(
+        "/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "b000000001"}, headers=AUTH
+    )
+    removed = wishlist_api.delete(f"/api/wishlist/{wishlist_api.account_id}/b000000001", headers=AUTH)
+
+    # Compared exactly, a lowercase ASIN slipped past the owned check and left its row behind
+    assert owned.status_code == 409
+    assert added.json()["asin"] == "B000000001"
+    assert removed.status_code == 200
+    assert database.get_wishlist_item(wishlist_api.account_id, "B000000001") is None
+
+
+def test_catalogue_book_with_a_library_status_this_build_does_not_know(wishlist_api):
+    database.update_books(wishlist_api.account_id, [make_book("B000000001", id=None, account_id=None)])
+    with sqlite3.connect(database.DB_FILE) as conn:
+        conn.execute("UPDATE library SET status = 'archived' WHERE asin = 'B000000001'")
+
+    response = wishlist_api.get("/api/catalog/books/b000000001", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["library"][0]["status"] is None

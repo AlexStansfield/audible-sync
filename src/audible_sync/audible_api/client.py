@@ -26,6 +26,9 @@ _PAGE_SIZE = 1000
 # enough to fit. Pages are requested one at a time, so this bounds a single page.
 _API_TIMEOUT = 60
 
+# 5,000 books: far beyond any wishlist seen, and a bound on a read that would not end
+_MAX_WISHLIST_PAGES = 100
+
 
 def _is_podcast(item: dict) -> bool:
     """
@@ -260,9 +263,12 @@ class Audible:
     def get_wishlist(self, account_id: int) -> list[WishlistItem]:
         """
         Every book on the wishlist, newest first, in fifties (Audible's limit), with the
-        time each was added. Like the catalogue, it counts its pages from 0.
+        time each was added. Like the catalogue, it counts its pages from 0. Stops at
+        Audible's total, at a page that only repeats books already read, and at
+        `_MAX_WISHLIST_PAGES` whatever happens.
         """
         items: list[WishlistItem] = []
+        seen: set[str] = set()
         page = 0
         while True:
             answer = self.client.get(
@@ -276,14 +282,26 @@ class Audible:
                 },
             )
             page_products = answer.get("products") or []
+            asins = {product.get("asin") for product in page_products}
+            # The catalogue answers a page past its reach with its last page again, rather
+            # than an empty one; the wishlist may too, and a loop waiting for a short page
+            # would never end
+            if asins and asins <= seen:
+                logger.warning("The wishlist repeated a page at page %d; stopping with %d books", page, len(items))
+                return items
+            seen |= asins
             added = {product.get("asin"): product.get("added_timestamp") for product in page_products}
             items.extend(
                 WishlistItem(account_id=account_id, book=book, added_at=added.get(book.asin))
                 for book in products.to_catalog_books(page_products)
             )
-            if len(page_products) < products.MAX_PAGE_SIZE:
+            total = answer.get("total_results")
+            if len(page_products) < products.MAX_PAGE_SIZE or (isinstance(total, int) and len(seen) >= total):
                 return items
             page += 1
+            if page >= _MAX_WISHLIST_PAGES:
+                logger.warning("Stopped reading the wishlist at %d pages (%d books)", page, len(items))
+                return items
 
     def add_to_wishlist(self, asin: str) -> None:
         """

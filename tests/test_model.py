@@ -350,3 +350,14 @@ def test_a_catalogue_book_from_another_version_still_reads():
     book = catalog_book_from_json(text)
 
     assert (book.asin, book.authors[0].name, book.price, book.multipart) == ("B1", "A", None, False)
+
+
+def test_a_catalogue_book_with_unknown_nested_keys_still_reads():
+    text = (
+        '{"asin": "B1", "title": "T", "authors": [{"name": "A", "asin": null, "role": "x"}],'
+        ' "price": {"currency": "GBP", "list_price": 1.0, "member_price": null, "credits": 1.0, "tax": 0}}'
+    )
+
+    book = catalog_book_from_json(text)
+
+    assert (book.authors[0].name, book.price.currency) == ("A", "GBP")

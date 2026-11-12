@@ -766,6 +766,12 @@ class WishlistAdd(BaseModel):
     account_id: int
     asin: Annotated[str, Field(pattern=r"^[A-Za-z0-9]{10}$")]
 
+    @field_validator("asin")
+    @classmethod
+    def _upper(cls, asin: str) -> str:
+        # Audible's ASINs are upper case, and every comparison here is exact
+        return asin.upper()
+
 
 class WishlistRefresh(BaseModel):
     """Read one account's wishlist again, or every signed-in account's."""

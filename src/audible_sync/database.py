@@ -19,6 +19,7 @@ from audible_sync.model import (
     catalog_book_from_json,
     catalog_book_to_json,
     fold_text,
+    parse_book_status,
 )
 from audible_sync.paths import REPO_ROOT
 from audible_sync.security import crypto
@@ -1161,7 +1162,7 @@ def list_books(
         return [Book.from_row(row) for row in rows], total
 
 
-def library_holdings(asins: list[str], country_code: str) -> dict[str, list[tuple[int, int, str | None]]]:
+def library_holdings(asins: list[str], country_code: str) -> dict[str, list[tuple[int, int, BookStatus | None]]]:
     """
     Which of these ASINs the libraries of a marketplace hold, as ASIN to (account id, row
     id, status) for every copy, oldest row first.
@@ -1169,7 +1170,7 @@ def library_holdings(asins: list[str], country_code: str) -> dict[str, list[tupl
     Every account of the marketplace counts, since a book in another login's library is
     as much at hand.
     """
-    found: dict[str, list[tuple[int, int, str | None]]] = {}
+    found: dict[str, list[tuple[int, int, BookStatus | None]]] = {}
     with closing(_get_connection()) as conn:
         for chunk in _chunks(asins):
             marks = ", ".join("?" * len(chunk))
@@ -1181,7 +1182,8 @@ def library_holdings(asins: list[str], country_code: str) -> dict[str, list[tupl
                 (country_code, *chunk),
             )
             for asin, account_id, book_id, status in rows:
-                found.setdefault(asin, []).append((account_id, book_id, status))
+                # A status this build does not know reads as None, as on a `Book`
+                found.setdefault(asin, []).append((account_id, book_id, parse_book_status(status)))
     return found
 
 
@@ -1804,11 +1806,11 @@ def delete_account(account_id: int) -> None:
 
 # --- wishlist ------------------------------------------------------------------
 
-# The wishlist's sorts and the direction each takes by default
+# The wishlist's sorts: the column, and how its values compare
 WISHLIST_SORT_COLUMNS = {
-    "date_added": "added_at",
-    "title": "title COLLATE NOCASE",
-    "release_date": "release_date",
+    "date_added": ("added_at", ""),
+    "title": ("title", " COLLATE NOCASE"),
+    "release_date": ("release_date", ""),
 }
 
 
@@ -1828,9 +1830,27 @@ def _wishlist_item(row: sqlite3.Row) -> WishlistItem:
     )
 
 
-def replace_wishlist(account_id: int, items: list[WishlistItem]) -> None:
-    """Store a wishlist read whole from Audible in place of the last, and record the read."""
+def _account_exists(conn: sqlite3.Connection, account_id: int) -> bool:
+    """
+    Whether the account is still there, checked inside a write transaction (`BEGIN
+    IMMEDIATE`), so it cannot be removed between the check and the write: a wishlist
+    read while its account was removed must not leave rows nothing would ever clear.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    if conn.execute("SELECT 1 FROM accounts WHERE id = ?", (account_id,)).fetchone() is None:
+        conn.rollback()
+        return False
+    return True
+
+
+def replace_wishlist(account_id: int, items: list[WishlistItem]) -> bool:
+    """
+    Store a wishlist read whole from Audible in place of the last, and record the read.
+    False, storing nothing, when the account has been removed meanwhile.
+    """
     with closing(_get_connection()) as conn:
+        if not _account_exists(conn, account_id):
+            return False
         conn.execute("DELETE FROM wishlist WHERE account_id = ?", (account_id,))
         # A book listed twice is stored once
         conn.executemany(
@@ -1843,11 +1863,14 @@ def replace_wishlist(account_id: int, items: list[WishlistItem]) -> None:
             (account_id, _utcnow()),
         )
         conn.commit()
+        return True
 
 
 def record_wishlist_failure(account_id: int, error: str) -> None:
     """Record a read of the wishlist that failed; the stored books stay as of the last good one."""
     with closing(_get_connection()) as conn:
+        if not _account_exists(conn, account_id):
+            return
         conn.execute(
             "INSERT INTO wishlist_reads (account_id, read_at, error, error_at) VALUES (?, NULL, ?, ?) "
             "ON CONFLICT(account_id) DO UPDATE SET error = excluded.error, error_at = excluded.error_at",
@@ -1867,8 +1890,13 @@ def wishlist_reads() -> dict[int, dict[str, str | None]]:
 
 
 def add_wishlist_item(item: WishlistItem) -> bool:
-    """Store a book just put on a wishlist; False when it was there already, which is left as it was."""
+    """
+    Store a book just put on a wishlist; False when it was there already, which is left as
+    it was, or the account has been removed meanwhile.
+    """
     with closing(_get_connection()) as conn:
+        if not _account_exists(conn, item.account_id):
+            return False
         cursor = conn.execute(_WISHLIST_INSERT.replace("INSERT", "INSERT OR IGNORE", 1), _wishlist_row(item))
         conn.commit()
         return cursor.rowcount == 1
@@ -1883,6 +1911,7 @@ def remove_wishlist_item(account_id: int, asin: str) -> bool:
 
 
 def get_wishlist_item(account_id: int, asin: str) -> WishlistItem | None:
+    """One book on one account's wishlist, as stored; None when it is not on it."""
     with closing(_get_connection()) as conn:
         row = conn.execute("SELECT * FROM wishlist WHERE account_id = ? AND asin = ?", (account_id, asin)).fetchone()
         return _wishlist_item(row) if row is not None else None
@@ -1908,8 +1937,8 @@ def list_wishlist(
     params: tuple = () if account_id is None else (account_id,)
     direction = "DESC" if descending else "ASC"
     # A missing date sorts last either way
-    column = WISHLIST_SORT_COLUMNS[sort]
-    order = f" ORDER BY {column.split()[0]} IS NULL, {column} {direction}, account_id, asin"
+    column, collation = WISHLIST_SORT_COLUMNS[sort]
+    order = f" ORDER BY {column} IS NULL, {column}{collation} {direction}, account_id, asin"
     with closing(_get_connection()) as conn:
         total = conn.execute(f"SELECT COUNT(*) FROM wishlist{clause}", params).fetchone()[0]
         rows = conn.execute(f"SELECT * FROM wishlist{clause}{order} LIMIT ? OFFSET ?", (*params, limit, offset))

@@ -7,11 +7,15 @@ which every read replaces and every add or remove keeps in step.
 """
 
 import logging
-from collections.abc import Callable
+import threading
+from collections import defaultdict
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 
 from audible_sync.audible_api.accounts import authenticator_for, keeping_credentials
 from audible_sync.audible_api.client import Audible
+from audible_sync.catalog import Catalog
 from audible_sync.database import (
     add_wishlist_item,
     get_wishlist_item,
@@ -23,6 +27,21 @@ from audible_sync.database import (
 from audible_sync.model import Account, WishlistItem
 
 logger = logging.getLogger(__name__)
+
+# One account's wishlist is read and stored, or changed, by one thread at a time: a read
+# replaces the table from a list fetched before it, so an add or a remove landing
+# between the fetch and the store would be undone. A run and the API share the process
+# (a CLI run beside the service is not covered, and the next read puts it right)
+_locks: defaultdict[int, threading.Lock] = defaultdict(threading.Lock)
+_locks_guard = threading.Lock()
+
+
+@contextmanager
+def _wishlist_of(account_id: int) -> Iterator[None]:
+    with _locks_guard:
+        lock = _locks[account_id]
+    with lock:
+        yield
 
 
 class OwnedBook(ValueError):
@@ -41,6 +60,11 @@ def read_wishlist(audible: Audible, account: Account) -> bool:
     read must leave the run's outcome alone. A failure is logged and recorded, and the
     books stored stay as of the last read that worked. Returns whether it was read.
     """
+    with _wishlist_of(account.id):
+        return _read_and_store(audible, account)
+
+
+def _read_and_store(audible: Audible, account: Account) -> bool:
     try:
         items = audible.get_wishlist(account.id)
     except Exception as error:
@@ -52,9 +76,12 @@ def read_wishlist(audible: Audible, account: Account) -> bool:
             logger.exception("Could not record the failed wishlist read of %r", account)
         return False
     try:
-        replace_wishlist(account.id, items)
+        stored = replace_wishlist(account.id, items)
     except Exception:
         logger.exception("Could not store the wishlist of %r", account)
+        return False
+    if not stored:
+        logger.info("Not storing the wishlist of %r: the account has been removed", account)
         return False
     logger.info("%d books on the wishlist of %s", len(items), account.name)
     return True
@@ -64,11 +91,13 @@ class Wishlists:
     """
     The calls that change or re-read a wishlist, each with the account's credentials.
 
-    `client_for` builds the Audible client from an account; tests hand in a fake.
+    `client_for` builds the Audible client from an account; tests hand in a fake. A book
+    is read through `catalog`, so one the catalogue showed a moment ago costs nothing.
     """
 
-    def __init__(self, client_for: Callable[[Account], Audible] | None = None):
+    def __init__(self, client_for: Callable[[Account], Audible] | None = None, catalog: Catalog | None = None):
         self.client_for = client_for or (lambda account: Audible(authenticator_for(account)))
+        self.catalog = catalog or Catalog(client_for=self.client_for)
 
     def refresh(self, account: Account) -> bool:
         """Read the account's wishlist again now; whether it could be (see `read_wishlist`)."""
@@ -90,14 +119,15 @@ class Wishlists:
         holders = {copy[0] for copy in library_holdings([asin], account.country_code).get(asin, [])}
         if account.id in holders:
             raise OwnedBook(f"{account.name} owns this book, so it cannot go on their wishlist")
-        with keeping_credentials(account, self.client_for(account)) as audible:
-            book = audible.get_catalog_book(asin)
-            if book is None:
-                raise NotInCatalogue(f"No book {asin} in the catalogue")
-            audible.add_to_wishlist(asin)
-        item = WishlistItem(account_id=account.id, book=book, added_at=_now())
-        added = add_wishlist_item(item)
-        return (item if added else get_wishlist_item(account.id, asin) or item), added
+        book = self.catalog.book(account, asin)
+        if book is None:
+            raise NotInCatalogue(f"No book {asin} in the catalogue")
+        with _wishlist_of(account.id):
+            with keeping_credentials(account, self.client_for(account)) as audible:
+                audible.add_to_wishlist(asin)
+            item = WishlistItem(account_id=account.id, book=book, added_at=_now())
+            added = add_wishlist_item(item)
+            return (item if added else get_wishlist_item(account.id, asin) or item), added
 
     def remove(self, account: Account, asin: str) -> bool:
         """
@@ -109,9 +139,10 @@ class Wishlists:
         Raises:
             audible.exceptions.AudibleError: when Audible refuses or does not answer
         """
-        with keeping_credentials(account, self.client_for(account)) as audible:
-            audible.remove_from_wishlist(asin)
-        return remove_wishlist_item(account.id, asin)
+        with _wishlist_of(account.id):
+            with keeping_credentials(account, self.client_for(account)) as audible:
+                audible.remove_from_wishlist(asin)
+            return remove_wishlist_item(account.id, asin)
 
 
 def _now() -> str:

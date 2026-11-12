@@ -2320,3 +2320,22 @@ def test_removing_an_account_removes_its_wishlist(db):
 
     assert database.list_wishlist()[1] == 0
     assert database.wishlist_reads() == {}
+
+
+def test_a_wishlist_of_a_removed_account_is_not_stored(db):
+    other = database.add_account("Other (UK)", "uk", auth=None)
+    database.delete_account(other)
+
+    assert database.replace_wishlist(other, [_wished("B1", account_id=other)]) is False
+    assert database.add_wishlist_item(_wished("B2", account_id=other)) is False
+    database.record_wishlist_failure(other, "boom")
+
+    assert database.wishlist_count() == 0
+    assert database.wishlist_reads() == {}
+
+
+def test_library_holdings_tolerate_a_status_this_build_does_not_know(db):
+    database.update_books(ACCOUNT, [make_book("B1")])
+    _set("B1", status="archived")
+
+    assert database.library_holdings(["B1"], "uk")["B1"][0][2] is None
