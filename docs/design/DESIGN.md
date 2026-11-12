@@ -1,4 +1,4 @@
-# Web app design (Milestone 4)
+# Web app design (Milestone 4, and v3.4.0's Search and Wishlist)
 
 > Where this document or a mockup in `screens/` disagrees with the code, the code wins: the mockups show the design as first planned, and are not kept up to date with every change.
 
@@ -24,13 +24,15 @@ The sample data (titles, counts, the ASIN, run numbers) is illustrative. The rea
 | `Accounts.dc.html` | Accounts and the Audible sign-in dialog | `/accounts` |
 | `Activity.dc.html` | Run history and the service log | `/activity` |
 | `Settings.dc.html` | Settings | `/settings` |
+| `Search.dc.html` | Search the Audible catalogue, a book's panel, a series (v3.4.0) | `/search` |
+| `Wishlist.dc.html` | Every account's wishlist (v3.4.0) | `/wishlist` |
 | `Profile.dc.html` | Your sign-in (change username and password) | `/profile` |
 | `NotFound.dc.html` | 404 for an unknown route or a book that does not exist (`kind`) | any unknown path |
 | `Unreachable.dc.html` | The service cannot be reached at all | - |
 | `Patterns.dc.html` | Common patterns: skeletons, a failed request, toasts | - |
 | `State*.dc.html`, `Phone*.dc.html`, `Light*.dc.html` | Frames that show a screen above with one variant switched on (first run, empty library, bulk selection, each Accounts dialog, phone width, light theme). They contain no design of their own: read the screen they import and its variant | - |
 
-Every screen's `data-props` lists its variants. Round 2 added: Dashboard `firstRun`, `generatedPassword`; Library `empty` (`noBooks`, `noResults`) and `bulk` (`selecting`, `confirmDelete`, `result`); Book `status` = `downloading`, `monitored`, `sizeKnown`, `noRun`; Accounts `step` = `expired`, `failed`, `relogin`, `rename`, `remove`, `menu`; Sign in `forgot`; Settings `token` (`masked`, `confirm`, `regenerated`), `lowDisk`; Activity `expanded`.
+Every screen's `data-props` lists its variants. Round 2 added: Dashboard `firstRun`, `generatedPassword`; Library `empty` (`noBooks`, `noResults`) and `bulk` (`selecting`, `confirmDelete`, `result`); Book `status` = `downloading`, `monitored`, `sizeKnown`, `noRun`; Accounts `step` = `expired`, `failed`, `relogin`, `rename`, `remove`, `menu`; Sign in `forgot`; Settings `token` (`masked`, `confirm`, `regenerated`), `lowDisk`; Activity `expanded`. v3.4.0 added Search `state`, `series`, `action`, `tips`, `detail`, `capped`, `accounts`; Wishlist `state`, `remove`, `refreshing`, `partial`, `accounts`; Library `search` and `tips`.
 
 ## Stack
 
@@ -116,7 +118,7 @@ There is one user and no sign-up.
 
 ## Layout shared by every screen
 
-Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with the total book count), Activity, Accounts (with a red dot when an account needs a sign-in), Settings; at the foot, the service state (healthy, or "Syncing · book 3 of 10" while a run is in flight), the username linking to Your sign-in, and Sign out.
+Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with the total book count), Search, Wishlist (with the number of books on every wishlist), Activity, Accounts (with a red dot when an account needs a sign-in), Settings; at the foot, the service state (healthy, or "Syncing · book 3 of 10" while a run is in flight), the username linking to Your sign-in, and Sign out.
 
 **Polling `GET /api/status`:** every 2 s while `scheduler.running` is true, every 10 s otherwise (30 s at first; a run the schedule started went unseen for up to half a minute), and once straight after any action that starts or stops a run. The dashboard's run card, the sidebar's service state and the library's Downloading badges all read this one query. When a run finishes, refetch the stats, the library and the runs.
 
@@ -136,7 +138,7 @@ Sidebar: the logo and version (from `GET /api/health`); Dashboard, Library (with
 
 `GET /api/books` with `q`, `account_id`, `status`, `monitored`, `sort`, `order`, `page` and `page_size`. Keep every filter in the URL query string so a filtered view can be bookmarked and survives a reload.
 
-- **Toolbar:** search (debounced by about 300 ms, over title, author and series), Account, Sort (date added, title, author, release date, downloaded), and a grid/table view switch stored in `localStorage`.
+- **Toolbar:** search (debounced by about 300 ms, over title, author and series; v3.4.0 adds the prefixes, see [Library: the search box](#library-the-search-box-search-tips)), Account, Sort (date added, title, author, release date, downloaded), and a grid/table view switch stored in `localStorage`.
 - **Status filter chips** with counts from the stats (All, Downloaded, Waiting, Downloading, Unavailable, Failed), and an "Unmonitored only" checkbox (`monitored=false`).
 - **Grid:** square covers (`GET /api/books/{id}/cover`, lazy loaded) with a status badge, a progress strip on the book downloading, and title and author under it. The bookmark button toggles monitoring (`PATCH /api/books/{id}` with `{"monitored": bool}`). Update it optimistically and roll back on an error.
 - **Table:** title with a small cover, author, series, account, status, added, and a monitored switch. It scrolls sideways on narrow screens.
@@ -277,6 +279,110 @@ At 720px and narrower the sidebar is hidden and a **56px top bar** takes its pla
 
 Page padding drops to 20px top and 16px at the sides. The Dashboard totals and covers, and the Library grid, use `repeat(auto-fill/auto-fit, minmax(...))` so they drop columns by themselves (two covers across at 390px). Toolbars and button rows wrap; the Library table keeps its minimum width and scrolls sideways inside its card. The `Phone*` frames show the Dashboard, both Library views and the open menu at 390px, in dark and light.
 
+## v3.4.0: Search and Wishlist
+
+Two new screens, Search (`Search.dc.html`, `/search`) and Wishlist (`Wishlist.dc.html`, `/wishlist`), and a change to Library's search box. They go in the sidebar and the phone's drawer after Library: Search with a magnifier, Wishlist with a heart and the number of books on every wishlist. The `StateSearch*`, `StateWishlist*`, `StateLibraryPrefix*`, `Light*` and `Phone*` frames of the v3.4.0 row on the canvas show each variant switched on.
+
+### A catalogue book
+
+Search, a series, a book's panel and the Wishlist all show a catalogue book (`CatalogBookOut`) the same way: one row, not a grid, since a book carries more than a cover can.
+
+- **Cover** 88px square (64 in a series, 40 for an edition, 160 in the panel), and the title with its subtitle after a colon. The cover and the title open the book's panel.
+- **By** the authors (`authors[].name`) · **Narrated by** the narrators.
+- **The series** from `primary_series`, as "Old Man's War, Book 1" (never `series[0]`); no line when there is none.
+- **A line of facts:** length (`length_seconds` as "11h 12m"), "Released 2007" (the year; the full date in the panel), and the rating as "★ 4.6 (41,880)". A book with no ratings leaves the rating out.
+- **The price**, at the right of the row (under it on a phone): the member price prominent (17px bold), the list price before it struck through and muted, and "or 1 credit" under them. Only one price when the two are equal or the member price is null; no price block at all when `price` is null. Amounts are in `price.currency`, formatted for the browser's locale.
+- **Three markers**, small pills under the facts, always in this order:
+  - **In library** (`in_library`): `--ok` text on `--ok` at 14%, a check, "In library →", linking to `/library/{library_book_id}`.
+  - **On wishlist**: the accent heart, `--accent-text` on `--accent` at 14%. With several accounts it names the account: "On Alex (UK)'s wishlist"; with one, "On wishlist". A book on two accounts' wishlists shows one marker per account.
+  - **Plus** (`plus`): an outline pill, `--text-2` on a `--line-strong` border, titled "Included in Audible Plus". It is information, not a status, so it takes no status colour.
+- **The action** under the price: **Add to wishlist** (outline heart) or **Remove from wishlist** (filled heart in `--accent-text`), a secondary button. While the request is in flight it is disabled and busy ("Adding…", "Removing…", a spinner, `aria-busy`), and the marker changes only once the API has answered. **No Add for a book the account owns:** Audible's wishlist refuses it, so a row marked In library by the account it would be added to has no button, and the panel says "Alex (UK) owns this book, so it cannot go on their wishlist." When another account of the marketplace holds it, Add is still offered, to the accounts that do not.
+
+### The search box and its prefixes (Search and Library)
+
+One parser in the web app for both pages, with the rules decided for v3.4.0: the prefixes are `author:`, `narrator:`, `series:` and `title:`; a value runs to the next prefix or the end, so no quotes; anything not after a prefix is keywords; only those four words count, so "Star Wars: Trials of the Jedi" is plain keywords. A prefix is matched case-insensitively at the start of a word.
+
+- **The box keeps exactly what was typed**, `author:John Scalzi colonial`. It is not tokenised in place: editing text stays ordinary editing.
+- **Search tips**, a small button inside the box at its right end, opens a popover (`tips` variant): a line on how a value runs, the four prefixes in mono accent with what each matches and an example, one combined example, and the note that only those four words count. Escape, the ×, or a click outside closes it. Under the box, a line of helper text repeats the four prefixes, and the box's placeholder names them too.
+- **Chips** under the box, labelled "Searching for", show what the box was read as: one chip per prefix ("Author John Scalzi ×", the field muted and the value bold) and one for the keywords ("Keywords colonial ×", on a fainter border). The chips are 6px-radius tokens, not pills, so they never read as the status filters. Removing a chip takes that part out of the box and searches again; **Clear search** empties the box. No chips row when the box is empty.
+- The query is in the URL as typed (`?q=author:John%20Scalzi%20colonial`), so a search can be bookmarked and survives a reload; it is debounced by about 300 ms, as on Library.
+
+### Search (`Search.dc.html`)
+
+`GET /api/catalog/search` with what the box was read into (`keywords`, `author`, `narrator`, `title`), `category_id`, `sort`, `page`, `page_size` (20) and `account_id`. A `series:` goes to the series view below instead.
+
+- **Header:** "Search", and "The Audible catalogue on audible.co.uk, with Alex (UK)'s prices", from the account searched.
+- **Toolbar:** the search box (it takes the free width); **Search in**, only when there are several signed-in accounts: each as "Alex (UK) · audible.co.uk", by default the API's own choice (the oldest signed in), since the account picks the marketplace and the member price; with one account there is no control at all. **Category**: "All categories" then the 24 or so top-level categories of `GET /api/catalog/categories`; choosing one adds a second select beside it for its children, starting at "All of Science Fiction & Fantasy". **Sort**: Relevance (the default), Bestsellers, Newest, Oldest, Title (`relevance`, `bestsellers`, `newest`, `oldest`, `title`). All in the URL.
+- **Results:** a count line, "64 results on audible.co.uk" (`total`), then the rows in one card, then the pager: "1–20 of 64", Prev, page numbers, Next. A page may hold a few fewer than 20, as podcasts are left out; nothing says so.
+- **Past what Audible pages** (`capped`): when `total` is above `reachable`, the count line adds "Audible shows only the first 1,000; narrow the search to see the rest"; the pager's last page is `reachable / page_size`, with Next disabled there, and under it a note with the warning border: "Showing the first 1,000 of 4,210 results. Audible pages no further. Narrow the search with a prefix or a category to see more." A page past `reachable` is a 422; a hand-edited URL that asks for one goes to the last reachable page.
+- **Adding with several accounts:** Add to wishlist gets a chevron and opens a small menu (`action=addMenu`), "Add to the wishlist of", listing the signed-in accounts **of the searched marketplace**, the searched one first and marked "searched". A book and its ASIN belong to their marketplace, so an account on another one is not offered, and the menu's foot says so. When the marketplace has a single account, Add adds straight away without a menu, even with several accounts in all.
+- **Removing:** Remove from wishlist takes the book off the wishlist the marker names, with no confirmation, since adding it back is one click. A book on two accounts' wishlists gets a menu of the two, like Add.
+- **Feedback** (`action`): `adding` and `removing` show the busy button on that row only; `added` shows the marker and the Remove button, and a success toast "Added to Alex (UK)'s wishlist" (with one account, "Added to your wishlist"); `removed` likewise ("Removed from Alex (UK)'s wishlist"); `addFailed` and `removeFailed` put the button back as it was and show an error toast, "Could not add Zoe's Tale to the wishlist" with the API's `detail`.
+
+**States** (`state`):
+
+- `intro`, the first visit, an empty box: a card "Search the Audible catalogue", saying it searches everything Audible sells on the marketplace, not your library; that a book a library here holds is marked In library; and whose prices are shown. Beside it, the four prefixes with what each does, and three example searches as buttons (`author:Adrian Tchaikovsky`, `series:The Expanse`, `narrator:Ray Porter dragons`) that fill the box and search.
+- `loading`: the results card as a skeleton of five rows (cover, three lines, a marker, the price and a button).
+- `results`: as above.
+- `noResults`: the filters stay as set; a card "No books match this search" restates it in words, "Nothing on audible.co.uk matches author John Scalzi with the keywords “zombies” in Science Fiction & Fantasy › Military.", and offers **Clear filters** (the box, the category and the sort). No pager.
+- `noAccount`, when no account is signed in (none, or all `needs_login`): the toolbar is hidden, and a dashed card reads "No account to search with / Add an Audible account, or sign in to one, to search the catalogue", with **Go to Accounts**. Also the answer to the API's 409.
+- `error`, Audible not answering (a 502): the usual failed-request card in place of the results, "Could not search the catalogue", the `detail`, `GET /api/catalog/search · 502`, and Retry. The toolbar stays usable.
+
+### A book's panel (`detail`)
+
+A side panel from the right, 520px wide over the dimmed page (the whole screen on a phone), opened from a cover or a title on Search, in a series or on the Wishlist. It reads `GET /api/catalog/books/{asin}` for the description; the row's data shows at once while it loads. The book is in the URL (`?book=B002V0QK4C`), so Back closes it and a link opens it. Escape, the × and the backdrop close it; focus is trapped inside while it is open.
+
+- The marketplace as an eyebrow, the 160px cover, the title (22px bold), subtitle, authors, narrators, the series, and the markers.
+- **"In your library"**, when held: a full-width link card, "In your library · Alex (UK), Downloaded", **Open →**, to the library book. It names the account and the book's status, from `library_book_id`.
+- The price block (member price 20px, the list price struck through, "Member price · or 1 credit") and Add or Remove, as in the row.
+- **Details:** length, released (the full date), language, publisher, Unabridged or Abridged (`abridged`; left out when null), genres, the rating "★ 4.6 from 41,880 ratings", and the ASIN in mono.
+- **Description** from `description_html`, the allow-listed HTML as on the Book page, folded to about six lines with Show more.
+
+### Series (`series`)
+
+A `series:` in the box asks `GET /api/catalog/series?name=` (with `author`, when the box has one, to narrow it). Category and Sort are disabled, and the helper line says why: a series is shown in reading order. Other prefixes and keywords narrow the series' books in the browser.
+
+- `choose`, several match: a card "3 series match “Old Man's War”", and one row per match, best first as the API orders them: the title, an "Exact match" pill on `exact` ones, and "6 books found" (`books_found`). The line under the heading says the counts are a rough guide, since they are the books a search for the name returned, not the size of the series. Choosing one shows it, and the series view keeps a "← 2 other series matched" link back.
+- `one`, one match (straight away) or a choice: `GET /api/catalog/series/{asin}`. A card with the eyebrow "Series", the title, and "14 books in 7 positions, in reading order · 3 in a library here". One row per **position** (`sequence`: 1, 2, 2.5, 3 …), the position large in mono on the left, books with no position last.
+  - **The edition shown** for a position: one a library here holds, else one on a wishlist, else the one with the most ratings. It is a full row: cover, title, byline, facts, markers, price, Add or Remove.
+  - **"3 editions"**, a small outline button under it with a chevron (`aria-expanded`), when the position has more than one; open, it reads "Hide the other 2 editions" and lists them indented on a 2px rule. Each edition is one line: a 40px cover, its title as Audible writes it, **what differs** (narrator, length, release year, and a word when it can be told: "the same audio in two parts" for a "Part 1 of 2", "a new recording" for another narrator of the same title, "one of 13 episodes"), its markers, its member price and a small Add or Remove. One edition can be In library while another is not, which is the point of showing them.
+  - Positions with several editions start folded, except the first one with more than one, which shows the pattern.
+- None match: the `noResults` card, worded for a series: "No series called “…” was found on audible.co.uk."
+
+### Wishlist (`Wishlist.dc.html`)
+
+Every signed-in account's wishlist in one list. Each book is a catalogue book as above, plus the account whose wishlist it is on (a marketplace code chip and the name, only with several accounts) and "Added 10 Nov" (`Today` when recent). The same book on two accounts' wishlists is two rows, one per account.
+
+- **Header:** "Wishlist", "23 books on the wishlists of 3 accounts" (with one, "23 books on your wishlist"). At the right: "Updated 2 hours ago", **Refresh from Audible** (a secondary button) and **Find books** (primary, to Search).
+- **Refresh from Audible** re-reads every wishlist. While it runs (`refreshing`) the button is busy ("Refreshing…") and the line reads "Reading the wishlists from Audible…"; the list stays as it is until the answer replaces it. Otherwise the list is as of the last sync, which reads the wishlists, so it can be a few hours old.
+- **Toolbar:** Account (All accounts, then each, only with several), Sort: Date added, newest first (the default), Title, Release date. Both in the URL. At the right, "2 already in a library", with the `--ok` dot.
+- **In library, prominently:** a book a library here holds is the reason to remove it, so its row has a 3px `--ok` edge on the left and an `--ok` tint at 5%, and the marker sits above the title, larger, naming the library: "In Alex (US)'s library →" (with one account, "In your library →"), linking to the book.
+- **Remove** on each row, a secondary button, never the destructive style. It confirms (`remove=confirm`): "Remove The Ghost Brigades from Alex (UK)'s wishlist?", "It comes off the wishlist on Audible too. You can add it back from Search.", **Keep it** and **Remove from wishlist** (the accent button). Then `removing`: the row dims and its button is busy; `removed`: the row goes and a toast says so; `failed`: the row is back as it was and an error toast reads "Could not remove The Ghost Brigades" with the `detail`.
+- A book's cover and title open the same panel as on Search, for the account's marketplace.
+- 50 rows a page, with the Library's pager when there are more.
+
+**States** (`state` and the switches):
+
+- `loading`: the toolbar, and five skeleton rows.
+- `list`: as above.
+- `empty`, every account's wishlist is empty: a dashed card, "Every wishlist is empty" (with one account, "Your wishlist is empty"), saying to search the catalogue and that books added on Audible itself show up after the next sync or straight away with Refresh, and **Search the catalogue**.
+- `filterEmpty`, the account filter matches nothing although others have books: "Sam (UK)'s wishlist is empty", "The other accounts have 21 books on theirs.", **Show all accounts** and **Search the catalogue**. The toolbar stays.
+- `partial`, one account's wishlist could not be read: a notice with the warning border above the list, "Alex (US)'s wishlist could not be read. Audible did not answer. The other accounts' wishlists are shown; Alex (US)'s books are as of the last read, 2 days ago.", and **Try again**. The "Updated" line names that account's own time. An account that needs a sign-in says so instead, linking to Accounts.
+- `noAccount`: as on Search, "No wishlist to show / Add an Audible account, or sign in to one, to see its wishlist here", **Go to Accounts**.
+
+### Library: the search box (`search`, `tips`)
+
+- Library's box takes the same four prefixes, with the same Search tips popover and the same chips; its placeholder reads "Title, author or series, or author: narrator: series: title:". Plain words keep matching title, author or series (`q`); a prefix goes to `title`, `author`, `narrator` or `series` of `GET /api/books`.
+- **Two rows of chips**, the search's first: when the box has a prefix, the chips row "Searching for" sits under the toolbar, and the status row under it gets a matching "Status" label in the same column, so the two read as two filters stacked, one from the box and one chosen. The search chips are square-ish tokens with ×; the status chips stay toggle pills. Without a prefix there is no chips row and no label, as before.
+- The status chips' counts stay those of the library (`GET /api/stats`), not of the search, as now.
+- **`noResults` with a prefix** (`StateLibraryPrefixNoResults`): both rows stay, and the card restates them: "Nothing matches author Mark Lawrence and series “Broken Empire” in Failed." **Clear filters** clears the box and the status.
+
+### Backend work for v3.4.0
+
+- **The wishlist** (`feat/wishlist`): `GET /api/wishlist` with `account_id`, `sort` and paging, each item a `CatalogBookOut` plus `account_id` and `added_at`, and per account when it was last read and whether that read failed (`accounts: [{id, read_at, error}]`), which the Updated line, the `partial` notice and the sidebar count need. `POST /api/wishlist` `{account_id, asin}` and `DELETE /api/wishlist/{account_id}/{asin}`, answering with the item or 404, and keeping the table in step at once, since Audible answers both silently. `POST /api/wishlist/refresh` re-reads every account's wishlist (or one, `account_id`).
+- **The wishlist markers on catalogue books:** `CatalogBookOut` needs the accounts whose wishlist holds the book (`on_wishlist: [account_id]`), from our table, for Search, a series and the panel.
+- **The library book behind In library:** the panel names the account and the status of `library_book_id`; `GET /api/books/{id}` already gives both, so this is one more request, or two fields on `CatalogBookDetail`.
+
 ## Behaviour common to every screen
 
 - Show a skeleton while loading, a message with Retry when a request fails, and a short confirmation after an action (a toast is fine).
@@ -296,5 +402,6 @@ Page padding drops to 20px top and 16px at the sides. The Dashboard totals and c
 6. **Docker:** a Node build stage that runs the `web/` build and copies `dist` into the image; `.dockerignore` for `web/node_modules`.
 7. **CI:** lint, type-check and build `web/` beside the Python checks.
 8. **Round 2:** `generated_password` on `GET /api/auth/me` (the dashboard banner); `POST /api/books/bulk`; the API-token endpoints and `GET /api/system`; optionally `GET /api/queue` for Up next; per-book run records and `GET /api/sync/runs/{id}/books` (lowest priority). Each is described under its screen in Round 2 above.
+9. **v3.4.0:** the wishlist endpoints, the wishlist markers on catalogue books, and the library book behind In library, under [v3.4.0's backend work](#backend-work-for-v340).
 
 Open question: `GET /api/books` has no per-book file size, only the totals in `/api/stats`, so the design shows no sizes per book.

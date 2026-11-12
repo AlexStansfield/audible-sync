@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Audible Sync – Search</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+<style>
+body{margin:0;background:#0e1014}
+[data-theme="dark"]{--bg:#0e1014;--nav:#12141a;--panel:#161920;--raised:#1d212a;--line:#272c36;--line-strong:#3a404c;--code:#0b0d10;--text:#e7e9ee;--text-2:#b6bdca;--muted:#9ba3b4;--faint:#6f7889;--accent:#f2a541;--accent-text:#f2a541;--accent-hover:#ffc477;--ok:#4ccf8f;--info:#6fb1ff;--bad:#ff7a7a;--bad-text:#ff9a9a;--violet:#b79cff;--bad-line:#6b3434;--warn-line:#6b5228;--pill:rgba(14,16,20,0.82);color-scheme:dark}
+[data-theme="light"]{--bg:#f4f5f7;--nav:#ffffff;--panel:#ffffff;--raised:#eef0f3;--line:#e2e5ea;--line-strong:#c6ccd5;--code:#f4f5f7;--text:#15181e;--text-2:#3b4250;--muted:#5b6372;--faint:#8b929e;--accent:#f2a541;--accent-text:#9a5300;--accent-hover:#7a4100;--ok:#14794a;--info:#1c5fbf;--bad:#c22f2f;--bad-text:#b02424;--violet:#6541c4;--bad-line:#efb4b4;--warn-line:#eccf96;--pill:rgba(255,255,255,0.94);color-scheme:light}
+a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
+[data-shell="topbar"],[data-shell="close"],[data-shell="backdrop"]{display:none!important}
+@media (max-width: 720px){[data-shell="topbar"]{display:flex!important}[data-shell="close"]{display:flex!important}[data-shell="nav"]{display:none!important}[data-shell="nav"][data-open="true"]{display:flex!important;position:fixed;top:0;bottom:0;left:0;z-index:30;width:min(300px,86vw);overflow-y:auto;box-shadow:0 0 48px rgba(0,0,0,0.4)}[data-shell="backdrop"]{display:block!important}[data-shell="brand"]{padding:4px 4px 18px 10px!important}[data-shell="main"]{padding:20px 16px 40px!important}[data-panel="sheet"]{width:100%!important;max-width:none!important;border-left:0!important}[data-toasts]{left:12px!important;right:12px!important;bottom:12px!important}[data-toasts] > *{width:auto!important}[data-row="actions"]{flex:1 1 100%!important;flex-direction:row!important;flex-wrap:wrap;align-items:center!important;justify-content:space-between!important;margin-left:0!important}}
+@keyframes dc-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){[data-spin]{animation:none!important}}
+</style>
+</helmet>
+<div data-theme="{{theme}}" style="position: relative; min-height: 100vh; display: flex; flex-wrap: wrap; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; font-size: 14px; line-height: 1.45">
+
+<header data-shell="topbar" style="flex: 1 1 100%; align-items: center; gap: 8px; min-height: 56px; padding: 0 12px 0 4px; background: var(--nav); border-bottom: 1px solid var(--line); box-sizing: border-box">
+<button type="button" aria-label="Open menu" aria-controls="main-nav" aria-expanded="{{navOpen}}" onClick="{{openNav}}" style="width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+<span aria-hidden="true" style="width: 28px; height: 28px; flex: none; border-radius: 7px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg></span>
+<span style="font-weight: 700; font-size: 16px">Search</span>
+<a href="Profile.dc.html" aria-label="Your sign-in" style="margin-left: auto; width: 36px; height: 36px; flex: none; border-radius: 50%; background: var(--raised); border: 1px solid var(--line-strong); color: var(--text); text-decoration: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700">A</a>
+</header>
+<sc-if value="{{navOpen}}" hint-placeholder-val="{{ false }}">
+<button type="button" data-shell="backdrop" aria-label="Close menu" tabindex="-1" onClick="{{closeNav}}" style="position: fixed; inset: 0; z-index: 25; border: 0; padding: 0; background: rgba(5,6,8,0.6); cursor: pointer"></button>
+</sc-if>
+<nav aria-label="Main" id="main-nav" data-open="{{navOpen}}" data-shell="nav" style="flex: 1 1 232px; background: var(--nav); border-right: 1px solid var(--line); padding: 20px 14px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px">
+<div data-shell="brand" style="display: flex; align-items: center; gap: 10px; padding: 4px 10px 22px">
+<div style="width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: #1a1206; display: flex; align-items: center; justify-content: center">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"></path><rect x="3" y="14" width="4" height="7" rx="1.5"></rect><rect x="17" y="14" width="4" height="7" rx="1.5"></rect></svg>
+</div>
+<div data-shell="brand-text" style="display: flex; flex-direction: column"><span style="font-weight: 700; font-size: 15px">Audible Sync</span><span style="font-size: 12px; color: var(--muted)">v3.4.0</span></div>
+<button type="button" data-shell="close" aria-label="Close menu" onClick="{{closeNav}}" style="margin-left: auto; width: 44px; height: 44px; flex: none; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; align-items: center; justify-content: center"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+<a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
+<a href="Library.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path><path d="M8 7h7"></path></svg>Library<span style="margin-left: auto; font-size: 12px; color: var(--muted)">354</span></a>
+<a href="Search.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 600; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>Search</a>
+<a href="Wishlist.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>Wishlist<span style="margin-left: auto; font-size: 12px; color: var(--muted)">7</span></a>
+<a href="Activity.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Activity</a>
+<a href="Accounts.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"></circle><path d="M4 21c0-4 4-6 8-6s8 2 8 6"></path></svg>Accounts</a>
+<a href="Settings.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M4 12h4M12 12h8M4 18h12"></path><circle cx="17" cy="6" r="2.5"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="19" cy="18" r="2"></circle></svg>Settings</a>
+<div data-shell="nav-foot" style="margin-top: auto; padding: 14px 12px 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)"><span style="width: 8px; height: 8px; border-radius: 50%; background: var(--ok)"></span>Healthy</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><a href="Profile.dc.html" style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text); text-decoration: none; min-height: 32px"><span aria-hidden="true" style="width: 26px; height: 26px; border-radius: 50%; background: var(--line); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700">A</span>admin</a><a href="Login.dc.html" style="font-size: 13px; color: var(--text-2); text-decoration: none">Sign out</a></div>
+</div>
+</nav>
+
+<main data-shell="main" style="flex: 999 1 560px; min-width: 0; padding: 28px 36px 48px; box-sizing: border-box; display: flex; flex-direction: column; gap: 20px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 24px; font-weight: 700">Search</h1>
+<span style="color: var(--muted); font-size: 13px">{{subtitle}}</span>
+</div>
+</header>
+
+<sc-if value="{{noAccount}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="noacc-h" style="background: var(--panel); border: 1px dashed var(--line-strong); border-radius: 14px; padding: 64px 24px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center">
+<div style="width: 64px; height: 64px; border-radius: 16px; background: var(--raised); color: var(--muted); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></div>
+<h2 id="noacc-h" style="margin: 0; font-size: 19px; font-weight: 700">No account to search with</h2>
+<p style="margin: 0; color: var(--text-2); max-width: 460px">Add an Audible account, or sign in to one, to search the catalogue. The search goes through an account, which picks the marketplace and the prices shown.</p>
+<a href="Accounts.dc.html" style="min-height: 44px; padding: 0 18px; border-radius: 8px; background: var(--accent); color: #1a1206; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 8px">Go to Accounts</a>
+</section>
+</sc-if>
+
+<sc-if value="{{hasAccount}}" hint-placeholder-val="{{ true }}">
+<section aria-label="Search" style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center">
+<div style="flex: 1 1 300px; min-width: 0; position: relative; display: flex; align-items: center">
+<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--muted); position: absolute; left: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+<label for="cq" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search the Audible catalogue</label>
+<input id="cq" type="search" size="1" value="{{query}}" placeholder="Title, author or keywords, or author: narrator: series: title:" aria-describedby="cq-hint" style="width: 100%; min-height: 44px; padding: 0 108px 0 38px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; box-sizing: border-box">
+<button type="button" aria-expanded="{{tipsOpen}}" aria-controls="tips" onClick="{{toggleTips}}" style="position: absolute; right: 6px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{tipsBorder}}; background: var(--raised); color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17v.01"></path></svg>Search tips</button>
+<sc-if value="{{tipsOpen}}" hint-placeholder-val="{{ false }}">
+<div id="tips" role="dialog" aria-label="Search tips" style="position: absolute; top: calc(100% + 8px); right: 0; z-index: 12; width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; padding: 16px; box-shadow: 0 16px 40px rgba(0,0,0,0.28); display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+<div style="display: flex; align-items: center"><span style="font-weight: 600">Search tips</span><button type="button" aria-label="Close search tips" onClick="{{toggleTips}}" style="margin-left: auto; width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>
+<p style="margin: 0; font-size: 13px; color: var(--text-2)">Start a part of the search with a prefix to search one field. A value runs to the next prefix or the end, so no quotes are needed. Anything else is keywords.</p>
+<dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<sc-for list="{{tips}}" as="t" hint-placeholder-count="4">
+<dt style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-text); font-weight: 500">{{t.prefix}}</dt><dd style="margin: 0; color: var(--text-2)">{{t.what}}</dd>
+</sc-for>
+</dl>
+<div style="padding: 10px 12px; border-radius: 8px; background: var(--raised); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text)">author:John Scalzi series:Old Man's War</div>
+<p style="margin: 0; font-size: 12px; color: var(--muted)">Only these four words count: “Star Wars: Trials of the Jedi” is searched as written.</p>
+</div>
+</sc-if>
+</div>
+<sc-if value="{{several}}" hint-placeholder-val="{{ true }}">
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted)">Search in
+<select style="min-height: 44px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit"><option>Alex (UK) · audible.co.uk</option><option>Sam (UK) · audible.co.uk</option><option>Alex (US) · audible.com</option></select></label>
+</sc-if>
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted)">Category
+<select disabled="{{inSeries}}" style="min-height: 44px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit"><option>{{category}}</option><option>Science Fiction &amp; Fantasy</option><option>Mystery, Thriller &amp; Suspense</option><option>Biographies &amp; Memoirs</option></select></label>
+<sc-if value="{{hasSubcategory}}" hint-placeholder-val="{{ false }}">
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted)"><span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Subcategory</span>
+<select style="min-height: 44px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit"><option>Military</option><option>All of Science Fiction &amp; Fantasy</option><option>Space Opera</option><option>Fantasy</option></select></label>
+</sc-if>
+<label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted)">Sort
+<select disabled="{{inSeries}}" style="min-height: 44px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit"><option>Relevance</option><option>Bestsellers</option><option>Newest</option><option>Oldest</option><option>Title</option></select></label>
+</div>
+<span id="cq-hint" style="font-size: 12px; color: var(--muted)">{{hint}}</span>
+<sc-if value="{{hasChips}}" hint-placeholder-val="{{ true }}">
+<div role="group" aria-label="Searching for" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<span style="font-size: 12px; color: var(--muted); margin-right: 2px">Searching for</span>
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="2">
+<span style="display: inline-flex; align-items: center; min-height: 32px; padding: 0 4px 0 10px; border-radius: 6px; border: 1px solid {{c.border}}; background: var(--raised); font-size: 13px"><span style="color: var(--muted); margin-right: 5px">{{c.label}}</span><span style="font-weight: 600">{{c.value}}</span><button type="button" aria-label="Remove {{c.label}} {{c.value}}" style="width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></span>
+</sc-for>
+<button type="button" style="border: 0; background: transparent; padding: 0 4px; min-height: 32px; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer">Clear search</button>
+</div>
+</sc-if>
+</section>
+</sc-if>
+
+<sc-if value="{{intro}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="intro-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 32px; display: flex; flex-wrap: wrap; gap: 28px 40px">
+<div style="flex: 1 1 320px; display: flex; flex-direction: column; gap: 12px">
+<h2 id="intro-h" style="margin: 0; font-size: 19px; font-weight: 700">Search the Audible catalogue</h2>
+<p style="margin: 0; color: var(--text-2)">This searches everything Audible sells on {{domain}}, not your library. Add what you find to a wishlist; a book a library here already holds is marked In library.</p>
+<p style="margin: 0; color: var(--text-2)">Prices are what {{accountName}} would pay, as a member.</p>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 4px">
+<span style="font-size: 13px; color: var(--muted); align-self: center">Try</span>
+<sc-for list="{{examples}}" as="x" hint-placeholder-count="3">
+<button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px; cursor: pointer">{{x.q}}</button>
+</sc-for>
+</div>
+</div>
+<div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 10px">
+<h3 style="margin: 0; font-size: 13px; font-weight: 600; color: var(--muted)">Search one field with a prefix</h3>
+<dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 10px 16px; font-size: 13px">
+<sc-for list="{{tips}}" as="t" hint-placeholder-count="4">
+<dt style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-text); font-weight: 500">{{t.prefix}}</dt><dd style="margin: 0; color: var(--text-2)">{{t.what}}</dd>
+</sc-for>
+</dl>
+<p style="margin: 0; font-size: 12px; color: var(--muted)">A value runs to the next prefix, so no quotes are needed. Combine them: <span style="font-family: 'JetBrains Mono', monospace; color: var(--text-2)">author:John Scalzi colonial</span></p>
+</div>
+</section>
+</sc-if>
+
+<sc-if value="{{loading}}" hint-placeholder-val="{{ false }}">
+<section aria-busy="true" aria-label="Searching" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px">
+<sc-for list="{{skeleton}}" as="s" hint-placeholder-count="5">
+<div style="display: flex; gap: 16px; padding: 16px; border-top: {{s.border}}"><span style="width: 88px; height: 88px; flex: none; border-radius: 6px; background: var(--raised)"></span><span style="flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px"><span style="width: {{s.w}}; height: 14px; border-radius: 4px; background: var(--raised)"></span><span style="width: 45%; height: 11px; border-radius: 4px; background: var(--raised)"></span><span style="width: 30%; height: 11px; border-radius: 4px; background: var(--raised)"></span><span style="width: 120px; height: 20px; border-radius: 999px; background: var(--raised)"></span></span><span style="width: 150px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; padding-top: 4px"><span style="width: 60px; height: 16px; border-radius: 4px; background: var(--raised)"></span><span style="width: 140px; height: 40px; border-radius: 8px; background: var(--raised)"></span></span></div>
+</sc-for>
+</section>
+</sc-if>
+
+<sc-if value="{{error}}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 28px 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px">
+<div style="display: flex; gap: 12px; align-items: flex-start">
+<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--bad); flex: none; margin-top: 2px"><path d="M12 3 2 21h20L12 3z"></path><path d="M12 10v4M12 17.5v.01"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 4px"><span style="font-weight: 600">Could not search the catalogue</span><span style="font-size: 13px; color: var(--text-2)">Audible did not answer. Try again in a moment.</span><span style="font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace">GET /api/catalog/search · 502</span></div>
+</div>
+<button type="button" style="min-height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>Retry</button>
+</div>
+</sc-if>
+
+<sc-if value="{{noResults}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="nores-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 56px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center">
+<div style="width: 56px; height: 56px; border-radius: 14px; background: var(--raised); color: var(--muted); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path><path d="M8.5 11h5"></path></svg></div>
+<h2 id="nores-h" style="margin: 0; font-size: 18px; font-weight: 700">{{noResultsTitle}}</h2>
+<p style="margin: 0; color: var(--text-2); max-width: 520px">{{noResultsText}}</p>
+<button type="button" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Clear filters</button>
+</section>
+</sc-if>
+
+<sc-if value="{{seriesChoose}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="choose-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden">
+<div style="padding: 18px 20px; display: flex; flex-direction: column; gap: 4px">
+<h2 id="choose-h" style="margin: 0; font-size: 16px; font-weight: 600">3 series match “Old Man's War”</h2>
+<span style="font-size: 13px; color: var(--muted)">Found through the books a search for the name returns, so the counts are a rough guide, not the size of the series.</span>
+</div>
+<ul style="list-style: none; margin: 0; padding: 0">
+<sc-for list="{{matches}}" as="m" hint-placeholder-count="3">
+<li style="border-top: 1px solid var(--line)"><button type="button" onClick="{{m.pick}}" style="width: 100%; min-height: 60px; padding: 10px 20px; border: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 12px"><span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-weight: 600">{{m.title}}<sc-if value="{{m.exact}}" hint-placeholder-val="{{ false }}"><span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent)">Exact match</span></sc-if></span><span style="font-size: 13px; color: var(--muted)">{{m.found}}</span></span><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--muted)"><path d="m9 6 6 6-6 6"></path></svg></button></li>
+</sc-for>
+</ul>
+</section>
+</sc-if>
+
+<sc-if value="{{seriesOne}}" hint-placeholder-val="{{ false }}">
+<section aria-labelledby="series-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden">
+<div style="padding: 18px 20px; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 16px; border-bottom: 1px solid var(--line)">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em">Series</span>
+<h2 id="series-h" style="margin: 0; font-size: 20px; font-weight: 700">Old Man's War</h2>
+<span style="font-size: 13px; color: var(--muted)">14 books in 7 positions, in reading order · 3 in a library here</span>
+</div>
+<button type="button" style="margin-left: auto; border: 0; background: transparent; padding: 0; min-height: 32px; color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">← 2 other series matched</button>
+</div>
+<ol style="list-style: none; margin: 0; padding: 0">
+<sc-for list="{{positions}}" as="p" hint-placeholder-count="7">
+<li style="border-top: {{p.border}}; display: flex; gap: 14px; padding: 14px 20px 14px 14px">
+<span aria-label="Position {{p.pos}}" style="width: 44px; flex: none; padding-top: 6px; text-align: center; font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; color: var(--text-2)">{{p.pos}}</span>
+<div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; gap: 12px 16px">
+<button type="button" onClick="{{p.openDetail}}" aria-label="{{p.title}}" style="width: 64px; height: 64px; flex: none; border: 0; padding: 0; border-radius: 6px; background: {{p.bg}}; color: {{p.fg}}; cursor: pointer; position: relative; overflow: hidden"><span aria-hidden="true" style="position: absolute; left: 5px; right: 5px; bottom: 5px; font-family: Georgia, serif; font-weight: 700; font-size: 9px; line-height: 1.1; text-align: left">{{p.title}}</span></button>
+<div style="flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<button type="button" onClick="{{p.openDetail}}" style="align-self: flex-start; border: 0; background: transparent; padding: 0; color: var(--text); font: inherit; font-size: 15px; font-weight: 600; text-align: left; cursor: pointer">{{p.title}}</button>
+<span style="font-size: 13px; color: var(--text-2)">{{p.byline}}</span>
+<span style="font-size: 12px; color: var(--muted)">{{p.meta}}</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 3px">
+<sc-if value="{{p.inLib}}" hint-placeholder-val="{{ false }}"><a href="Book.dc.html" style="display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; text-decoration: none; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg>In library →</a></sc-if>
+<sc-if value="{{p.wish}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>{{p.wish}}</span></sc-if>
+<sc-if value="{{p.plus}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--text-2); border: 1px solid var(--line-strong)">Plus</span></sc-if>
+</div>
+</div>
+<div data-row="actions" style="flex: 0 1 200px; margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px">
+<span style="display: flex; align-items: baseline; gap: 7px"><s style="font-size: 12px; color: var(--muted)">{{p.list}}</s><span style="font-size: 16px; font-weight: 700">{{p.member}}</span></span>
+<sc-if value="{{p.hasBtn}}" hint-placeholder-val="{{ true }}"><button type="button" style="white-space: nowrap; min-height: 38px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 7px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="{{p.heartFill}}" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="color: {{p.heartColor}}"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>{{p.btn}}</button></sc-if>
+</div>
+</div>
+<sc-if value="{{p.multi}}" hint-placeholder-val="{{ false }}">
+<button type="button" aria-expanded="{{p.expanded}}" onClick="{{p.toggle}}" style="align-self: flex-start; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: transparent; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px">{{p.editionsLabel}}<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate({{p.chev}})"><path d="m6 9 6 6 6-6"></path></svg></button>
+</sc-if>
+<sc-if value="{{p.expanded}}" hint-placeholder-val="{{ false }}">
+<ul aria-label="Other editions of {{p.title}}" style="list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--line-strong); display: flex; flex-direction: column">
+<sc-for list="{{p.editions}}" as="e" hint-placeholder-count="2">
+<li style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 10px 0; border-top: {{e.border}}">
+<span aria-hidden="true" style="width: 40px; height: 40px; flex: none; border-radius: 4px; background: {{e.bg}}"></span>
+<div style="flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+<button type="button" onClick="{{e.openDetail}}" style="align-self: flex-start; border: 0; background: transparent; padding: 0; color: var(--text); font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer">{{e.title}}</button>
+<span style="font-size: 12px; color: var(--text-2)">{{e.diff}}</span>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 6px">
+<sc-if value="{{e.inLib}}" hint-placeholder-val="{{ false }}"><a href="Book.dc.html" style="display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; text-decoration: none; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg>In library →</a></sc-if>
+<sc-if value="{{e.plus}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--text-2); border: 1px solid var(--line-strong)">Plus</span></sc-if>
+</div>
+<span style="font-size: 13px; font-weight: 700; min-width: 56px; text-align: right">{{e.member}}</span>
+<sc-if value="{{e.hasBtn}}" hint-placeholder-val="{{ true }}"><button type="button" aria-label="{{e.btn}}: {{e.title}}" style="min-height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>{{e.btn}}</button></sc-if>
+</li>
+</sc-for>
+</ul>
+</sc-if>
+</div>
+</li>
+</sc-for>
+</ol>
+</section>
+</sc-if>
+
+<sc-if value="{{results}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; font-size: 13px; color: var(--muted)">
+<span><strong style="color: var(--text); font-weight: 600">{{totalLabel}}</strong> on {{domain}}</span>
+<sc-if value="{{capped}}" hint-placeholder-val="{{ false }}"><span>· Audible shows only the first 1,000; narrow the search to see the rest</span></sc-if>
+</div>
+<section aria-label="Results" style="background: var(--panel); border: 1px solid var(--line); border-radius: 12px">
+<sc-for list="{{books}}" as="b" hint-placeholder-count="6">
+<article aria-labelledby="{{b.id}}" style="display: flex; flex-wrap: wrap; gap: 14px 18px; padding: 16px; border-top: {{b.border}}">
+<button type="button" onClick="{{b.openDetail}}" aria-label="Details of {{b.title}}" style="width: 88px; height: 88px; flex: none; border: 0; padding: 0; border-radius: 6px; background: {{b.bg}}; color: {{b.fg}}; cursor: pointer; position: relative; overflow: hidden"><span aria-hidden="true" style="position: absolute; left: 7px; right: 7px; bottom: 7px; font-family: Georgia, serif; font-weight: 700; font-size: 11px; line-height: 1.1; text-align: left">{{b.title}}</span></button>
+<div style="flex: 1 1 300px; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<h3 id="{{b.id}}" style="margin: 0; font-size: 15px; font-weight: 600"><button type="button" onClick="{{b.openDetail}}" style="border: 0; background: transparent; padding: 0; color: var(--text); font: inherit; text-align: left; cursor: pointer">{{b.title}}</button><sc-if value="{{b.subtitle}}" hint-placeholder-val="{{ false }}"><span style="font-weight: 400; color: var(--muted)">: {{b.subtitle}}</span></sc-if></h3>
+<span style="font-size: 13px; color: var(--text-2)">By {{b.authors}} · Narrated by {{b.narrators}}</span>
+<sc-if value="{{b.series}}" hint-placeholder-val="{{ true }}"><span style="font-size: 13px; color: var(--text-2)">{{b.series}}</span></sc-if>
+<span style="font-size: 12px; color: var(--muted)">{{b.length}} · Released {{b.released}} · <span aria-label="Rated {{b.rating}} out of 5 by {{b.ratings}} listeners"><span aria-hidden="true" style="color: var(--accent-text)">★</span> {{b.rating}} <span>({{b.ratings}})</span></span></span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 5px">
+<sc-if value="{{b.inLib}}" hint-placeholder-val="{{ false }}"><a href="Book.dc.html" style="display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; text-decoration: none; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg>In library →</a></sc-if>
+<sc-if value="{{b.wish}}" hint-placeholder-val="{{ false }}"><span style="display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--accent-text); background: color-mix(in srgb, var(--accent) 14%, transparent)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>{{b.wish}}</span></sc-if>
+<sc-if value="{{b.plus}}" hint-placeholder-val="{{ false }}"><span title="Included in Audible Plus" style="display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--text-2); border: 1px solid var(--line-strong)">Plus</span></sc-if>
+</div>
+</div>
+<div data-row="actions" style="flex: 0 1 200px; margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; position: relative">
+<div style="display: flex; flex-direction: column; align-items: flex-end; gap: 1px">
+<span style="display: flex; align-items: baseline; gap: 7px"><s aria-label="List price {{b.list}}" style="font-size: 12px; color: var(--muted)">{{b.list}}</s><span aria-label="Member price {{b.member}}" style="font-size: 17px; font-weight: 700">{{b.member}}</span></span>
+<span style="font-size: 12px; color: var(--muted)">or {{b.credits}}</span>
+</div>
+<sc-if value="{{b.hasBtn}}" hint-placeholder-val="{{ true }}">
+<button type="button" disabled="{{b.busy}}" aria-busy="{{b.busy}}" aria-haspopup="{{b.hasMenu}}" aria-expanded="{{b.menuOpen}}" onClick="{{b.click}}" style="min-height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid {{b.btnBorder}}; background: var(--raised); color: {{b.btnColor}}; font: inherit; font-size: 13px; font-weight: 600; cursor: {{b.cursor}}; display: flex; align-items: center; gap: 8px; white-space: nowrap">
+<sc-if value="{{b.busy}}" hint-placeholder-val="{{ false }}"><span data-spin aria-hidden="true" style="width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--accent); animation: dc-spin 0.8s linear infinite; box-sizing: border-box"></span></sc-if>
+<sc-if value="{{b.idle}}" hint-placeholder-val="{{ true }}"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="{{b.heartFill}}" stroke="currentColor" stroke-width="2" stroke-linejoin="round" style="color: {{b.heartColor}}"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg></sc-if>
+{{b.btn}}
+<sc-if value="{{b.hasMenu}}" hint-placeholder-val="{{ false }}"><svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="color: var(--muted)"><path d="m6 9 6 6 6-6"></path></svg></sc-if>
+</button>
+</sc-if>
+<sc-if value="{{b.menuOpen}}" hint-placeholder-val="{{ false }}">
+<div role="menu" aria-label="Add to whose wishlist" style="position: absolute; top: 100%; right: 0; z-index: 12; margin-top: 6px; width: 260px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 10px; padding: 6px; box-shadow: 0 16px 40px rgba(0,0,0,0.28); display: flex; flex-direction: column">
+<span style="padding: 8px 10px 6px; font-size: 12px; color: var(--muted)">Add to the wishlist of</span>
+<button type="button" role="menuitem" onClick="{{b.pick}}" style="min-height: 44px; padding: 0 10px; border: 0; border-radius: 6px; background: var(--raised); color: var(--text); font: inherit; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--text-2)">UK</span><span style="flex: 1">Alex (UK)</span><span style="font-size: 12px; color: var(--muted)">searched</span></button>
+<button type="button" role="menuitem" onClick="{{b.pick}}" style="min-height: 44px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; display: flex; align-items: center; gap: 10px"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; background: var(--line); color: var(--text-2)">UK</span><span style="flex: 1">Sam (UK)</span></button>
+<span style="padding: 8px 10px 6px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); margin-top: 4px">Only accounts on audible.co.uk: a book belongs to its marketplace.</span>
+</div>
+</sc-if>
+</div>
+</article>
+</sc-for>
+</section>
+<nav aria-label="Pages" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--muted); font-size: 13px">
+<span>{{rangeLabel}}</span>
+<div style="margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px">
+<sc-for list="{{pages}}" as="pg" hint-placeholder-count="6">
+<sc-if value="{{pg.gap}}" hint-placeholder-val="{{ false }}"><span style="align-self: center">…</span></sc-if>
+<sc-if value="{{pg.btn}}" hint-placeholder-val="{{ true }}"><button type="button" disabled="{{pg.disabled}}" aria-current="{{pg.current}}" style="min-width: 40px; min-height: 40px; padding: 0 8px; border-radius: 8px; border: 1px solid {{pg.border}}; background: {{pg.bg}}; color: {{pg.color}}; font: inherit; font-weight: {{pg.weight}}">{{pg.label}}</button></sc-if>
+</sc-for>
+</div>
+</nav>
+<sc-if value="{{capped}}" hint-placeholder-val="{{ false }}">
+<div role="note" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-radius: 10px; background: var(--panel); border: 1px solid var(--warn-line)">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent-text); flex: none; margin-top: 1px"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5M12 16.5v.01"></path></svg>
+<span><strong style="font-weight: 600">Showing the first 1,000 of 4,210 results.</strong> <span style="color: var(--text-2)">Audible pages no further. Narrow the search with a prefix or a category to see more.</span></span>
+</div>
+</sc-if>
+</sc-if>
+</main>
+
+<sc-if value="{{detail}}" hint-placeholder-val="{{ false }}">
+<div style="position: absolute; inset: 0; z-index: 20; background: rgba(5,6,8,0.72); display: flex; justify-content: flex-end">
+<button type="button" aria-label="Close" tabindex="-1" onClick="{{closeDetail}}" style="flex: 1; border: 0; padding: 0; background: transparent; cursor: pointer"></button>
+<aside data-panel="sheet" role="dialog" aria-modal="true" aria-labelledby="d-title" style="width: 520px; max-width: 92vw; background: var(--panel); border-left: 1px solid var(--line-strong); padding: 20px 24px 32px; box-sizing: border-box; overflow-y: auto; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; align-items: center"><span style="font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em">Audible catalogue · audible.co.uk</span><button type="button" aria-label="Close" onClick="{{closeDetail}}" style="margin-left: auto; width: 40px; height: 40px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>
+<div style="display: flex; flex-wrap: wrap; gap: 18px">
+<span aria-hidden="true" style="width: 160px; height: 160px; flex: none; border-radius: 8px; background: #1f3a5a; color: #e6eef8; position: relative"><span style="position: absolute; left: 12px; right: 12px; bottom: 12px; font-family: Georgia, serif; font-weight: 700; font-size: 18px; line-height: 1.1">Old Man's War</span></span>
+<div style="flex: 1 1 220px; display: flex; flex-direction: column; gap: 6px">
+<h2 id="d-title" style="margin: 0; font-size: 22px; font-weight: 700; line-height: 1.2">Old Man's War</h2>
+<span style="font-size: 14px; color: var(--text-2)">By John Scalzi</span>
+<span style="font-size: 13px; color: var(--muted)">Narrated by William Dufris</span>
+<span style="font-size: 13px; color: var(--text-2)">Old Man's War, Book 1</span>
+<div style="display: flex; flex-wrap: wrap; gap: 6px; padding-top: 4px">
+<span style="display: inline-flex; align-items: center; gap: 5px; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent)"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg>In library</span>
+<span style="display: inline-flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--text-2); border: 1px solid var(--line-strong)">Plus</span>
+</div>
+</div>
+</div>
+<a href="Book.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: color-mix(in srgb, var(--ok) 8%, transparent); color: var(--text); text-decoration: none"><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--ok)"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path></svg><span style="flex: 1"><strong style="font-weight: 600">In your library</strong><span style="color: var(--muted)"> · Alex (UK), Downloaded</span></span><span style="color: var(--accent-text); font-weight: 600">Open →</span></a>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line)">
+<div style="display: flex; flex-direction: column"><span style="display: flex; align-items: baseline; gap: 8px"><span style="font-size: 20px; font-weight: 700">£13.99</span><s style="font-size: 13px; color: var(--muted)">£19.99</s></span><span style="font-size: 12px; color: var(--muted)">Member price · or 1 credit</span></div>
+<span style="margin-left: auto; font-size: 13px; color: var(--muted); max-width: 220px; text-align: right">Alex (UK) owns this book, so it cannot go on their wishlist.</span>
+</div>
+<dl style="margin: 0; display: grid; grid-template-columns: 120px 1fr; gap: 8px 14px; font-size: 13px">
+<sc-for list="{{facts}}" as="f" hint-placeholder-count="8">
+<dt style="color: var(--muted)">{{f.k}}</dt><dd style="margin: 0; color: var(--text); font-family: {{f.font}}">{{f.v}}</dd>
+</sc-for>
+</dl>
+<section aria-labelledby="d-desc" style="display: flex; flex-direction: column; gap: 8px">
+<h3 id="d-desc" style="margin: 0; font-size: 15px; font-weight: 600">Description</h3>
+<p style="margin: 0; color: var(--text-2)">John Perry did two things on his 75th birthday. First he visited his wife's grave. Then he joined the army.</p>
+<p style="margin: 0; color: var(--text-2)">The good news is that humanity finally made it into interstellar space. The bad news is that planets fit to live on are scarce, and alien races willing to fight us for them are common. So: we fight. To defend Earth, and to stake our own claim to planetary real estate. Far from Earth, the war has been going on for decades: brutal, bloody, unyielding.</p>
+<button type="button" style="align-self: flex-start; border: 0; background: transparent; padding: 0; min-height: 32px; color: var(--accent-text); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer">Show more</button>
+</section>
+</aside>
+</div>
+</sc-if>
+
+<sc-if value="{{toast}}" hint-placeholder-val="{{ false }}">
+<div data-toasts style="position: absolute; right: 24px; bottom: 24px; z-index: 40; display: flex; flex-direction: column; gap: 12px">
+<sc-if value="{{toastOk}}" hint-placeholder-val="{{ false }}">
+<div role="status" style="width: 380px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line-strong); box-shadow: 0 12px 32px rgba(0,0,0,0.24); box-sizing: border-box">
+<span style="width: 28px; height: 28px; flex: none; border-radius: 50%; background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 5 5 9-10"></path></svg></span>
+<span style="flex: 1">{{toastText}}</span>
+<button type="button" aria-label="Dismiss" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+</sc-if>
+<sc-if value="{{toastBad}}" hint-placeholder-val="{{ false }}">
+<div role="alert" style="width: 380px; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--bad-line); box-shadow: 0 12px 32px rgba(0,0,0,0.24); box-sizing: border-box">
+<span style="width: 28px; height: 28px; flex: none; border-radius: 50%; background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 7v6M12 17v.01"></path></svg></span>
+<span style="flex: 1; display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600">{{toastText}}</span><span style="font-size: 13px; color: var(--text-2)">Audible did not answer. Try again in a moment.</span></span>
+<button type="button" aria-label="Dismiss" style="width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button>
+</div>
+</sc-if>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mobileMenu":{"editor":"boolean","default":false},"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"accounts":{"editor":"enum","options":["one","several"],"default":"several"},"state":{"editor":"enum","options":["intro","loading","results","noResults","noAccount","error"],"default":"results"},"series":{"editor":"enum","options":["off","choose","one"],"default":"off"},"action":{"editor":"enum","options":["none","addMenu","adding","added","addFailed","removing","removed","removeFailed"],"default":"none"},"tips":{"editor":"boolean","default":false},"detail":{"editor":"boolean","default":false},"capped":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1500}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const st = this.state || {};
+    const p = this.props;
+    const several = (p.accounts || 'several') === 'several';
+    let state = p.state || 'results';
+    const series = p.series || 'off';
+    if (series !== 'off' && (state === 'results' || state === 'intro')) state = 'series';
+    const action = st.action || p.action || 'none';
+    const capped = !!p.capped && state === 'results';
+    const tipsOpen = st.tips != null ? st.tips : !!p.tips;
+    const detail = st.detail != null ? st.detail : !!p.detail;
+    const set = (o) => () => this.setState(o);
+
+    // The search box and the chips it is read into
+    let query = 'author:John Scalzi colonial';
+    let chips = [{ label: 'Author', value: 'John Scalzi' }, { label: 'Keywords', value: 'colonial' }];
+    if (series !== 'off') { query = "series:Old Man's War"; chips = [{ label: 'Series', value: "Old Man's War" }]; }
+    if (capped) { query = 'space opera'; chips = [{ label: 'Keywords', value: 'space opera' }]; }
+    if (state === 'noResults') { query = 'author:John Scalzi zombies'; chips = [{ label: 'Author', value: 'John Scalzi' }, { label: 'Keywords', value: 'zombies' }]; }
+    if (state === 'intro') { query = ''; chips = []; }
+    chips = chips.map((c) => ({ ...c, border: c.label === 'Keywords' ? 'var(--line)' : 'var(--line-strong)' }));
+
+    const book = (id, title, subtitle, series, narr, length, released, rating, ratings, list, member, credits, bg, fg, marks) => ({
+      id: 'r-' + id, title, subtitle, series, authors: 'John Scalzi', narrators: narr, length, released, rating, ratings,
+      list, member, credits, bg, fg, inLib: !!marks.lib, wish: marks.wish || '', plus: !!marks.plus,
+    });
+    const raw = [
+      book(1, "Old Man's War", '', "Old Man's War, Book 1", 'William Dufris', '11h 12m', '2007', '4.6', '41,880', '£19.99', '£13.99', '1 credit', '#1f3a5a', '#e6eef8', { lib: true, plus: true }),
+      book(2, 'The Ghost Brigades', '', "Old Man's War, Book 2", 'William Dufris', '10h 40m', '2007', '4.5', '18,204', '£19.99', '£13.99', '1 credit', '#5a2340', '#fbe6f0', { wish: several ? "On Alex (UK)'s wishlist" : 'On wishlist' }),
+      book(3, 'The Last Colony', '', "Old Man's War, Book 3", 'William Dufris', '10h 9m', '2008', '4.5', '14,977', '£19.99', '£13.99', '1 credit', '#244b45', '#e2f4f1', { plus: true }),
+      book(4, "Zoe's Tale", '', "Old Man's War, Book 4", 'Tavia Gilbert', '9h 31m', '2008', '4.4', '9,612', '£15.99', '£11.19', '1 credit', '#7a5a1e', '#fff1d6', {}),
+      book(5, 'The Human Division', '', "Old Man's War, Book 5", 'William Dufris', '12h 34m', '2013', '4.4', '8,950', '£22.49', '£15.74', '1 credit', '#3c2f6b', '#eee8ff', { lib: true }),
+      book(6, 'Starter Villain', 'A Novel', '', 'Wil Wheaton', '8h 2m', '2023', '4.5', '12,301', '£19.99', '£13.99', '1 credit', '#8c2f1c', '#fbe7d7', {}),
+    ];
+    const books = raw.map((b, i) => {
+      let mode = b.wish ? 'remove' : 'add';
+      let wish = b.wish;
+      if (i === 3) {
+        if (action === 'adding') mode = 'adding';
+        if (action === 'added') { mode = 'remove'; wish = several ? "On Alex (UK)'s wishlist" : 'On wishlist'; }
+      }
+      if (i === 1) {
+        if (action === 'removing') mode = 'removing';
+        if (action === 'removed') { mode = 'add'; wish = ''; }
+      }
+      const busy = mode === 'adding' || mode === 'removing';
+      const hasMenu = several && mode === 'add';
+      const menuOpen = i === 3 && action === 'addMenu';
+      return {
+        ...b, wish, busy, idle: !busy, hasMenu, menuOpen, hasBtn: !b.inLib,
+        border: i === 0 ? '0' : '1px solid var(--line)',
+        btn: { add: 'Add to wishlist', remove: 'Remove from wishlist', adding: 'Adding…', removing: 'Removing…' }[mode],
+        heartFill: mode === 'remove' ? 'currentColor' : 'none',
+        heartColor: mode === 'remove' ? 'var(--accent-text)' : 'currentColor',
+        btnBorder: menuOpen ? 'var(--accent)' : 'var(--line-strong)',
+        btnColor: busy ? 'var(--muted)' : 'var(--text)',
+        cursor: busy ? 'progress' : 'pointer',
+        click: hasMenu ? set({ action: menuOpen ? 'none' : 'addMenu' }) : () => {},
+        pick: set({ action: 'added' }),
+        openDetail: set({ detail: true }),
+      };
+    });
+
+    // The series view: one row per position, the other editions folded under it
+    const ed = (title, diff, bg, member, marks) => ({ title, diff, bg, member, inLib: !!marks.lib, plus: !!marks.plus, btn: 'Add to wishlist' });
+    const pos = (n, title, byline, meta, bg, fg, member, list, marks, editions) => ({ pos: n, title, byline, meta, bg, fg, member, list, inLib: !!marks.lib, wish: marks.wish || '', plus: !!marks.plus, editions });
+    const open = st.open || { 0: true };
+    const positions = [
+      pos('1', "Old Man's War", 'By John Scalzi · Narrated by William Dufris', '11h 12m · Released 2007 · ★ 4.6 (41,880)', '#1f3a5a', '#e6eef8', '£13.99', '£19.99', { lib: true, plus: true }, [
+        ed("Old Man's War (Dramatised)", 'Full cast · 6h 48m · Released 2021', '#2b4a6e', '£11.19', {}),
+        ed("Old Man's War, Part 1 of 2", 'William Dufris · 5h 36m · Released 2016 · the same audio in two parts', '#1a3150', '£6.99', { plus: true }),
+      ]),
+      pos('2', 'The Ghost Brigades', 'By John Scalzi · Narrated by William Dufris', '10h 40m · Released 2007 · ★ 4.5 (18,204)', '#5a2340', '#fbe6f0', '£13.99', '£19.99', { wish: several ? "On Alex (UK)'s wishlist" : 'On wishlist' }, [
+        ed('The Ghost Brigades', 'Tavia Gilbert · 10h 22m · Released 2022 · a new recording', '#6a2b4c', '£13.99', {}),
+      ]),
+      pos('2.5', 'The Sagan Diary', 'By John Scalzi · Narrated by Tavia Gilbert', '1h 48m · Released 2014 · ★ 4.1 (1,204)', '#3d4f2a', '#eef6e2', '£4.19', '£5.99', { plus: true }, []),
+      pos('3', 'The Last Colony', 'By John Scalzi · Narrated by William Dufris', '10h 9m · Released 2008 · ★ 4.5 (14,977)', '#244b45', '#e2f4f1', '£13.99', '£19.99', { lib: true }, [
+        ed('The Last Colony', 'William Dufris · 10h 9m · Released 2019 · a reissue', '#2c5a53', '£13.99', {}),
+      ]),
+      pos('4', "Zoe's Tale", 'By John Scalzi · Narrated by Tavia Gilbert', '9h 31m · Released 2008 · ★ 4.4 (9,612)', '#7a5a1e', '#fff1d6', '£11.19', '£15.99', {}, []),
+      pos('5', 'The Human Division', 'By John Scalzi · Narrated by William Dufris', '12h 34m · Released 2013 · ★ 4.4 (8,950)', '#3c2f6b', '#eee8ff', '£15.74', '£22.49', { lib: true }, [
+        ed('The B-Team: The Human Division, Episode 1', 'William Dufris · 1h 37m · Released 2013 · one of 13 episodes', '#4a3c7e', '£1.39', { plus: true }),
+        ed('Walk the Plank: The Human Division, Episode 2', 'William Dufris · 0h 49m · Released 2013', '#4a3c7e', '£1.39', { plus: true }),
+        ed('We Only Need the Heads: The Human Division, Episode 3', 'William Dufris · 1h 2m · Released 2013', '#4a3c7e', '£1.39', { plus: true }),
+      ]),
+      pos('6', 'The End of All Things', 'By John Scalzi · Narrated by William Dufris', '10h 5m · Released 2015 · ★ 4.5 (10,447)', '#2a2a3a', '#ebebf7', '£13.99', '£19.99', {}, []),
+    ].map((x, i) => {
+      const expanded = !!open[i] && x.editions.length > 0;
+      const n = x.editions.length + 1;
+      return {
+        ...x, border: i === 0 ? '0' : '1px solid var(--line)', hasBtn: !x.inLib,
+        multi: x.editions.length > 0, expanded,
+        editionsLabel: expanded ? 'Hide the other ' + (n - 1) + (n - 1 === 1 ? ' edition' : ' editions') : n + ' editions',
+        chev: expanded ? '180deg' : '0deg',
+        toggle: () => this.setState({ open: { ...open, [i]: !open[i] } }),
+        btn: x.wish ? 'Remove from wishlist' : 'Add to wishlist',
+        heartFill: x.wish ? 'currentColor' : 'none',
+        heartColor: x.wish ? 'var(--accent-text)' : 'currentColor',
+        openDetail: set({ detail: true }),
+        editions: x.editions.map((e, j) => ({ ...e, hasBtn: !e.inLib, border: j === 0 ? '0' : '1px solid var(--line)', openDetail: set({ detail: true }) })),
+      };
+    });
+
+    const page = capped ? 50 : 1;
+    const pg = (label, o) => ({ label, btn: true, gap: false, current: !!(o && o.current), disabled: !!(o && o.disabled),
+      border: o && o.current ? 'var(--accent)' : (o && o.disabled ? 'var(--line)' : 'var(--line-strong)'),
+      bg: o && o.current ? 'rgba(242,165,65,0.14)' : 'transparent', color: o && o.disabled ? 'var(--faint)' : 'var(--text)', weight: o && o.current ? 600 : 400 });
+    const gap = { gap: true, btn: false };
+    const pages = capped
+      ? [pg('Prev'), pg('1'), gap, pg('48'), pg('49'), pg('50', { current: true }), pg('Next', { disabled: true })]
+      : [pg('Prev', { disabled: true }), pg('1', { current: true }), pg('2'), pg('3'), pg('4'), pg('Next')];
+
+    const domain = 'audible.co.uk';
+    return {
+      theme: p.theme ?? 'dark',
+      navOpen: st.navOpen != null ? st.navOpen : (p.mobileMenu ?? false),
+      openNav: set({ navOpen: true }),
+      closeNav: set({ navOpen: false }),
+      subtitle: state === 'noAccount' ? 'The Audible catalogue' : 'The Audible catalogue on ' + domain + ', with Alex (UK)’s prices',
+      several, domain, accountName: 'Alex (UK)',
+      noAccount: state === 'noAccount',
+      hasAccount: state !== 'noAccount',
+      intro: state === 'intro',
+      loading: state === 'loading',
+      error: state === 'error',
+      noResults: state === 'noResults',
+      noResultsTitle: 'No books match this search',
+      noResultsText: 'Nothing on audible.co.uk matches author John Scalzi with the keywords “zombies” in Science Fiction & Fantasy › Military.',
+      results: state === 'results',
+      seriesChoose: state === 'series' && series === 'choose',
+      seriesOne: state === 'series' && series === 'one',
+      inSeries: state === 'series',
+      hint: state === 'series'
+        ? 'A series is shown in reading order, so Category and Sort do not apply. Other prefixes narrow its books.'
+        : 'Prefixes: author: narrator: series: title: — anything else is keywords.',
+      query, chips, hasChips: chips.length > 0,
+      category: state === 'noResults' ? 'Science Fiction & Fantasy' : 'All categories',
+      hasSubcategory: state === 'noResults',
+      tipsOpen, toggleTips: () => this.setState({ tips: !tipsOpen }),
+      tipsBorder: tipsOpen ? 'var(--accent)' : 'var(--line-strong)',
+      tips: [
+        { prefix: 'author:', what: 'Written by. author:Adrian Tchaikovsky' },
+        { prefix: 'narrator:', what: 'Read by. narrator:Ray Porter' },
+        { prefix: 'series:', what: 'A series, in reading order. series:The Expanse' },
+        { prefix: 'title:', what: 'Words in the title. title:Hail Mary' },
+      ],
+      examples: ['author:Adrian Tchaikovsky', 'series:The Expanse', 'narrator:Ray Porter dragons'].map((q) => ({ q })),
+      skeleton: [{ w: '50%', border: '0' }, { w: '38%', border: '1px solid var(--line)' }, { w: '58%', border: '1px solid var(--line)' }, { w: '44%', border: '1px solid var(--line)' }, { w: '52%', border: '1px solid var(--line)' }],
+      matches: [
+        { title: "Old Man's War", found: '6 books found', exact: true },
+        { title: "Old Man's War [Spanish Edition]", found: '2 books found', exact: false },
+        { title: "Old Man's War Universe", found: '1 book found', exact: false },
+      ].map((m) => ({ ...m, pick: () => {} })),
+      positions,
+      books,
+      capped,
+      totalLabel: capped ? '4,210 results' : '64 results',
+      rangeLabel: capped ? '981–1,000 of 4,210 · page ' + page + ' of 50' : '1–20 of 64',
+      pages,
+      detail, openDetail: set({ detail: true }), closeDetail: set({ detail: false }),
+      facts: [
+        { k: 'Length', v: '11h 12m', font: 'inherit' },
+        { k: 'Released', v: '28 Feb 2007', font: 'inherit' },
+        { k: 'Language', v: 'English', font: 'inherit' },
+        { k: 'Publisher', v: 'Audible Studios', font: 'inherit' },
+        { k: 'Version', v: 'Unabridged', font: 'inherit' },
+        { k: 'Genres', v: 'Science Fiction & Fantasy › Military', font: 'inherit' },
+        { k: 'Rating', v: '★ 4.6 from 41,880 ratings', font: 'inherit' },
+        { k: 'ASIN', v: 'B002V0QK4C', font: "'JetBrains Mono', monospace" },
+      ],
+      toast: ['added', 'addFailed', 'removed', 'removeFailed'].includes(action),
+      toastOk: action === 'added' || action === 'removed',
+      toastBad: action === 'addFailed' || action === 'removeFailed',
+      toastText: {
+        added: several ? "Added to Alex (UK)'s wishlist" : 'Added to your wishlist',
+        removed: several ? "Removed from Alex (UK)'s wishlist" : 'Removed from your wishlist',
+        addFailed: 'Could not add Zoe’s Tale to the wishlist',
+        removeFailed: 'Could not remove The Ghost Brigades from the wishlist',
+      }[action] || '',
+    };
+  }
+}
+</script>
+</body>
+</html>
