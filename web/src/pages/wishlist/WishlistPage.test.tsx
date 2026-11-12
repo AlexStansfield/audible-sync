@@ -57,6 +57,8 @@ describe("the Wishlist", () => {
     const omw = await screen.findByRole("article", { name: "Old Man's War" });
     expect(within(omw).getByText("Alex (UK)")).toBeInTheDocument();
     expect(within(omw).getByText(/^Added /)).toBeInTheDocument();
+    // Its own wishlist goes without saying here
+    expect(within(omw).queryByText(/On .*wishlist/)).not.toBeInTheDocument();
     const ghost = screen.getByRole("article", { name: "The Ghost Brigades" });
     expect(within(ghost).getByRole("link", { name: "In Alex (US)'s library →" })).toHaveAttribute(
       "href",

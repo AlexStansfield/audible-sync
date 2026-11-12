@@ -212,6 +212,7 @@ export function WishlistPage() {
                         book={item}
                         context={{ ...context, countryCode: account?.country_code }}
                         held={item.in_library}
+                        ownWishlist={item.account_id}
                         above={<RowAbove item={item} account={account} several={several} now={now} />}
                         action={
                           <button type="button" className="btn btn-secondary" onClick={() => setRemoving(item)}>

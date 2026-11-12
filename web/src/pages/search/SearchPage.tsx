@@ -50,7 +50,7 @@ export function SearchPage() {
   const accounts = status.data?.accounts ?? [];
   const signedIn = accounts.filter((account) => !account.needs_login);
   const searched = signedIn.find((account) => account.id === query.accountId) ?? signedIn[0];
-  const domain = marketplaces.data?.find((market) => market.country_code === searched?.country_code)?.domain;
+  const domain = siteOf(marketplaces.data, searched?.country_code);
   const parsed = parseSearch(query.q);
   const categoryId = query.subcategory ?? query.category;
   const seriesMode = Boolean(parsed.series);
@@ -207,9 +207,15 @@ export function SearchPage() {
   );
 }
 
-function marketplaceSuffix(markets: components["schemas"]["MarketplaceOut"][] | undefined, code: string): string {
+/** The marketplace's site, `audible.co.uk`: the service gives the domain without `audible.`. */
+function siteOf(markets: components["schemas"]["MarketplaceOut"][] | undefined, code: string | undefined) {
   const domain = markets?.find((market) => market.country_code === code)?.domain;
-  return domain ? ` · ${domain}` : "";
+  return domain ? `audible.${domain}` : undefined;
+}
+
+function marketplaceSuffix(markets: components["schemas"]["MarketplaceOut"][] | undefined, code: string): string {
+  const site = siteOf(markets, code);
+  return site ? ` · ${site}` : "";
 }
 
 /** " in Science Fiction & Fantasy › Military", for the no-results line. */

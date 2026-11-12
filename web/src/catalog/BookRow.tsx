@@ -59,6 +59,7 @@ export function BookRow({
   above,
   held = false,
   action,
+  ownWishlist,
 }: {
   book: CatalogBook;
   context: CatalogContext;
@@ -69,6 +70,8 @@ export function BookRow({
   held?: boolean;
   /** In place of the Add or Remove button */
   action?: ReactNode;
+  /** The account whose wishlist this row is (the Wishlist), whose marker would only repeat it */
+  ownWishlist?: number;
 }) {
   const facts = factsLine(book);
   const series = seriesLine(book);
@@ -95,7 +98,7 @@ export function BookRow({
         <Byline book={book} />
         {series && <p className={styles.series}>{series}</p>}
         {facts.length > 0 && <p className={styles.facts}>{facts.join(" · ")}</p>}
-        <Markers book={book} accounts={context.accounts} hideLibrary={held} />
+        <Markers book={book} accounts={context.accounts} hideLibrary={held} hideWishlistOf={ownWishlist} />
       </div>
       <div className={styles.side}>
         <PriceBlock book={book} />
@@ -147,13 +150,16 @@ export function Markers({
   book,
   accounts,
   hideLibrary = false,
+  hideWishlistOf,
 }: {
   book: CatalogBook;
   accounts: Account[];
   hideLibrary?: boolean;
+  hideWishlistOf?: number;
 }) {
   const named = (id: number) => accounts.find((account) => account.id === id);
-  const show = (!hideLibrary && book.in_library) || book.on_wishlist.length > 0 || book.plus;
+  const wished = book.on_wishlist.filter((id) => id !== hideWishlistOf);
+  const show = (!hideLibrary && book.in_library) || wished.length > 0 || book.plus;
   if (!show) return null;
   return (
     <ul className={styles.markers} aria-label="Markers">
@@ -162,7 +168,7 @@ export function Markers({
           <LibraryMarker book={book} accounts={accounts} />
         </li>
       )}
-      {book.on_wishlist.map((id) => (
+      {wished.map((id) => (
         <li key={id} className={`${styles.marker} ${styles.wished}`}>
           <Icon name="heart" size={12} filled />
           {accounts.length > 1 ? `On ${wishlistName(named(id), accounts.length)}` : "On wishlist"}

@@ -10,8 +10,8 @@ const UK2 = account({ id: 2, name: "Sam (UK)" });
 const US = account({ id: 3, name: "Alex (US)", country_code: "us" });
 
 const MARKETS = [
-  { country_code: "uk", domain: "audible.co.uk", name: "United Kingdom" },
-  { country_code: "us", domain: "audible.com", name: "United States" },
+  { country_code: "uk", domain: "co.uk", name: "United Kingdom" },
+  { country_code: "us", domain: "com", name: "United States" },
 ];
 
 const CATEGORIES = [
