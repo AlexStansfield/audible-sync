@@ -422,12 +422,15 @@ def generate_metadata(book: Book) -> dict:
 
     metadata = {}
 
-    # Title (with subtitle if available)
-    full_title = title
+    # The title alone, and the subtitle as a tag of its own. Audible's subtitle is often
+    # marketing ("The bestselling thrillers that inspired the Apple TV+ show..."), and
+    # joined to the title it became the book's title in every player and in
+    # Audiobookshelf. `subtitle` is no key the MP4 muxer writes, so for M4B it becomes
+    # a freeform atom (`write_m4b_extra_tags`), which Audiobookshelf reads as the subtitle
+    metadata["title"] = title
+    metadata["album"] = title
     if subtitle:
-        full_title = f"{title}: {subtitle}"
-    metadata["title"] = full_title
-    metadata["album"] = full_title
+        metadata["subtitle"] = subtitle
 
     # Authors (primary artist)
     if authors:
