@@ -49,17 +49,28 @@ def router() -> APIRouter:
         status: BookStatus | None = None,
         monitored: bool | None = None,
         q: Annotated[str | None, Query(max_length=200)] = None,
+        author: Annotated[str | None, Query(max_length=200)] = None,
+        narrator: Annotated[str | None, Query(max_length=200)] = None,
+        series: Annotated[str | None, Query(max_length=200)] = None,
         sort: Literal["date_added", "title", "author", "release_date", "downloaded_at"] = "date_added",
         order: Literal["asc", "desc"] = "desc",
         page: Annotated[int, Query(ge=1)] = 1,
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> BookList:
+        """
+        A page of the library. `q` matches the title, any author or any series; `author`,
+        `narrator` and `series` only those. Each is a contains match ignoring case and
+        the kind of apostrophe, and they combine.
+        """
         assert sort in BOOK_SORT_COLUMNS  # the Literal above is the same set; keep them in step
         items, total = list_books(
             account_id=account_id,
             status=status,
             monitored=monitored,
             q=q,
+            author=author,
+            narrator=narrator,
+            series=series,
             sort=sort,
             descending=order == "desc",
             limit=page_size,

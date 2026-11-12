@@ -33,6 +33,7 @@ from pydantic import ValidationError
 from audible_sync.api.routes import accounts as api_accounts
 from audible_sync.api.routes import auth as api_auth
 from audible_sync.api.routes import books as api_books
+from audible_sync.api.routes import catalog as api_catalog
 from audible_sync.api.routes import settings as api_settings
 from audible_sync.api.routes import sync as api_sync
 from audible_sync.api.routes import system as api_system
@@ -41,6 +42,7 @@ from audible_sync.api.schemas import (
 )
 from audible_sync.api.web import BasePath, normalise_base_path, serve_web_app
 from audible_sync.audible_api.login import PendingLogins
+from audible_sync.catalog import Catalog
 from audible_sync.logbuffer import RingBufferHandler
 from audible_sync.paths import REPO_ROOT
 from audible_sync.pipeline.runstate import RunState
@@ -100,6 +102,7 @@ def create_app(
     secure_cookie: bool = False,
     web_dir: Path | None = None,
     base_path: str = "",
+    catalog: Catalog | None = None,
 ) -> FastAPI:
     """
     Build the application.
@@ -125,6 +128,7 @@ def create_app(
             empty at the root. Requests are accepted with the prefix or with it
             stripped, the web app is told it in `<base href>`, and the session cookie
             is scoped to it
+        catalog: How the catalogue is asked, and its cache; defaults to a fresh one
     """
     base_path = normalise_base_path(base_path)
     cookie_path = f"{base_path}/"
@@ -188,6 +192,7 @@ def create_app(
         api_system.router(scheduler=scheduler, log_buffer=log_buffer, version=app.version),
         api_accounts.router(state=state, logins=logins),
         api_books.router(),
+        api_catalog.router(catalog=catalog),
     ):
         app.include_router(routes, prefix="/api", dependencies=[Depends(_require_auth(api_token))])
 

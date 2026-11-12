@@ -210,7 +210,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Books */
+        /**
+         * Get Books
+         * @description A page of the library. `q` matches the title, any author or any series; `author`,
+         *     `narrator` and `series` only those. Each is a contains match ignoring case and
+         *     the kind of apostrophe, and they combine.
+         */
         get: operations["get_books_api_books_get"];
         put?: never;
         post?: never;
@@ -382,6 +387,137 @@ export interface paths {
          * @description Queue a failed or parked book again without touching any files it has.
          */
         post: operations["retry_book_api_books__book_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/authors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog Authors
+         * @description Authors whose name matches, from Audible's search suggestions. Audible knows
+         *     little more than the name; an author's books are a search by `author` name, as
+         *     the id here can differ from the one on their books.
+         */
+        get: operations["catalog_authors_api_catalog_authors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/books/{asin}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog Book
+         * @description One book of the catalogue, with its description. 404 when Audible has no such book.
+         */
+        get: operations["catalog_book_api_catalog_books__asin__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/categories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog Categories
+         * @description The marketplace's categories, two levels deep; an id is a search's `category_id`.
+         */
+        get: operations["catalog_categories_api_catalog_categories_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Catalog
+         * @description A page of a catalogue search by any of `keywords`, `title`, `author`, `narrator`
+         *     and `category_id` (at least one), in the account's marketplace.
+         *
+         *     Audible pages through only so many results (`reachable`) and repeats its last
+         *     page beyond that, so a page past them is a 422. Podcasts are left out, so a
+         *     page can hold fewer than `page_size`; `total` is Audible's.
+         */
+        get: operations["search_catalog_api_catalog_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find Series
+         * @description The series called `name`, or whose title contains it, best first: the exact
+         *     matches, then by how many books of a keyword search for the name are in each.
+         *     Audible has no search by series, so this finds a series through its books;
+         *     `author` narrows the search. Each is then read with `GET /api/catalog/series/{asin}`.
+         */
+        get: operations["find_series_api_catalog_series_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/catalog/series/{asin}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Catalog Series
+         * @description A series and every book Audible lists in it, in reading order. A position often
+         *     has several books, the editions of one title. 404 when the ASIN is not a series.
+         */
+        get: operations["catalog_series_api_catalog_series__asin__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -754,6 +890,15 @@ export interface components {
              */
             source: "env" | "stored";
         };
+        /** AuthorOut */
+        AuthorOut: {
+            /** Asin */
+            asin: string;
+            /** Image Url */
+            image_url: string | null;
+            /** Name */
+            name: string;
+        };
         /**
          * BookAction
          * @description What a per-book action did.
@@ -859,10 +1004,16 @@ export interface components {
         BookFilter: {
             /** Account Id */
             account_id?: number | null;
+            /** Author */
+            author?: string | null;
             /** Monitored */
             monitored?: boolean | null;
+            /** Narrator */
+            narrator?: string | null;
             /** Q */
             q?: string | null;
+            /** Series */
+            series?: string | null;
             status?: components["schemas"]["BookStatus"] | null;
         };
         /** BookList */
@@ -1006,6 +1157,158 @@ export interface components {
             /** Id */
             id: number;
             reason: components["schemas"]["SkipReason"];
+        };
+        /** CatalogAuthorOut */
+        CatalogAuthorOut: {
+            /** Asin */
+            asin: string | null;
+            /** Name */
+            name: string;
+        };
+        /**
+         * CatalogBookDetail
+         * @description One catalogue book, with the description a list leaves out (as `BookDetail`'s).
+         */
+        CatalogBookDetail: {
+            /** Abridged */
+            abridged: boolean | null;
+            /** Asin */
+            asin: string;
+            /** Authors */
+            authors: components["schemas"]["CatalogAuthorOut"][];
+            /** Cover Url */
+            cover_url: string | null;
+            /** Description */
+            description: string;
+            /** Description Html */
+            description_html: string;
+            /** Genres */
+            genres: string[];
+            /**
+             * In Library
+             * @default false
+             */
+            in_library: boolean;
+            /** Language */
+            language: string | null;
+            /** Length Seconds */
+            length_seconds: number | null;
+            /** Library Book Id */
+            library_book_id?: number | null;
+            /** Narrators */
+            narrators: string[];
+            /** Plus */
+            plus: boolean;
+            price: components["schemas"]["CatalogPriceOut"] | null;
+            primary_series: components["schemas"]["SeriesEntry"] | null;
+            /** Publisher */
+            publisher: string | null;
+            /** Rating */
+            rating: number | null;
+            /** Rating Count */
+            rating_count: number;
+            /** Release Date */
+            release_date: string | null;
+            /** Series */
+            series: components["schemas"]["SeriesEntry"][];
+            /** Subtitle */
+            subtitle: string;
+            /** Title */
+            title: string;
+        };
+        /**
+         * CatalogBookOut
+         * @description A book of the Audible catalogue, and whether a library here already holds it.
+         */
+        CatalogBookOut: {
+            /** Abridged */
+            abridged: boolean | null;
+            /** Asin */
+            asin: string;
+            /** Authors */
+            authors: components["schemas"]["CatalogAuthorOut"][];
+            /** Cover Url */
+            cover_url: string | null;
+            /** Genres */
+            genres: string[];
+            /**
+             * In Library
+             * @default false
+             */
+            in_library: boolean;
+            /** Language */
+            language: string | null;
+            /** Length Seconds */
+            length_seconds: number | null;
+            /** Library Book Id */
+            library_book_id?: number | null;
+            /** Narrators */
+            narrators: string[];
+            /** Plus */
+            plus: boolean;
+            price: components["schemas"]["CatalogPriceOut"] | null;
+            primary_series: components["schemas"]["SeriesEntry"] | null;
+            /** Publisher */
+            publisher: string | null;
+            /** Rating */
+            rating: number | null;
+            /** Rating Count */
+            rating_count: number;
+            /** Release Date */
+            release_date: string | null;
+            /** Series */
+            series: components["schemas"]["SeriesEntry"][];
+            /** Subtitle */
+            subtitle: string;
+            /** Title */
+            title: string;
+        };
+        /** CatalogPriceOut */
+        CatalogPriceOut: {
+            /** Credits */
+            credits: number | null;
+            /** Currency */
+            currency: string;
+            /** List Price */
+            list_price: number | null;
+            /** Member Price */
+            member_price: number | null;
+        };
+        /** CatalogSearchOut */
+        CatalogSearchOut: {
+            /** Account Id */
+            account_id: number;
+            /** Items */
+            items: components["schemas"]["CatalogBookOut"][];
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Reachable */
+            reachable: number;
+            /** Total */
+            total: number;
+        };
+        /** CatalogSeriesOut */
+        CatalogSeriesOut: {
+            /** Asin */
+            asin: string;
+            /** Books */
+            books: components["schemas"]["SeriesBookOut"][];
+            /** Title */
+            title: string;
+        };
+        /** CategoryOut */
+        CategoryOut: {
+            /**
+             * Children
+             * @default []
+             */
+            children: components["schemas"]["CategoryOut"][];
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
         };
         /** DiskOut */
         DiskOut: {
@@ -1301,6 +1604,12 @@ export interface components {
             /** Running */
             running: boolean;
         };
+        /** SeriesBookOut */
+        SeriesBookOut: {
+            book: components["schemas"]["CatalogBookOut"];
+            /** Sequence */
+            sequence: string | null;
+        };
         /** SeriesEntry */
         SeriesEntry: {
             /** Sequence */
@@ -1309,6 +1618,17 @@ export interface components {
             series_asin?: string | null;
             /** Title */
             title: string | null;
+        };
+        /** SeriesMatchOut */
+        SeriesMatchOut: {
+            /** Asin */
+            asin: string;
+            /** Books Found */
+            books_found: number;
+            /** Exact */
+            exact: boolean;
+            /** Title */
+            title: string;
         };
         /**
          * SettingsOut
@@ -1961,6 +2281,9 @@ export interface operations {
                 status?: components["schemas"]["BookStatus"] | null;
                 monitored?: boolean | null;
                 q?: string | null;
+                author?: string | null;
+                narrator?: string | null;
+                series?: string | null;
                 sort?: "date_added" | "title" | "author" | "release_date" | "downloaded_at";
                 order?: "asc" | "desc";
                 page?: number;
@@ -2266,6 +2589,207 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BookAction"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalog_authors_api_catalog_authors_get: {
+        parameters: {
+            query: {
+                name: string;
+                account_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthorOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalog_book_api_catalog_books__asin__get: {
+        parameters: {
+            query?: {
+                account_id?: number | null;
+            };
+            header?: never;
+            path: {
+                asin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogBookDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalog_categories_api_catalog_categories_get: {
+        parameters: {
+            query?: {
+                account_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CategoryOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_catalog_api_catalog_search_get: {
+        parameters: {
+            query?: {
+                account_id?: number | null;
+                keywords?: string | null;
+                title?: string | null;
+                author?: string | null;
+                narrator?: string | null;
+                category_id?: string | null;
+                sort?: "relevance" | "bestsellers" | "newest" | "oldest" | "title";
+                page?: number;
+                page_size?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogSearchOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    find_series_api_catalog_series_get: {
+        parameters: {
+            query: {
+                name: string;
+                author?: string | null;
+                account_id?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesMatchOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    catalog_series_api_catalog_series__asin__get: {
+        parameters: {
+            query?: {
+                account_id?: number | null;
+            };
+            header?: never;
+            path: {
+                asin: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CatalogSeriesOut"];
                 };
             };
             /** @description Validation Error */
