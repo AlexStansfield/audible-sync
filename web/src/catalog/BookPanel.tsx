@@ -32,6 +32,7 @@ export function BookPanel({
   accountId,
   marketplace,
   context,
+  ready = true,
   onClose,
 }: {
   asin: string;
@@ -40,10 +41,12 @@ export function BookPanel({
   accountId: number | null;
   marketplace?: string;
   context: CatalogContext;
+  /** Whether the account to ask through is known yet; until then nothing is asked */
+  ready?: boolean;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const detail = useCatalogBook(asin, accountId);
+  const detail = useCatalogBook(asin, accountId, ready);
   const book: CatalogBook | undefined = detail.data ?? shown;
 
   useEffect(() => {
@@ -110,7 +113,16 @@ export function BookPanel({
               <WishlistButton book={book} context={context} />
             </div>
             <Details book={book} />
-            <Description html={detail.data?.description_html} loading={detail.isPending} />
+            {detail.isError ? (
+              <p className={styles.detailError} role="alert">
+                Could not load the description.{" "}
+                <button type="button" className="link-btn" onClick={() => void detail.refetch()}>
+                  Try again
+                </button>
+              </p>
+            ) : (
+              <Description html={detail.data?.description_html} loading={detail.isPending} />
+            )}
           </>
         )}
       </div>

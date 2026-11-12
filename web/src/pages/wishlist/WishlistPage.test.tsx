@@ -176,4 +176,71 @@ describe("the Wishlist", () => {
     const panel = await screen.findByRole("dialog", { name: "Old Man's War" });
     await waitFor(() => expect(within(panel).getByText("Macmillan Digital Audio")).toBeInTheDocument());
   });
+
+  it("goes back to the last page when the one shown has emptied", async () => {
+    fakeApi(
+      signedIn({
+        "GET /api/status": ok(status({ accounts: [UK, US] })),
+        "GET /api/wishlist": (request: Request) => {
+          const query = new URL(request.url).searchParams;
+          const page = Number(query.get("page") ?? 1);
+          // 51 books once, 50 now: page 2 has nothing left on it
+          const items = page === 1 && query.get("page_size") !== "1" ? [OMW] : [];
+          return json(200, { items, total: 50, page, page_size: 50, accounts: [READ(1), READ(2)] });
+        },
+      }),
+    );
+    const { router } = renderApp("/wishlist?page=2");
+
+    expect(await screen.findByRole("article", { name: "Old Man's War" })).toBeInTheDocument();
+    expect(router.state.location.search).toBe("");
+  });
+
+  it("asks through the book's account when its panel opens before the list has loaded", async () => {
+    const api = wishlist([OMW, GHOST], {
+      "GET /api/wishlist": () => new Promise<Response>(() => undefined),
+      "GET /api/catalog/books/B06XNYHSP9": ok({
+        ...catalogBook({ asin: "B06XNYHSP9", title: "The Ghost Brigades" }),
+        description: "",
+        description_html: "",
+      }),
+    });
+    renderApp("/wishlist?book=B06XNYHSP9&of=2");
+
+    await screen.findByRole("dialog", { name: "The Ghost Brigades" });
+    const asked = api.calls.filter((call) => call.path === "/api/catalog/books/B06XNYHSP9");
+    expect(asked.map((call) => new URL(call.url).searchParams.get("account_id"))).toEqual(["2"]);
+  });
+
+  it("names the book's account in the URL when its panel opens", async () => {
+    wishlist([OMW, GHOST], {
+      "GET /api/catalog/books/B06XNYHSP9": ok({
+        ...catalogBook({ asin: "B06XNYHSP9", title: "The Ghost Brigades" }),
+        description: "",
+        description_html: "",
+      }),
+    });
+    const { router } = renderApp("/wishlist");
+
+    const ghost = await screen.findByRole("article", { name: "The Ghost Brigades" });
+    await userEvent.click(within(ghost).getByRole("button", { name: "The Ghost Brigades" }));
+
+    await screen.findByRole("dialog", { name: "The Ghost Brigades" });
+    expect(router.state.location.search).toBe("?book=B06XNYHSP9&of=2");
+  });
+
+  it("says so when Try again cannot read the wishlist either", async () => {
+    fakeApi(
+      signedIn({
+        "GET /api/status": ok(status({ accounts: [UK, US] })),
+        "GET /api/wishlist": listing([OMW], [READ(1), READ(2, { error: "NetworkError: down", error_at: "x" })]),
+        "POST /api/wishlist/refresh": fail(502, "Audible did not answer"),
+      }),
+    );
+    renderApp("/wishlist");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByText("Could not read the wishlists from Audible")).toBeInTheDocument();
+  });
 });

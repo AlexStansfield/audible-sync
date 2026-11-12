@@ -1,4 +1,4 @@
-/** Paging shared by the lists: which page buttons to show. */
+/** Paging shared by the lists: which page buttons to show, and the range shown. */
 
 /**
  * The page buttons: the first, the last, and the current one with a neighbour each
@@ -17,4 +17,12 @@ export function pageList(current: number, pages: number): (number | null)[] {
     list.push(page);
   }
   return list;
+}
+
+/** "1–24 of 354", or `empty` ("0 books") when there is nothing. */
+export function rangeText(page: number, pageSize: number, total: number, empty: string): string {
+  if (total === 0) return empty;
+  const first = (page - 1) * pageSize + 1;
+  const last = Math.min(page * pageSize, total);
+  return `${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}`;
 }

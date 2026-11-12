@@ -249,6 +249,56 @@ describe("Search", () => {
     await userEvent.click(within(panel).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(router.state.location.search).not.toContain("book="));
   });
+
+  it("leaves the category behind when another marketplace is searched, and keeps it within one", async () => {
+    const api = catalogue([UK, UK2, US]);
+    const { router } = renderApp("/search?q=war&category=19378442031");
+
+    await screen.findByRole("article", { name: "Old Man's War" });
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Search in" }), "2");
+    await waitFor(() => expect(searches(api).at(-1)?.get("account_id")).toBe("2"));
+    expect(searches(api).at(-1)?.get("category_id")).toBe("19378442031");
+
+    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Search in" }), "3");
+    await waitFor(() => expect(searches(api).at(-1)?.get("account_id")).toBe("3"));
+    expect(searches(api).at(-1)?.get("category_id")).toBeNull();
+    expect(router.state.location.search).not.toContain("category=");
+  });
+
+  it("asks for a book's details only once the account to ask through is known", async () => {
+    let answer: () => void = () => undefined;
+    const api = catalogue([UK], {
+      "GET /api/status": () =>
+        new Promise<Response>((resolve) => {
+          answer = () => resolve(json(200, status({ accounts: [UK] })));
+        }),
+      "GET /api/catalog/books/B06XNYQJTX": ok({ ...OMW, description: "", description_html: "" }),
+    });
+    renderApp("/search?q=scalzi&book=B06XNYQJTX");
+
+    await screen.findByRole("dialog");
+    expect(api.calls.filter((call) => call.path === "/api/catalog/books/B06XNYQJTX")).toEqual([]);
+    answer();
+    await waitFor(() =>
+      expect(
+        api.calls
+          .filter((call) => call.path === "/api/catalog/books/B06XNYQJTX")
+          .map((call) => new URL(call.url).searchParams.get("account_id")),
+      ).toEqual(["1"]),
+    );
+  });
+
+  it("says when a book's description could not be loaded, with a retry", async () => {
+    catalogue([UK], { "GET /api/catalog/books/B06XNYQJTX": fail(502, "Audible did not answer") });
+    renderApp("/search?q=scalzi");
+
+    const omw = await screen.findByRole("article", { name: "Old Man's War" });
+    await userEvent.click(within(omw).getByRole("button", { name: "Old Man's War" }));
+
+    const panel = await screen.findByRole("dialog", { name: "Old Man's War" });
+    expect(await within(panel).findByText(/Could not load the description/)).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
 });
 
 describe("Search by series", () => {

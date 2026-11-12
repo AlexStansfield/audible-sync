@@ -3,7 +3,7 @@
  * from Audible, with Remove (confirmed), Refresh from Audible, and a book a library
  * already holds shown prominently, since that is the reason to remove it.
  */
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { useStatus } from "../../api/queries";
 import type { components } from "../../api/schema";
@@ -32,7 +32,15 @@ type Item = components["schemas"]["WishlistItemOut"];
 type AccountState = components["schemas"]["WishlistAccountOut"];
 type Account = components["schemas"]["AccountOut"];
 
-type WishlistQuery = { accountId: number | null; sort: WishlistSort; page: number; book: string | null };
+type WishlistQuery = {
+  accountId: number | null;
+  sort: WishlistSort;
+  page: number;
+  /** The book open in the panel */
+  book: string | null;
+  /** Whose wishlist the open book is on, so the panel asks the right marketplace before the list loads */
+  bookOf: number | null;
+};
 
 const SORTS: readonly { value: WishlistSort; label: string }[] = [
   { value: "date_added", label: "Date added, newest first" },
@@ -47,6 +55,7 @@ export function parseWishlistQuery(params: URLSearchParams): WishlistQuery {
     sort: SORTS.find((option) => option.value === params.get("sort"))?.value ?? "date_added",
     page: positiveId(params.get("page")) ?? 1,
     book: book && /^[A-Za-z0-9]{10}$/.test(book) ? book : null,
+    bookOf: positiveId(params.get("of")),
   };
 }
 
@@ -56,6 +65,7 @@ function serialise(query: WishlistQuery): URLSearchParams {
   if (query.sort !== "date_added") params.set("sort", query.sort);
   if (query.page !== 1) params.set("page", String(query.page));
   if (query.book) params.set("book", query.book);
+  if (query.book && query.bookOf !== null) params.set("of", String(query.bookOf));
   return params;
 }
 
@@ -80,12 +90,22 @@ export function WishlistPage() {
   const items = list.data?.items ?? [];
 
   const update = (changes: Partial<WishlistQuery>) =>
-    setParams(serialise({ ...query, page: 1, book: null, ...changes }));
+    setParams(serialise({ ...query, page: 1, book: null, bookOf: null, ...changes }));
 
-  const context: CatalogContext = {
-    accounts,
-    onOpen: (asin) => setParams(serialise({ ...query, book: asin })),
-  };
+  const open = (asin: string, accountId: number | null) =>
+    setParams(serialise({ ...query, book: asin, bookOf: accountId }));
+  const context: CatalogContext = { accounts, onOpen: (asin) => open(asin, query.bookOf) };
+  const onRefresh = () =>
+    refresh.mutate(undefined, {
+      onError: (error) => toast.error("Could not read the wishlists from Audible", error),
+    });
+
+  // A page past the end (a book removed, a smaller list read, a stale bookmark): the last page there is
+  const pages = list.data ? Math.max(1, Math.ceil(list.data.total / WISHLIST_PAGE_SIZE)) : 1;
+  const pastEnd = list.data !== undefined && !list.isPlaceholderData && query.page > pages;
+  useEffect(() => {
+    if (pastEnd) setParams(serialise({ ...query, page: pages }), { replace: true });
+  });
 
   if (status.data !== undefined && signedIn.length === 0 && (total ?? 0) === 0) {
     return (
@@ -96,11 +116,13 @@ export function WishlistPage() {
     );
   }
 
-  const pages = list.data ? Math.max(1, Math.ceil(list.data.total / WISHLIST_PAGE_SIZE)) : 1;
   const filtered = query.accountId !== null;
   const held = items.filter((item) => item.in_library).length;
-  const opened = items.find((item) => item.asin === query.book);
-  const openedAccount = opened ? named(opened.account_id) : undefined;
+  const opened = items.find(
+    (item) => item.asin === query.book && (query.bookOf === null || item.account_id === query.bookOf),
+  );
+  const openedOf = query.bookOf ?? opened?.account_id ?? null;
+  const openedAccount = openedOf === null ? undefined : named(openedOf);
 
   return (
     <>
@@ -115,11 +137,7 @@ export function WishlistPage() {
               className="btn btn-secondary"
               disabled={refresh.isPending || signedIn.length === 0}
               aria-busy={refresh.isPending || undefined}
-              onClick={() =>
-                refresh.mutate(undefined, {
-                  onError: (error) => toast.error("Could not read the wishlists from Audible", error),
-                })
-              }
+              onClick={onRefresh}
             >
               <Icon
                 name={refresh.isPending ? "spinner" : "retry"}
@@ -136,13 +154,7 @@ export function WishlistPage() {
         }
       />
 
-      <Notices
-        states={states}
-        accounts={accounts}
-        now={now}
-        onRetry={() => refresh.mutate()}
-        busy={refresh.isPending}
-      />
+      <Notices states={states} accounts={accounts} now={now} onRetry={onRefresh} busy={refresh.isPending} />
 
       {list.isError && !list.data ? (
         <ErrorCard title="Could not load the wishlist" error={list.error} onRetry={() => void list.refetch()} />
@@ -210,7 +222,11 @@ export function WishlistPage() {
                     >
                       <BookRow
                         book={item}
-                        context={{ ...context, countryCode: account?.country_code }}
+                        context={{
+                          ...context,
+                          countryCode: account?.country_code,
+                          onOpen: (asin) => open(asin, item.account_id),
+                        }}
                         held={item.in_library}
                         ownWishlist={item.account_id}
                         above={<RowAbove item={item} account={account} several={several} now={now} />}
@@ -241,9 +257,9 @@ export function WishlistPage() {
         <BookPanel
           asin={query.book}
           shown={opened}
-          accountId={opened?.account_id ?? null}
+          accountId={openedOf}
           context={{ ...context, countryCode: openedAccount?.country_code }}
-          onClose={() => setParams(serialise({ ...query, book: null }))}
+          onClose={() => setParams(serialise({ ...query, book: null, bookOf: null }))}
         />
       )}
     </>

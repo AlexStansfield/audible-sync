@@ -394,6 +394,12 @@
   margin: 0;
 }
 
+.detailError {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
 .description {
   display: flex;
   flex-direction: column;

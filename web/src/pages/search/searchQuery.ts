@@ -75,11 +75,3 @@ export function serialise(query: SearchQuery): URLSearchParams {
   if (query.book) params.set("book", query.book);
   return params;
 }
-
-/** "1–20 of 64". */
-export function rangeText(page: number, pageSize: number, total: number): string {
-  if (total === 0) return "0 results";
-  const first = (page - 1) * pageSize + 1;
-  const last = Math.min(page * pageSize, total);
-  return `${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}`;
-}

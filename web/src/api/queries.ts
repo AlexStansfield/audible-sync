@@ -18,8 +18,11 @@ export const keys = {
   bookCount: ["books", "count"] as const,
 };
 
-/** What a finished run changes, refetched when one ends. */
-export const AFTER_RUN = [["stats"], ["books"], ["runs"], ["queue"], ["accounts"]] as const;
+/**
+ * What a finished run changes, refetched when one ends. A run reads every wishlist, and
+ * what it adds to a library moves the catalogue's "In library" markers.
+ */
+export const AFTER_RUN = [["stats"], ["books"], ["runs"], ["queue"], ["accounts"], ["wishlist"], ["catalog"]] as const;
 
 /**
  * `GET /api/settings` as one cache entry, `["settings"]`: Settings edits it, Book
@@ -81,7 +84,7 @@ export function refreshAfterRun(client: QueryClient): Promise<unknown> {
   return Promise.all(AFTER_RUN.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] })));
 }
 
-/** Refetches the stats, library, runs, queue and accounts when a run in flight ends. */
+/** Refetches what a run changes (`AFTER_RUN`) when a run in flight ends. */
 export function useRefreshAfterRun(running: boolean | undefined): void {
   const client = useQueryClient();
   const was = useRef(running);

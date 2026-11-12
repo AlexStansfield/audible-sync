@@ -3,7 +3,7 @@
  * `["catalog"]` and the wishlist under `["wishlist"]`: adding or removing a book
  * refetches both, since a book's markers are worked out per answer by the service.
  */
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, unwrap } from "../api/client";
 import type { components } from "../api/schema";
 import type { Parsed } from "../lib/prefixSearch";
@@ -23,8 +23,13 @@ export function reach(sort: CatalogSort): number {
   return sort === "bestsellers" ? 5000 : 1000;
 }
 
-/** What a finished search, or a change to a wishlist, moves. */
-const CHANGED_BY_WISHLIST = [["catalog"], ["wishlist"], ["stats"]] as const;
+/** What a change to a wishlist moves: the list, the count, and every book's markers. */
+const CHANGED_BY_WISHLIST = [["catalog"], ["wishlist"]] as const;
+
+/** Refetches what adding, removing or reading a wishlist moves. */
+function refreshWishlist(client: QueryClient): Promise<unknown> {
+  return Promise.all(CHANGED_BY_WISHLIST.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] })));
+}
 
 export type SearchParams = {
   accountId: number | null;
@@ -86,7 +91,12 @@ export function useMarketplaces() {
   });
 }
 
-export function useSeriesMatches(name: string | undefined, author: string | undefined, accountId: number | null) {
+export function useSeriesMatches(
+  name: string | undefined,
+  author: string | undefined,
+  accountId: number | null,
+  enabled: boolean,
+) {
   return useQuery({
     queryKey: ["catalog", "series-matches", name, author, accountId],
     queryFn: () =>
@@ -95,12 +105,12 @@ export function useSeriesMatches(name: string | undefined, author: string | unde
           params: { query: { name: name ?? "", author, account_id: accountId ?? undefined } },
         }),
       ),
-    enabled: Boolean(name),
+    enabled: enabled && Boolean(name),
     retry: false,
   });
 }
 
-export function useSeries(asin: string | null, accountId: number | null) {
+export function useSeries(asin: string | null, accountId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ["catalog", "series", asin, accountId],
     queryFn: () =>
@@ -109,12 +119,12 @@ export function useSeries(asin: string | null, accountId: number | null) {
           params: { path: { asin: asin ?? "" }, query: { account_id: accountId ?? undefined } },
         }),
       ),
-    enabled: Boolean(asin),
+    enabled: enabled && Boolean(asin),
     retry: false,
   });
 }
 
-export function useCatalogBook(asin: string | null, accountId: number | null) {
+export function useCatalogBook(asin: string | null, accountId: number | null, enabled: boolean) {
   return useQuery({
     queryKey: ["catalog", "book", asin, accountId],
     queryFn: () =>
@@ -123,7 +133,7 @@ export function useCatalogBook(asin: string | null, accountId: number | null) {
           params: { path: { asin: asin ?? "" }, query: { account_id: accountId ?? undefined } },
         }),
       ),
-    enabled: Boolean(asin),
+    enabled: enabled && Boolean(asin),
     retry: false,
   });
 }
@@ -163,8 +173,7 @@ export function useWishlistCount() {
  */
 export function useWishlistChange() {
   const client = useQueryClient();
-  const refresh = () =>
-    Promise.all(CHANGED_BY_WISHLIST.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] })));
+  const refresh = () => refreshWishlist(client);
   const add = useMutation({
     mutationFn: ({ accountId, asin }: { accountId: number; asin: string }) =>
       unwrap(api.POST("/api/wishlist", { body: { account_id: accountId, asin } })),
@@ -183,7 +192,6 @@ export function useWishlistRefresh() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () => unwrap(api.POST("/api/wishlist/refresh", { body: {} })),
-    onSuccess: () =>
-      Promise.all(CHANGED_BY_WISHLIST.map((queryKey) => client.invalidateQueries({ queryKey: [...queryKey] }))),
+    onSuccess: () => refreshWishlist(client),
   });
 }

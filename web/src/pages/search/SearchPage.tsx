@@ -28,9 +28,10 @@ import { Pager } from "../../components/Pager";
 import { PrefixSearchBox, SearchChips } from "../../components/PrefixSearch";
 import { Skeleton } from "../../components/Skeleton";
 import { plural } from "../../lib/format";
+import { rangeText } from "../../lib/paging";
 import { describeSearch, type Parsed, parseSearch } from "../../lib/prefixSearch";
 import styles from "./Search.module.css";
-import { DEFAULT_QUERY, MAX_SEARCH, parse, rangeText, type SearchQuery, SORTS, serialise } from "./searchQuery";
+import { DEFAULT_QUERY, MAX_SEARCH, parse, type SearchQuery, SORTS, serialise } from "./searchQuery";
 
 type SeriesBook = components["schemas"]["SeriesBookOut"];
 type Category = components["schemas"]["CategoryOut"];
@@ -56,6 +57,13 @@ export function SearchPage() {
   const seriesMode = Boolean(parsed.series);
   const terms = hasTerms(parsed, categoryId);
   const ready = status.data !== undefined && signedIn.length > 0;
+  // A category's id belongs to its marketplace, so another marketplace starts without one
+  const changeAccount = (accountId: number): Partial<SearchQuery> => {
+    const next = signedIn.find((account) => account.id === accountId);
+    return next?.country_code === searched?.country_code
+      ? { accountId }
+      : { accountId, category: null, subcategory: null };
+  };
   // The pager never offers a page past Audible's reach; a bookmark asking for one gets the last
   const lastReachable = Math.ceil(reach(query.sort) / SEARCH_PAGE_SIZE);
   const page = Math.min(query.page, lastReachable);
@@ -114,7 +122,7 @@ export function SearchPage() {
                   <select
                     className={styles.select}
                     value={searched?.id ?? ""}
-                    onChange={(event) => update({ accountId: Number(event.target.value) })}
+                    onChange={(event) => update(changeAccount(Number(event.target.value)))}
                   >
                     {signedIn.map((account) => (
                       <option key={account.id} value={account.id}>
@@ -160,6 +168,7 @@ export function SearchPage() {
               parsed={parsed}
               query={query}
               accountId={searched?.id ?? null}
+              ready={ready}
               domain={domain}
               context={context}
               onChoose={(asin) => setParams(serialise({ ...query, series: asin, book: null }))}
@@ -200,6 +209,7 @@ export function SearchPage() {
           accountId={searched?.id ?? null}
           marketplace={domain}
           context={context}
+          ready={ready}
           onClose={() => setParams(serialise({ ...query, book: null }))}
         />
       )}
@@ -310,7 +320,12 @@ function Results({
           <BookRow key={book.asin} book={book} context={context} />
         ))}
       </div>
-      <Pager page={page} pages={pages} label={rangeText(page, SEARCH_PAGE_SIZE, reachable)} onPage={onPage} />
+      <Pager
+        page={page}
+        pages={pages}
+        label={rangeText(page, SEARCH_PAGE_SIZE, reachable, "0 results")}
+        onPage={onPage}
+      />
       {capped && page === pages && (
         <p className={`banner-warn ${styles.cappedNote}`}>
           <Icon name="warning" size={18} />
@@ -444,6 +459,7 @@ function SeriesSection({
   parsed,
   query,
   accountId,
+  ready,
   domain,
   context,
   onChoose,
@@ -453,16 +469,18 @@ function SeriesSection({
   parsed: Parsed;
   query: SearchQuery;
   accountId: number | null;
+  /** Whether the searched account is known yet */
+  ready: boolean;
   domain: string | undefined;
   context: CatalogContext;
   onChoose: (asin: string) => void;
   onBack: () => void;
   onClear: () => void;
 }) {
-  const matches = useSeriesMatches(parsed.series, parsed.author, accountId);
+  const matches = useSeriesMatches(parsed.series, parsed.author, accountId, ready);
   const only = matches.data?.length === 1 ? matches.data[0]?.asin : undefined;
   const chosen = query.series ?? only ?? null;
-  const series = useSeries(chosen, accountId);
+  const series = useSeries(chosen, accountId, ready);
 
   if (matches.isError) {
     return (

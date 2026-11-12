@@ -125,16 +125,6 @@ export function listParams(query: LibraryQuery) {
   };
 }
 
-export { pageList } from "../../lib/paging";
-
-/** "1–24 of 354". */
-export function rangeText(page: number, pageSize: number, total: number): string {
-  if (total === 0) return "0 books";
-  const first = (page - 1) * pageSize + 1;
-  const last = Math.min(page * pageSize, total);
-  return `${first.toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}`;
-}
-
 /** What the status chips count: the books by status, and all of them. */
 export type ChipCounts = { total: number; byStatus: Record<string, number> };
 

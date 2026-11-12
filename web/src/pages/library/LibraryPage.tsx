@@ -18,6 +18,7 @@ import { PrefixSearchBox, SearchChips } from "../../components/PrefixSearch";
 import { Skeleton } from "../../components/Skeleton";
 import { useToast } from "../../components/Toasts";
 import { BOOK_STATUS, plural } from "../../lib/format";
+import { rangeText } from "../../lib/paging";
 import { searchParts } from "../../lib/prefixSearch";
 import { useStats } from "../dashboard/queries";
 import { BookGrid, type BooksProps, BookTable, GridSkeleton } from "./Books";
@@ -31,7 +32,6 @@ import {
   MAX_SEARCH,
   PAGE_SIZE,
   parse,
-  rangeText,
   SORTS,
   type Sort,
   STATUSES,
@@ -295,7 +295,7 @@ export function LibraryPage() {
               <Pager
                 page={Math.min(query.page, pages)}
                 pages={pages}
-                label={rangeText(Math.min(query.page, pages), PAGE_SIZE, total)}
+                label={rangeText(Math.min(query.page, pages), PAGE_SIZE, total, "0 books")}
                 onPage={goToPage}
               />
             </>
