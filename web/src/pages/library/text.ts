@@ -3,6 +3,7 @@
  */
 import type { components } from "../../api/schema";
 import { BOOK_STATUS, plural } from "../../lib/format";
+import { describeSearch, searchParts } from "../../lib/prefixSearch";
 import type { LibraryQuery } from "./libraryQuery";
 
 type Book = components["schemas"]["BookOut"];
@@ -24,7 +25,13 @@ export function noResultsText(query: LibraryQuery, accountName?: string): string
     query.monitored === true && "among the monitored books",
     accountName && `in ${accountName}`,
   ].filter(Boolean);
-  const what = query.q ? `Nothing matches "${query.q}"` : "No books";
+  const search = searchParts(query.q);
+  const what =
+    search.length === 0
+      ? "No books"
+      : search.every((part) => part.field === "keywords")
+        ? `Nothing matches "${query.q}"`
+        : `Nothing matches ${describeSearch(query.q)}`;
   return `${[what, ...parts].join(" ")}.`;
 }
 

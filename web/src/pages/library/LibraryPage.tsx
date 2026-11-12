@@ -13,9 +13,12 @@ import { useRetryUnavailable } from "../../api/useRetryUnavailable";
 import { ConfirmDialog } from "../../components/Dialog";
 import { ErrorCard } from "../../components/ErrorCard";
 import { Icon } from "../../components/Icon";
+import { Pager } from "../../components/Pager";
+import { PrefixSearchBox, SearchChips } from "../../components/PrefixSearch";
 import { Skeleton } from "../../components/Skeleton";
 import { useToast } from "../../components/Toasts";
 import { BOOK_STATUS, plural } from "../../lib/format";
+import { searchParts } from "../../lib/prefixSearch";
 import { useStats } from "../dashboard/queries";
 import { BookGrid, type BooksProps, BookTable, GridSkeleton } from "./Books";
 import styles from "./Library.module.css";
@@ -27,10 +30,8 @@ import {
   type LibraryQuery,
   MAX_SEARCH,
   PAGE_SIZE,
-  pageList,
   parse,
   rangeText,
-  SEARCH_DELAY,
   SORTS,
   type Sort,
   STATUSES,
@@ -291,7 +292,12 @@ export function LibraryPage() {
           ) : (
             <>
               {view === "grid" ? <BookGrid {...booksProps} /> : <BookTable {...booksProps} />}
-              <Pager page={Math.min(query.page, pages)} pages={pages} total={total} onPage={goToPage} />
+              <Pager
+                page={Math.min(query.page, pages)}
+                pages={pages}
+                label={rangeText(Math.min(query.page, pages), PAGE_SIZE, total)}
+                onPage={goToPage}
+              />
             </>
           )}
         </>
@@ -367,6 +373,7 @@ function Filters({
   onView: (view: View) => void;
 }) {
   const shown = counts && chipCounts(counts, query.monitored);
+  const withPrefix = searchParts(query.q).some((part) => part.field !== "keywords");
   const chips = [
     { status: null, label: "All", colour: "var(--text)", count: shown?.total },
     ...STATUSES.map((status) => ({
@@ -379,7 +386,15 @@ function Filters({
   return (
     <section aria-label="Filters" className={styles.filters}>
       <div className={styles.toolbar}>
-        <SearchBox value={query.q} onSearch={(q) => update({ q }, { replace: true })} />
+        <PrefixSearchBox
+          id="library-q"
+          label="Search the library"
+          value={query.q}
+          onSearch={(q) => update({ q }, { replace: true })}
+          placeholder="Title, author or series, or author: narrator: series: title:"
+          maxLength={MAX_SEARCH}
+          helper={false}
+        />
         {accounts.length > 1 && (
           <label className={styles.selectLabel}>
             Account
@@ -436,8 +451,10 @@ function Filters({
           </button>
         </fieldset>
       </div>
+      <SearchChips text={query.q} onChange={(q) => update({ q })} onlyWithPrefix />
       <fieldset className={styles.chips}>
-        <legend className="visually-hidden">Status</legend>
+        {/* Labelled in sight when the search has its own row of chips above, so the two read as two filters */}
+        <legend className={withPrefix ? styles.chipsLegend : "visually-hidden"}>Status</legend>
         {chips.map((chip) => (
           <button
             key={chip.label}
@@ -474,48 +491,6 @@ function Filters({
   );
 }
 
-/**
- * The search box: the URL follows what is typed once typing pauses, and the box follows
- * the URL when it changes some other way (Clear filters, the back button).
- */
-function SearchBox({ value, onSearch }: { value: string; onSearch: (q: string) => void }) {
-  const [text, setText] = useState(value);
-  const typed = useRef(text);
-  typed.current = text;
-  const search = useRef(onSearch);
-  search.current = onSearch;
-
-  useEffect(() => {
-    // A trailing space being typed is not a different search
-    if (value !== typed.current.trim()) setText(value);
-  }, [value]);
-
-  useEffect(() => {
-    const wanted = text.trim();
-    if (wanted === value) return;
-    const timer = setTimeout(() => search.current(wanted), SEARCH_DELAY);
-    return () => clearTimeout(timer);
-  }, [text, value]);
-
-  return (
-    <div className={styles.search}>
-      <Icon name="search" size={16} className={styles.searchIcon} />
-      <label htmlFor="library-q" className="visually-hidden">
-        Search the library
-      </label>
-      <input
-        id="library-q"
-        type="search"
-        className={`input ${styles.searchInput}`}
-        placeholder="Search title, author or series"
-        maxLength={MAX_SEARCH}
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-      />
-    </div>
-  );
-}
-
 function ResultBanner({
   action,
   result,
@@ -537,52 +512,5 @@ function ResultBanner({
         <Icon name="close" size={16} strokeWidth={2.2} />
       </button>
     </div>
-  );
-}
-
-function Pager({
-  page,
-  pages,
-  total,
-  onPage,
-}: {
-  page: number;
-  pages: number;
-  total: number;
-  onPage: (page: number) => void;
-}) {
-  return (
-    <nav aria-label="Pages" className={styles.pager}>
-      <span>{rangeText(page, PAGE_SIZE, total)}</span>
-      {pages > 1 && (
-        <div className={styles.pageButtons}>
-          <button type="button" className={styles.pageButton} disabled={page <= 1} onClick={() => onPage(page - 1)}>
-            Prev
-          </button>
-          {pageList(page, pages).map((number, index) =>
-            number === null ? (
-              // biome-ignore lint/suspicious/noArrayIndexKey: a gap has no identity of its own
-              <span key={`gap-${index}`} className={styles.gap}>
-                …
-              </span>
-            ) : (
-              <button
-                key={number}
-                type="button"
-                className={styles.pageButton}
-                aria-current={number === page ? "page" : undefined}
-                aria-label={`Page ${number}`}
-                onClick={() => onPage(number)}
-              >
-                {number}
-              </button>
-            ),
-          )}
-          <button type="button" className={styles.pageButton} disabled={page >= pages} onClick={() => onPage(page + 1)}>
-            Next
-          </button>
-        </div>
-      )}
-    </nav>
   );
 }

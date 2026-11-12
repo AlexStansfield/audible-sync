@@ -150,6 +150,9 @@ describe("the Library's wording", () => {
     expect(noResultsText(read("q=zelazny&status=failed"))).toBe('Nothing matches "zelazny" in Failed.');
     expect(noResultsText(read("monitored=false"))).toBe("No books among the unmonitored books.");
     expect(noResultsText(read("q=x"), "Alex (US)")).toBe('Nothing matches "x" in Alex (US).');
+    expect(noResultsText(read("q=author%3AMark%20Lawrence%20series%3ABroken%20Empire&status=failed"))).toBe(
+      "Nothing matches author Mark Lawrence and series “Broken Empire” in Failed.",
+    );
   });
 
   it("words a monitor the way the design does, counting what was queued", () => {

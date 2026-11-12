@@ -25,7 +25,7 @@ _BASE_SEGMENT = re.compile(r"[A-Za-z0-9._~-]+")
 _RESERVED_SEGMENTS = frozenset(
     {"api", "assets", "docs", "redoc", "openapi.json", "index.html", "favicon.svg"}
     | {"manifest.webmanifest", "sw.js", "icons"}
-    | {"login", "library", "accounts", "activity", "settings", "profile"}
+    | {"login", "library", "search", "wishlist", "accounts", "activity", "settings", "profile"}
 )
 
 

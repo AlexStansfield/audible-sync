@@ -8,6 +8,7 @@
 import type { components, operations } from "../../api/schema";
 import type { BookStatus } from "../../lib/format";
 import { positiveId } from "../../lib/ids";
+import { parseSearch } from "../../lib/prefixSearch";
 
 /** `GET /api/books`' `sort` (the API's `Literal`, kept in step with `BOOK_SORT_COLUMNS`) */
 export type Sort = NonNullable<NonNullable<operations["get_books_api_books_get"]["parameters"]["query"]>["sort"]>;
@@ -44,8 +45,6 @@ export const SORTS: readonly { value: Sort; label: string; order: Order }[] = [
 export const PAGE_SIZE = 24;
 /** `GET /api/books` refuses a longer `q` (422) */
 export const MAX_SEARCH = 200;
-/** How long typing pauses before the search runs */
-export const SEARCH_DELAY = 300;
 /** Where the grid/table choice is kept */
 export const VIEW_KEY = "audible-sync.library-view";
 
@@ -91,20 +90,31 @@ export function serialise(query: LibraryQuery): URLSearchParams {
   return params;
 }
 
+/**
+ * The search box read into the API's fields: plain words are `q` (title, author or
+ * series), each prefix its own field (`title`, `author`, `narrator`, `series`).
+ */
+function searchFields(q: string) {
+  const { keywords, ...fields } = parseSearch(q);
+  return { q: keywords || null, ...fields };
+}
+
 /** The filters as `POST /api/books/bulk` takes them, for "select all matching". */
 export function bulkFilter(query: LibraryQuery): components["schemas"]["BookFilter"] {
   return {
     account_id: query.accountId,
     status: query.status,
     monitored: query.monitored,
-    q: query.q || null,
+    ...searchFields(query.q),
   };
 }
 
 /** `GET /api/books`' query for this view. */
 export function listParams(query: LibraryQuery) {
+  const { q, ...fields } = searchFields(query.q);
   return {
-    q: query.q || undefined,
+    q: q ?? undefined,
+    ...fields,
     account_id: query.accountId ?? undefined,
     status: query.status ?? undefined,
     monitored: query.monitored ?? undefined,
@@ -115,24 +125,7 @@ export function listParams(query: LibraryQuery) {
   };
 }
 
-/**
- * The page buttons: the first, the last, and the current one with a neighbour each
- * side, `null` marking a gap - `1 2 3 … 15`, `1 … 6 7 8 … 15`.
- */
-export function pageList(current: number, pages: number): (number | null)[] {
-  if (pages <= 7) return Array.from({ length: pages }, (_, i) => i + 1);
-  const shown = new Set([1, pages, current - 1, current, current + 1]);
-  if (current <= 3) for (const page of [2, 3, 4]) shown.add(page);
-  if (current >= pages - 2) for (const page of [pages - 3, pages - 2, pages - 1]) shown.add(page);
-  const sorted = [...shown].filter((page) => page >= 1 && page <= pages).sort((a, b) => a - b);
-  const list: (number | null)[] = [];
-  for (const page of sorted) {
-    const last = list[list.length - 1];
-    if (typeof last === "number" && page - last > 1) list.push(null);
-    list.push(page);
-  }
-  return list;
-}
+export { pageList } from "../../lib/paging";
 
 /** "1–24 of 354". */
 export function rangeText(page: number, pageSize: number, total: number): string {

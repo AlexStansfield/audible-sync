@@ -40,6 +40,18 @@
 
 /* --- filters ------------------------------------------------------------------ */
 
+/* "Status", in the same column as the search's "Searching for" above it */
+.chipsLegend {
+  float: left;
+  min-width: 92px;
+  padding: 0;
+  margin-right: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  align-self: center;
+}
+
 .filters {
   display: flex;
   flex-direction: column;
@@ -508,50 +520,6 @@
 }
 
 /* --- the pager and the empty cards -------------------------------------------- */
-
-.pager {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.pageButtons {
-  margin-left: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.pageButton {
-  min-width: 40px;
-  min-height: 40px;
-  padding: 0 10px;
-  border-radius: var(--radius-control);
-  border: 1px solid var(--line-strong);
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  cursor: pointer;
-}
-
-.pageButton:disabled {
-  border-color: var(--line);
-  color: var(--faint);
-  cursor: default;
-}
-
-.pageButton[aria-current="page"] {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  font-weight: 600;
-}
-
-.gap {
-  align-self: center;
-}
 
 /* Its own card, not the shared .card, whose padding would win */
 .emptyCard {
