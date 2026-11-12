@@ -300,9 +300,9 @@ Search, a series, a book's panel and the Wishlist all show a catalogue book (`Ca
 
 ### The search box and its prefixes (Search and Library)
 
-One parser in the web app for both pages, with the rules decided for v3.4.0: the prefixes are `author:`, `narrator:`, `series:` and `title:`; a value runs to the next prefix or the end, so no quotes; anything not after a prefix is keywords; only those four words count, so "Star Wars: Trials of the Jedi" is plain keywords. A prefix is matched case-insensitively at the start of a word.
+One parser in the web app for both pages, with the rules decided for v3.4.0: the prefixes are `author:`, `narrator:`, `series:` and `title:`; a value runs to the next prefix or the end, so no quotes; anything not after a prefix is keywords; only those four words count, so "Star Wars: Trials of the Jedi" is plain keywords. A prefix is matched case-insensitively at the start of a word. Keywords therefore come before the first prefix: in `author:John Scalzi colonial`, "colonial" is part of the author.
 
-- **The box keeps exactly what was typed**, `author:John Scalzi colonial`. It is not tokenised in place: editing text stays ordinary editing.
+- **The box keeps exactly what was typed**, `colonial author:John Scalzi`. It is not tokenised in place: editing text stays ordinary editing.
 - **Search tips**, a small button inside the box at its right end, opens a popover (`tips` variant): a line on how a value runs, the four prefixes in mono accent with what each matches and an example, one combined example, and the note that only those four words count. Escape, the ×, or a click outside closes it. Under the box, a line of helper text repeats the four prefixes, and the box's placeholder names them too.
 - **Chips** under the box, labelled "Searching for", show what the box was read as: one chip per prefix ("Author John Scalzi ×", the field muted and the value bold) and one for the keywords ("Keywords colonial ×", on a fainter border). The chips are 6px-radius tokens, not pills, so they never read as the status filters. Removing a chip takes that part out of the box and searches again; **Clear search** empties the box. No chips row when the box is empty.
 - The query is in the URL as typed (`?q=author:John%20Scalzi%20colonial`), so a search can be bookmarked and survives a reload; it is debounced by about 300 ms, as on Library.
@@ -321,7 +321,7 @@ One parser in the web app for both pages, with the rules decided for v3.4.0: the
 
 **States** (`state`):
 
-- `intro`, the first visit, an empty box: a card "Search the Audible catalogue", saying it searches everything Audible sells on the marketplace, not your library; that a book a library here holds is marked In library; and whose prices are shown. Beside it, the four prefixes with what each does, and three example searches as buttons (`author:Adrian Tchaikovsky`, `series:The Expanse`, `narrator:Ray Porter dragons`) that fill the box and search.
+- `intro`, the first visit, an empty box: a card "Search the Audible catalogue", saying it searches everything Audible sells on the marketplace, not your library; that a book a library here holds is marked In library; and whose prices are shown. Beside it, the four prefixes with what each does, and three example searches as buttons (`author:Adrian Tchaikovsky`, `series:The Expanse`, `dragons narrator:Ray Porter`) that fill the box and search.
 - `loading`: the results card as a skeleton of five rows (cover, three lines, a marker, the price and a button).
 - `results`: as above.
 - `noResults`: the filters stay as set; a card "No books match this search" restates it in words, "Nothing on audible.co.uk matches author John Scalzi with the keywords “zombies” in Science Fiction & Fantasy › Military.", and offers **Clear filters** (the box, the category and the sort). No pager.
