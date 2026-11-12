@@ -1948,6 +1948,17 @@ def test_list_books_search_survives_a_list_column_that_is_not_json(db):
     assert database.list_books(series="old")[1] == 1
 
 
+def test_list_books_search_survives_entries_of_another_shape(db):
+    # Nothing here writes them, but a hand edit or another tool could; one such row
+    # used to fail every search with "malformed JSON"
+    _foreign_shelf(db)
+    _set("B101", series='["Old Man\'s War", 5, null]', authors='[5, null, "John Scalzi"]')
+
+    assert {b.asin for b in database.list_books(q="scalzi")[0]} == {"B101", "B102"}
+    assert [b.asin for b in database.list_books(series="old man's war")[0]] == ["B102"]
+    assert [b.asin for b in database.list_books(author="5")[0]] == ["B101"]
+
+
 def test_list_books_sorts(db):
     _shelf(db)
 

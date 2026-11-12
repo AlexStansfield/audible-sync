@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
-from audible_sync.audible_api.accounts import authenticator_for, persist_auth_if_changed
+from audible_sync.audible_api.accounts import authenticator_for, keeping_credentials
 from audible_sync.audible_api.client import Audible
 from audible_sync.database import (
     clear_book_files,
@@ -172,14 +172,8 @@ def refresh(book: Book) -> Book:
     account = get_account(book.account_id)
     if account is None or account.needs_login:
         raise ValueError(f"account {book.account_id} has no credentials")
-    audible = Audible(authenticator_for(account))
-    try:
+    with keeping_credentials(account, Audible(authenticator_for(account))) as audible:
         fresh = audible.get_book(book.asin)
-    finally:
-        try:
-            persist_auth_if_changed(account, audible.auth)
-        except Exception:
-            logger.exception("Could not store the refreshed credentials of %r", account)
     update_books(account.id, [fresh])
     return get_book(book.id)
 

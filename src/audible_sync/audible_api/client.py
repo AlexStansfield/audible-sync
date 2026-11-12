@@ -111,6 +111,10 @@ class Audible:
         self.auth = auth
         self.client = audible.Client(self.auth, timeout=_API_TIMEOUT)
 
+    def close(self) -> None:
+        """Close the HTTP session; for a client made for one request rather than a run."""
+        self.client.close()
+
     def get_library(self, purchased_after: str | None = None) -> list[Book]:
         """
         Fetch the library, following pagination until a short page comes back.

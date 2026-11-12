@@ -6,6 +6,7 @@ from mutagen.mp4 import MP4
 
 import audible_sync.database as database
 from audible_sync import library
+from audible_sync.audible_api import accounts as accounts_module
 from audible_sync.library import (
     BookBusy,
     audio_path_for,
@@ -286,7 +287,9 @@ def test_refresh_re_reads_the_book_from_its_account(db, tmp_path, monkeypatch):
     monkeypatch.setattr(library, "Audible", FakeAudible)
     monkeypatch.setattr(library, "authenticator_for", lambda account: f"auth-{account.id}")
     monkeypatch.setattr(
-        library, "persist_auth_if_changed", lambda account, auth: seen.__setitem__("persisted", (account.id, auth))
+        accounts_module,
+        "persist_auth_if_changed",
+        lambda account, auth: seen.__setitem__("persisted", (account.id, auth)),
     )
 
     fresh = refresh(book)
@@ -317,7 +320,7 @@ def test_refresh_keeps_a_refreshed_token_even_when_audible_then_fails(db, tmp_pa
 
     monkeypatch.setattr(library, "Audible", FakeAudible)
     monkeypatch.setattr(library, "authenticator_for", lambda account: "auth")
-    monkeypatch.setattr(library, "persist_auth_if_changed", lambda account, auth: persisted.append(auth))
+    monkeypatch.setattr(accounts_module, "persist_auth_if_changed", lambda account, auth: persisted.append(auth))
 
     with pytest.raises(RuntimeError, match="audible down"):
         refresh(book)

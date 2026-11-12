@@ -77,6 +77,28 @@ def persist_auth_if_changed(account: Account, auth: Authenticator) -> bool:
     return True
 
 
+@contextmanager
+def keeping_credentials[T](account: Account, audible: T) -> Iterator[T]:
+    """
+    Use an Audible client for a one-off request, then store a token it refreshed and close it.
+
+    For the requests made outside a run (`library.refresh`, the catalogue): the token
+    is stored even when the request failed, since the refresh came first, and a
+    failure to store it is logged rather than hiding the request's own outcome. The
+    client is closed, so its connections do not wait for the garbage collector.
+    """
+    try:
+        yield audible
+    finally:
+        try:
+            persist_auth_if_changed(account, audible.auth)
+        except Exception:
+            logger.exception("Could not store the refreshed credentials of %r", account)
+        close = getattr(audible, "close", None)
+        if close is not None:
+            close()
+
+
 def customer_name_of(auth: Authenticator) -> str | None:
     """The name Amazon returned at registration, if it did."""
     return (auth.customer_info or {}).get("name")

@@ -15,11 +15,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
-from audible_sync.audible_api.accounts import authenticator_for, persist_auth_if_changed
+from audible_sync.audible_api.accounts import authenticator_for, keeping_credentials
 from audible_sync.audible_api.client import Audible
-from audible_sync.audible_api.products import normalise_title, reachable_results
+from audible_sync.audible_api.products import reachable_results
 from audible_sync.database import get_account, get_accounts, library_book_ids
-from audible_sync.model import Account, CatalogBook, CatalogSeries
+from audible_sync.model import Account, CatalogBook, CatalogSeries, fold_text
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,14 @@ class NoAccount(LookupError):
 
 class AccountNeedsLogin(LookupError):
     """The account asked for has no working credentials."""
+
+
+class PastReach(ValueError):
+    """A search page beyond what Audible pages through; `reachable` is how far it goes."""
+
+    def __init__(self, reachable: int):
+        super().__init__(f"Audible pages through {reachable} results of this search, no further")
+        self.reachable = reachable
 
 
 @dataclass
@@ -69,7 +77,12 @@ class TTLCache:
     fetch; the later answer is the one kept, which is harmless.
     """
 
-    def __init__(self, seconds: float = CACHE_SECONDS, entries: int = CACHE_ENTRIES, clock=time.monotonic):
+    def __init__(
+        self,
+        seconds: float = CACHE_SECONDS,
+        entries: int = CACHE_ENTRIES,
+        clock: Callable[[], float] = time.monotonic,
+    ):
         self.seconds = seconds
         self.entries = entries
         self.clock = clock
@@ -77,6 +90,7 @@ class TTLCache:
         self._items: OrderedDict[Any, tuple[float, Any]] = OrderedDict()
 
     def get(self, key: Any, fetch: Callable[[], T]) -> T:
+        """The value kept under `key`, or `fetch()`'s, kept for next time. A `fetch` that raises keeps nothing."""
         now = self.clock()
         with self._lock:
             hit = self._items.get(key)
@@ -124,15 +138,8 @@ class Catalog:
 
     def _ask(self, account: Account, key: tuple, call: Callable[[Audible], T]) -> T:
         def fetch() -> T:
-            audible = self.client_for(account)
-            try:
+            with keeping_credentials(account, self.client_for(account)) as audible:
                 return call(audible)
-            finally:
-                # A token the call refreshed is kept, as `library.refresh` does
-                try:
-                    persist_auth_if_changed(account, audible.auth)
-                except Exception:
-                    logger.exception("Could not store the refreshed credentials of %r", account)
 
         return self.cache.get((account.id, *key), fetch)
 
@@ -149,6 +156,15 @@ class Catalog:
         page: int = 1,
         page_size: int = 20,
     ) -> SearchPage:
+        """
+        One page of a catalogue search, `page` counting from 1.
+
+        Raises:
+            PastReach: for a page beyond what Audible pages through sorted this way, before
+                asking it: it would answer with its last page again
+        """
+        if (page - 1) * page_size >= reachable_results(sort):
+            raise PastReach(reachable_results(sort))
         filters = {
             "keywords": keywords,
             "title": title,
@@ -165,9 +181,11 @@ class Catalog:
         return SearchPage(books=books, total=total, reachable=min(total, reachable_results(sort)))
 
     def book(self, account: Account, asin: str) -> CatalogBook | None:
+        """One book with its description; None when Audible has no such book."""
         return self._ask(account, ("book", asin), lambda audible: audible.get_catalog_book(asin))
 
     def series(self, account: Account, asin: str) -> CatalogSeries | None:
+        """A series and its books in reading order; None when the ASIN is not a series."""
         return self._ask(account, ("series", asin), lambda audible: audible.get_series(asin))
 
     def find_series(self, account: Account, name: str, author: str | None = None) -> list[SeriesMatch]:
@@ -180,28 +198,33 @@ class Catalog:
         each. A series none of the first page's books is in is not found.
         """
         page = self.search(account, keywords=name, author=author, page_size=_SERIES_SEARCH_SIZE)
-        wanted = normalise_title(name)
+        wanted = fold_text(name)
         found: dict[str, SeriesMatch] = {}
         for book in page.books:
+            # A book counts once for a series, however many times it lists it
+            counted: set[str] = set()
             for entry in book.series:
                 series_asin, series_title = entry.get("series_asin"), entry.get("title")
-                if not series_asin or not series_title:
+                if not series_asin or not series_title or series_asin in counted:
                     continue
-                normalised = normalise_title(series_title)
-                if wanted not in normalised:
+                folded = fold_text(series_title)
+                if wanted not in folded:
                     continue
+                counted.add(series_asin)
                 match = found.setdefault(
                     series_asin,
-                    SeriesMatch(asin=series_asin, title=series_title, books_found=0, exact=normalised == wanted),
+                    SeriesMatch(asin=series_asin, title=series_title, books_found=0, exact=folded == wanted),
                 )
                 match.books_found += 1
         ranked = sorted(found.values(), key=lambda match: (not match.exact, -match.books_found, match.title))
         return ranked[:_SERIES_MATCHES]
 
     def categories(self, account: Account) -> list[dict]:
+        """The marketplace's categories, two levels deep, as {id, name, children}."""
         return self._ask(account, ("categories",), lambda audible: audible.get_categories())
 
     def authors(self, account: Account, name: str) -> list[dict[str, str | None]]:
+        """Authors whose name matches, as ASIN, name and picture."""
         return self._ask(account, ("authors", name.strip().casefold()), lambda audible: audible.search_authors(name))
 
 

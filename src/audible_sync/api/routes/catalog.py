@@ -10,7 +10,7 @@ import logging
 from collections.abc import Callable
 from typing import Annotated, Literal, TypeVar
 
-from audible.exceptions import AudibleError, Unauthorized
+from audible.exceptions import AudibleError, NotFoundError, Unauthorized
 from fastapi import APIRouter, HTTPException, Path, Query
 
 from audible_sync.api.schemas import (
@@ -24,7 +24,7 @@ from audible_sync.api.schemas import (
     SeriesMatchOut,
 )
 from audible_sync.audible_api.products import MAX_PAGE_SIZE, SORTS
-from audible_sync.catalog import AccountNeedsLogin, Catalog, NoAccount, holdings
+from audible_sync.catalog import AccountNeedsLogin, Catalog, NoAccount, PastReach, holdings
 from audible_sync.model import Account, CatalogBook
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,7 @@ Sort = Literal[tuple(SORTS)]  # type: ignore[valid-type]
 
 
 def router(*, catalog: Catalog | None = None) -> APIRouter:
+    """The catalogue's routes, asking through `catalog` (a fresh one, with its own cache, by default)."""
     router = APIRouter()
     catalog = catalog or Catalog()
 
@@ -49,16 +50,22 @@ def router(*, catalog: Catalog | None = None) -> APIRouter:
         except (NoAccount, AccountNeedsLogin) as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
 
-    def ask(account: Account, call: Callable[[], T]) -> T:
+    def ask(account: Account, call: Callable[[], T], missing: str = "Not in the catalogue") -> T:
         try:
             return call()
+        except PastReach as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
+        except NotFoundError:
+            # Audible answers an unknown ASIN with a 200 holding nothing, but a 404 is no outage either
+            raise HTTPException(status_code=404, detail=missing) from None
         except Unauthorized:
             raise HTTPException(status_code=409, detail=f"Audible refused {account.name}; sign in again") from None
         except AudibleError as error:
             logger.warning("The catalogue did not answer for %r", account, exc_info=True)
             raise HTTPException(status_code=502, detail=f"Audible did not answer: {error}") from None
 
-    def marked(account: Account, books: list[CatalogBook], model=CatalogBookOut) -> list:
+    def marked[M: CatalogBookOut](account: Account, books: list[CatalogBook], model: type[M]) -> list[M]:
+        """The books as `model`, each saying whether a library of the account's marketplace holds it."""
         held = holdings(account, books)
         return [
             model.model_validate(book).model_copy(
@@ -104,12 +111,11 @@ def router(*, catalog: Catalog | None = None) -> APIRouter:
                 page_size=page_size,
             ),
         )
+        # Audible's own limit was checked before asking (`PastReach`); this is the search's
         if page > 1 and (page - 1) * page_size >= found.reachable:
-            raise HTTPException(
-                status_code=422, detail=f"Audible pages through {found.reachable} results of this search, no further"
-            )
+            raise HTTPException(status_code=422, detail=str(PastReach(found.reachable)))
         return CatalogSearchOut(
-            items=marked(account, found.books),
+            items=marked(account, found.books, CatalogBookOut),
             total=found.total,
             reachable=found.reachable,
             page=page,
@@ -121,7 +127,7 @@ def router(*, catalog: Catalog | None = None) -> APIRouter:
     def catalog_book(asin: Asin, account_id: int | None = None) -> CatalogBookDetail:
         """One book of the catalogue, with its description. 404 when Audible has no such book."""
         account = account_for(account_id)
-        book = ask(account, lambda: catalog.book(account, asin))
+        book = ask(account, lambda: catalog.book(account, asin), f"No book {asin} in the catalogue")
         if book is None:
             raise HTTPException(status_code=404, detail=f"No book {asin} in the catalogue")
         return marked(account, [book], CatalogBookDetail)[0]
@@ -148,10 +154,10 @@ def router(*, catalog: Catalog | None = None) -> APIRouter:
         has several books, the editions of one title. 404 when the ASIN is not a series.
         """
         account = account_for(account_id)
-        series = ask(account, lambda: catalog.series(account, asin))
+        series = ask(account, lambda: catalog.series(account, asin), f"No series {asin} in the catalogue")
         if series is None:
             raise HTTPException(status_code=404, detail=f"No series {asin} in the catalogue")
-        books = marked(account, [entry.book for entry in series.books])
+        books = marked(account, [entry.book for entry in series.books], CatalogBookOut)
         return CatalogSeriesOut(
             asin=series.asin,
             title=series.title,
