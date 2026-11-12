@@ -296,7 +296,7 @@ Search, a series, a book's panel and the Wishlist all show a catalogue book (`Ca
   - **In library** (`in_library`): `--ok` text on `--ok` at 14%, a check, "In library →", linking to `/library/{library_book_id}`.
   - **On wishlist**: the accent heart, `--accent-text` on `--accent` at 14%. With several accounts it names the account: "On Alex (UK)'s wishlist"; with one, "On wishlist". A book on two accounts' wishlists shows one marker per account.
   - **Plus** (`plus`): an outline pill, `--text-2` on a `--line-strong` border, titled "Included in Audible Plus". It is information, not a status, so it takes no status colour.
-- **The action** under the price: **Add to wishlist** (outline heart) or **Remove from wishlist** (filled heart in `--accent-text`), a secondary button. While the request is in flight it is disabled and busy ("Adding…", "Removing…", a spinner, `aria-busy`), and the marker changes only once the API has answered. **No Add for a book the account owns:** Audible's wishlist refuses it, so a row marked In library by the account it would be added to has no button, and the panel says "Alex (UK) owns this book, so it cannot go on their wishlist." When another account of the marketplace holds it, Add is still offered, to the accounts that do not.
+- **The action** under the price: **Add to wishlist** (outline heart) or **Remove from wishlist** (filled heart in `--accent-text`), a secondary button. While the request is in flight it is disabled and busy ("Adding…", "Removing…", a spinner, `aria-busy`), and the marker changes only once the API has answered. **No Add for a book the account owns:** the API refuses it (a wishlist is for books not yet held), so a row whose book the account it would be added to holds (`library[].account_id`) has no button, and the panel says "Alex (UK) owns this book, so it cannot go on their wishlist." When another account of the marketplace holds it, Add is still offered, to the accounts that do not.
 
 ### The search box and its prefixes (Search and Library)
 
@@ -381,7 +381,9 @@ Every signed-in account's wishlist in one list. Each book is a catalogue book as
 
 - **The wishlist** (`feat/wishlist`): `GET /api/wishlist` with `account_id`, `sort` and paging, each item a `CatalogBookOut` plus `account_id` and `added_at`, and per account when it was last read and whether that read failed (`accounts: [{id, read_at, error}]`), which the Updated line, the `partial` notice and the sidebar count need. `POST /api/wishlist` `{account_id, asin}` and `DELETE /api/wishlist/{account_id}/{asin}`, answering with the item or 404, and keeping the table in step at once, since Audible answers both silently. `POST /api/wishlist/refresh` re-reads every account's wishlist (or one, `account_id`).
 - **The wishlist markers on catalogue books:** `CatalogBookOut` needs the accounts whose wishlist holds the book (`on_wishlist: [account_id]`), from our table, for Search, a series and the panel.
-- **The library book behind In library:** the panel names the account and the status of `library_book_id`; `GET /api/books/{id}` already gives both, so this is one more request, or two fields on `CatalogBookDetail`.
+- **The library books behind In library:** `CatalogBookOut` lists every library here holding the book, `library: [{account_id, book_id, status}]`, so a row can name the account ("In Alex (US)'s library"), withhold Add from an account that owns the book, and the panel can say "Alex (UK), Downloaded" without another request. `in_library` and `library_book_id` stay, as the first of them.
+- **Editions in parts:** `CatalogBookOut.multipart`, from Audible's `MultiPartBook`, for "the same audio in two parts": the titles of such editions do not say so (Old Man's War's do not).
+- **The sidebar's Wishlist count:** a `wishlist` count in `GET /api/stats`, which the sidebar already reads.
 
 ## Behaviour common to every screen
 
@@ -402,6 +404,6 @@ Every signed-in account's wishlist in one list. Each book is a catalogue book as
 6. **Docker:** a Node build stage that runs the `web/` build and copies `dist` into the image; `.dockerignore` for `web/node_modules`.
 7. **CI:** lint, type-check and build `web/` beside the Python checks.
 8. **Round 2:** `generated_password` on `GET /api/auth/me` (the dashboard banner); `POST /api/books/bulk`; the API-token endpoints and `GET /api/system`; optionally `GET /api/queue` for Up next; per-book run records and `GET /api/sync/runs/{id}/books` (lowest priority). Each is described under its screen in Round 2 above.
-9. **v3.4.0:** the wishlist endpoints, the wishlist markers on catalogue books, and the library book behind In library, under [v3.4.0's backend work](#backend-work-for-v340).
+9. **v3.4.0:** the wishlist endpoints, the wishlist markers on catalogue books, the library books behind In library, editions in parts and the wishlist count, under [v3.4.0's backend work](#backend-work-for-v340).
 
 Open question: `GET /api/books` has no per-book file size, only the totals in `/api/stats`, so the design shows no sizes per book.
