@@ -32,7 +32,7 @@ test/       a local Docker setup (gitignored as /test/, anchored, or it hides we
 opencollection/  the API as a request collection for Bruno and the like
 ```
 
-Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`; `api.web`: the base path and the web app) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `htmltext` (Audible's HTML descriptions as plain text and as allow-listed HTML), `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
+Modules, under `audible_sync`: `service` (wiring) → `api.app` (→ `api.routes.*`: `auth`, `sync`, `settings`, `system`, `accounts`, `books`, `catalog` (→ `catalog`, the catalogue service and its cache); `api.web`: the base path and the web app) + `api.schemas`, `pipeline.scheduler` + `pipeline.runstate` → `pipeline.run.run_pipeline` (which `cli` runs too) → `settings`, `audible_api.client`, `pipeline.sync`, `pipeline.downloader` (→ `naming`, `encoding`, `progress`). Beside those: `audible_api.products` (catalogue answers into `CatalogBook`), `audible_api.accounts` (credentials), `audible_api.login`, `library` (per-book actions), `security.webauth`, `security.apitoken`, `security.crypto`, `database`, `model`, `htmltext` (Audible's HTML descriptions as plain text and as allow-listed HTML), `paths`, `system`, `logbuffer`, `pipeline.notify`, `api.openapi_export`. Below, a module is named by its last part where that is unambiguous.
 
 `database` stays one module, since tests point its `DB_FILE` at a temp file (and `conftest.scratch_database` does by default). `config/`, `web/dist`, `data/` and `secrets/` stay outside the package: `paths.REPO_ROOT` is two levels above it, `/app` in the image.
 
@@ -64,6 +64,7 @@ All observed; the API is undocumented.
 - **Amazon's device list:** a device exists only once `/auth/register` is collected. A code entered after we stopped polling shows "Device connected" and creates nothing (checked 2026-11-05). `customer_info.user_id` is stable across registrations (compared a year and two methods apart)
 - **The description is `publisher_summary`**, HTML, in `product_extended_attrs`; `product_desc` despite its name only repeats the title. The group makes a page about 45% larger. Stored as Audible gave it and never leaves as it came: plain text for the files and scripts (`html_to_text`, `Book.description_text`), and for the web app HTML **written afresh** from an allow-list (`safe_html`, `Book.description_html`: `p`, `br`, `strong`, `em`, `ul`, `ol`, `li`, no attributes, text escaped), which is what makes the Book page's `dangerouslySetInnerHTML` safe. Never widen it to a filter of Audible's markup. Both are built on read, so a change to either needs no re-read
 - **Chapters nest:** `flatten_chapters` descends, or a multi-part book gets a few hours-long "Part One" markers
+- **The catalogue** (`catalog/products`) answers without credentials, but only a signed-in request is told the member's price (`lowest_price` of `type` `member`), so it goes through an account. Its `page` **counts from 0**, unlike the library's. Asking for `products_sort_by=Relevance` by name *leaves results out* (72 of 138); relevance is no sort at all. An unknown ASIN is a 200 holding only the ASIN (`products.exists`), `asins=` takes at most 50, and `asins=` empty answers with arbitrary products, so never send it. Deep pages are clamped silently (`products.reachable_results`). Plus is a plan in `plans`, named per marketplace (`Audible-AYCL` UK, `US Minerva` US; `is_ayce` is always null). There is no series filter: a series is found through the books a keyword search returns (`Catalog.find_series`, titles compared with `fold_text`, since Audible writes curly apostrophes), and a series ASIN's `relationships` list its books, several editions to a position. Authors come from `searchsuggestions`, which is a 400 without `site_variant`; their id there can differ from the one on their books
 - **Validation:** the library checks credential fields on assignment (`Atna|`, `Atnr|`, PEM, `adp_token` shape). `tests/test_accounts.py`'s `AUTH_BLOB` is the smallest dict that passes; reuse it
 
 ## The pipeline
@@ -125,6 +126,7 @@ All observed; the API is undocumented.
 
 ## API and serving
 
+- **The catalogue routes** (`api/routes/catalog.py`) never store anything: `CatalogBook` is the title, not a copy of it, and `in_library` is worked out per answer from every library of the marketplace (`library_book_ids`). Answers are cached in memory for five minutes per account (`catalog.TTLCache`), the marks applied after the cache, so a download shows at once. A path ASIN is checked against `[A-Za-z0-9]{10}`, as it goes into Audible's URL
 - **One book's endpoints answer with `BookDetail`** (`GET`, `PATCH`, `refresh`): `BookOut` plus `description` (plain text) and `description_html` (allow-listed, see above). The list stays `BookOut`, without them
 - Every endpoint is a plain `def`, so SQLite runs in the threadpool. Errors are `{"detail": ...}`. A settings `ValueError` is a 422, but pydantic's `ValidationError` is re-raised: a response that does not fit its schema must be a 500, not a misleading 422
 - **Book rules (`library.py`):** a row a run holds is never touched (`BookBusy`, 409), files go before the row forgets them, and every transition goes through `reset_for_download`. Bulk goes book by book through the same functions so the rules stay in one place
@@ -140,7 +142,7 @@ All observed; the API is undocumented.
 - **SQLite foreign keys are off**, so `delete_account` deletes what it owns itself, and a run's book record reads `book_id` as None once the row has gone
 - **Rebuilding `library`** for a new primary key is `_migrate_library_to_accounts`; the DDL is shared with `init_db` so they cannot drift. Index creation is guarded by the columns present, so an old database migrates
 - **WAL** is a property of the file, so one `init_db` holds for every later connection
-- **`list_books`' search** is a `LIKE` over JSON text: fine for a personal library, FTS if it ever reaches thousands
+- **`list_books`' search** (`q`, `author`, `narrator`, `series`) decodes the JSON list columns with `json_each` and compares through `fold`, `fold_text` registered on every connection: the JSON text escapes everything outside ASCII, and SQLite's `LIKE` folds ASCII case only. `%` and `_` are matched literally. A scan of every row: fine for a personal library, FTS if it ever reaches thousands
 
 ## Web app
 
@@ -187,6 +189,7 @@ Every behaviour change ships with tests; a bug fix with one that reproduces it. 
 - **Scheduler:** everything is injected. Call `_settle(scheduler)` before re-triggering, since `FakeRun` signals `finished` a moment before `running` flips
 - **Login:** `tests/test_audible_login.py`'s `FakeAmazon` on `httpx.MockTransport` serves scripted answers (`PENDING`, `REJECTED`, `registered_response()`); import it rather than building another. `join(login_id)` before reading a code login's outcome. Never call the real `register`
 - **Anything replacing credentials** patches `Authenticator.deregister_device` (`_deregistered` in `tests/test_accounts.py`)
+- **Catalogue:** `Catalog(client_for=...)` takes a fake in place of `Audible` (`tests/test_catalog.py`'s `FakeAudible`, `tests/test_api.py`'s `catalogue` fixture, handed to `create_app(catalog=...)`); its `auth` needs a `to_dict` for the token write-back. `tests/test_products.py`'s `make_product` is Old Man's War as Audible returned it
 - **Webhook:** `httpx.MockTransport` for the POST; `tests/test_run.py` patches `notify_run_finished` on `audible_sync.pipeline.run`
 - **`RingBufferHandler`** on a logger of its own with the level set: the default WARNING drops INFO before the handler sees it
 

@@ -1,0 +1,22 @@
+info:
+  name: Find authors
+  type: http
+  seq: 6
+http:
+  method: GET
+  url: "{{baseUrl}}/api/catalog/authors?name=Scalzi"
+  params:
+    - name: name
+      value: "Scalzi"
+      type: query
+    - name: account_id
+      value: "1"
+      type: query
+      description: the account to ask through; the oldest signed in by default
+      disabled: true
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Authors whose name matches. Find their books with a search by `author` name: the id
+  here can differ from the one on their books.

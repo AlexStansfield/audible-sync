@@ -1,0 +1,50 @@
+info:
+  name: Search the catalogue
+  type: http
+  seq: 1
+http:
+  method: GET
+  url: "{{baseUrl}}/api/catalog/search?author=John Scalzi&sort=relevance&page=1&page_size=20"
+  params:
+    - name: keywords
+      value: "old man's war"
+      type: query
+      disabled: true
+    - name: title
+      value: "Old Man's War"
+      type: query
+      disabled: true
+    - name: author
+      value: "John Scalzi"
+      type: query
+    - name: narrator
+      value: "William Dufris"
+      type: query
+      disabled: true
+    - name: category_id
+      value: "19393879031"
+      type: query
+      description: an id from Categories
+      disabled: true
+    - name: sort
+      value: "relevance"
+      type: query
+      description: relevance, bestsellers, newest, oldest or title
+    - name: page
+      value: "1"
+      type: query
+    - name: page_size
+      value: "20"
+      type: query
+      description: 1-50
+    - name: account_id
+      value: "1"
+      type: query
+      description: the account to ask through; the oldest signed in by default
+      disabled: true
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  A page of a catalogue search by any of the filters (at least one). `reachable` is how
+  many results Audible will page through; a page beyond them is a 422.

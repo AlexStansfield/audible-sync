@@ -263,17 +263,23 @@ The wishlist of every account in one list, a search of the Audible catalogue, an
 - Add a book to the wishlist and remove one
 - The wishlist and the catalogue search in the API, for other applications to use: the wishlist as a list to read, the catalogue as a source of audiobook data
 
-### To decide
+- Search by a prefix in the search box, on Search and on Library: `author:John Scalzi`, `narrator:`, `series:Old Man's War`, `title:`
 
-- Which marketplace the catalogue search uses when there are several accounts
-- Whether to offer author search and lookup, from the little Audible has on authors
+### Decided (2026-11-12)
+
+- The catalogue is searched through an account: `account_id`, or by default the oldest signed in. Its marketplace is the one searched and its member price the one shown; the Search page offers the choice only when there are several. A book counts as in the library when any account of that marketplace holds it
+- Authors: a thin search only (`GET /api/catalog/authors?name=`), in the API and not the web app. Audible has an id, a name and a picture, and the same author can carry another id on their books, so their books are a search by name
+- Prefixes: `author:`, `narrator:`, `series:` and `title:`, a value running to the next prefix or the end, so no quotes; anything else is keywords, and only those four words count, so "Star Wars: Trials of the Jedi" searches as written. One parser in the web app for both pages. The API stays structured: the catalogue search already takes `author`, `narrator` and `title`; `GET /api/books` gains `author`, `narrator` and `series`
+- `series:` in the catalogue: Audible has no series filter, so `GET /api/catalog/series?name=` finds the series through the books a keyword search for the name returns, and `GET /api/catalog/series/{asin}` lists one. One match goes straight to its books; several are offered to choose from
+- Three stacked branches, each reviewed before the next: `feat/catalog` (the catalogue and the library filters), `feat/wishlist` (the table, its sync and endpoints), then the web pages once the design is in
 
 ### What the Audible API gives
 
 Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocumented, so these are observations, not promises.
 
 - **The wishlist** is one per marketplace login, read 50 a page with the date each book was added. Adding and removing are by ASIN, and both succeed silently when there is nothing to do - a book already there, a book not there - so "already on the wishlist" has to come from our own table
-- **Catalogue search** takes `keywords`, `title`, `author`, `narrator`, `category_id`, a sort and a page of up to 50. `title` only comes back with the `product_desc` response group. `publisher` matches loosely (it returned podcasts) and is left out. Deep pages are clamped without an error, at about 1,000 results sorted by release date and 5,000 by bestsellers
+- **Catalogue search** takes `keywords`, `title`, `author`, `narrator`, `category_id`, a sort and a page of up to 50, **counted from 0**. Sorting by `Relevance` by name leaves results out; no sort is relevance. `title` only comes back with the `product_desc` response group. `publisher` matches loosely (it returned podcasts) and is left out. Deep pages are clamped without an error, at about 1,000 results sorted by release date and 5,000 by bestsellers. The member's price is only told to a signed-in request
+- **Plus** is a plan in each title's `plans`, named per marketplace: `Audible-AYCL` in the UK, `US Minerva` in the US
 - **A book** has its title, authors, narrators, every series with the position, length, release date, language (as a word, `english`), publisher, abridged or not, description (HTML), covers at 500 and 1215 px, genres and ratings. **It has no ISBN**, and an ISBN finds nothing in a search
 - **A series** ASIN is itself a product that lists its books with their positions
 - **Authors are thin**: an id and a name, no biography or picture, and the same author can carry two ids (one on a book, another in the search suggestions)
@@ -282,15 +288,20 @@ Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocu
 
 ### Tasks
 
-- [ ] Design: the Wishlist and Search screens in `docs/design/`, desktop and phone, both themes: the combined list, the search filters, a result's owned, wishlisted and Plus markers, adding and removing with their in-flight and failed states, an empty wishlist and a search that finds nothing
-- [ ] Backend: `Audible` client methods for the wishlist (every page, add, remove) and the catalogue (search, a book by ASIN, a series by ASIN, the categories), mapped to a catalogue book that orders its series by the library's rule (`sort_series`, `primary_series`)
+- [ ] Design: the Wishlist and Search screens in `docs/design/`, desktop and phone, both themes: the combined list, the search filters, a result's owned, wishlisted and Plus markers, adding and removing with their in-flight and failed states, an empty wishlist and a search that finds nothing; the search box's prefixes (a hint, the recognised filters as chips, on Library too), a series' books by position with their editions, and choosing between series that match a name
+- [x] Backend: `Audible` client methods for the catalogue (search, a book by ASIN, a series by ASIN, the categories, authors), mapped to a catalogue book that orders its series by the library's rule (`sort_series`, `primary_series`)
+- [ ] Backend: `Audible` client methods for the wishlist (every page, add, remove)
 - [ ] Backend: a `wishlist` table keyed by `(account_id, asin)` holding the book's data and the date added, synced for each account in its run after the library sync and on demand. A wishlist that cannot be read is logged and leaves the run's outcome alone
 - [ ] Backend: `GET /api/wishlist`: every account's or one's, paged and sorted (date added, title, release date), each book saying whether a library already holds it
 - [ ] Backend: `POST /api/wishlist` (`account_id`, `asin`) and `DELETE /api/wishlist/{account_id}/{asin}`: Audible first, then the table. A book the account owns is refused; one already there, or already gone, is said from the table, since Audible does not say; 409 when the account needs a sign-in, 502 when Audible does not answer
-- [ ] Backend: `GET /api/catalog/search` (the account whose marketplace to search, `keywords`, `title`, `author`, `narrator`, `category_id`, `sort`, `page`), `GET /api/catalog/books/{asin}`, `GET /api/catalog/series/{asin}` and `GET /api/catalog/categories`. Every book is marked owned, wishlisted and included in Plus, with the member price. Answers are cached for a few minutes, so a client that polls does not become a stream of requests to Audible in the account's name
-- [ ] Backend: the wishlist's and the catalogue's response models, made to be read by another application as well as the web app: the ASIN as the key of every book; the title, description, cover, release date, language as a code, genres, rating, narrators, length in seconds, abridged or not, and the series with positions; no ISBN, since Audible has none.
+- [x] Backend: `GET /api/catalog/search` (the account whose marketplace to search, `keywords`, `title`, `author`, `narrator`, `category_id`, `sort`, `page`), `GET /api/catalog/books/{asin}`, `GET /api/catalog/series?name=`, `GET /api/catalog/series/{asin}`, `GET /api/catalog/categories` and `GET /api/catalog/authors?name=`. Every book is marked in the library and included in Plus, with the member price. Answers are cached for five minutes, so a client that polls does not become a stream of requests to Audible in the account's name
+- [ ] Backend: mark every catalogue book wishlisted, once the wishlist table exists
+- [x] Backend: the catalogue's response models, made to be read by another application as well as the web app: the ASIN as the key of every book; the title, description, cover, release date, language as a code, genres, rating, narrators, length in seconds, abridged or not, and the series with positions; no ISBN, since Audible has none
+- [ ] Backend: the wishlist's response model, the catalogue book with the account and the date added
+- [x] Backend: `GET /api/books` (and the bulk filter) takes `author`, `narrator` and `series`. Every text filter, `q` included, now matches outside ASCII and ignores the kind of apostrophe: the list columns are JSON, which escapes anything else, so "Kaijū" or Audible's "Old Man’s War" found nothing
 - [ ] Web: the Wishlist page: every account's books in one list with the account filter and the sort in the URL, Remove with its confirmation, a marker on a book a library already holds, and a refresh from Audible
-- [ ] Web: the Search page: the filters in the URL, results with the owned, wishlisted and Plus markers and the member price, Add to wishlist and Remove on each (the account chosen when there are several), paging that stops where Audible's clamp does
+- [ ] Web: the Search page: the filters in the URL, results with the owned, wishlisted and Plus markers and the member price, Add to wishlist and Remove on each (the account chosen when there are several), paging that stops where Audible's clamp does (`reachable`)
+- [ ] Web: the search box's prefixes (`author:`, `narrator:`, `series:`, `title:`), one parser shared by Search and Library, with the hint and the recognised filters as chips; `series:` on Search through the series endpoints, choosing when several match
 - [ ] Web: both pages in the sidebar and the phone's drawer, and their paths in the base path's reserved segments (`_RESERVED_SEGMENTS`, which a test checks against `web/src/app/routes.tsx`)
 - [ ] Docs: `docs/api.md` for the wishlist and the catalogue; the requests in `opencollection/`; the README; CLAUDE.md
 - [ ] Checked live: a book added from Search appears in Audible's own wishlist and one removed leaves it; the Wishlist page matches Audible's for two accounts; the wishlist and catalogue endpoints with the bearer token alone
