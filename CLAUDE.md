@@ -90,6 +90,7 @@ All observed; the API is undocumented.
 
 - **FFmpeg's MP4 muxer drops** `series`, `series-part`, `author` and `media_type`, so `write_m4b_extra_tags` adds them as freeform atoms after it. Do **not** use `-movflags use_metadata_tags`: it keeps the keys but removes the embedded cover (verified 2026-09-08)
 - **`-map_chapters` only when there are chapters:** a chapterless metadata file discards the track the AAXC carries. Opus has no picture stream or chapter track: cover as `METADATA_BLOCK_PICTURE`, chapters as `CHAPTERxxx` tags, and `-map_chapters -1` so they are not doubled
+- **The title tag is the title alone**, `album` too; the subtitle is a `subtitle` tag of its own (a freeform atom in M4B, `SUBTITLE` in Ogg). Joined as `Title: Subtitle` until v3.4.0, Audible's marketing subtitles became the book's title in Audiobookshelf and every player
 - **FFMETADATA newlines** are a backslash and a real newline; writing `\n` as two characters reads back as a literal `n`. A null sequence needs `or ""`, because `_prepare_book` always creates the key and it would be written as `series-part=None`
 - **The description** is `description` in M4B (the muxer's `desc`) and `synopsis` in Ogg (`_OGG_DESCRIPTION`): FFmpeg writes the ASIN's `comment` as the vorbis `DESCRIPTION`, and a second one would sit beside it
 - **Every output carries its ASIN** in the comment tag, which is how `_resolve_output_path` tells a retry from another book with the same name (two *Red Rising* ASINs collide) and how `library.audio_path_for` finds a file from before `file_path` was recorded
