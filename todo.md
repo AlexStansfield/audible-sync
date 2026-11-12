@@ -288,6 +288,7 @@ Checked against the live UK account, 2026-11-03 to 2026-11-06. The API is undocu
 
 ### Tasks
 
+- [x] Fix: the files' title tag was `Title: Subtitle`, so Audible's marketing subtitles ("Down Cemetery Road: The bestselling thrillers that inspired the Apple TV+ show...") became the title in Audiobookshelf until a Match. The title is now the title alone, and the subtitle a tag of its own. Books already downloaded keep the old title until redownloaded or matched; rewriting the tags in place would be a feature of its own
 - [x] Design: the Wishlist and Search screens in `docs/design/`, desktop and phone, both themes: the combined list, the search filters, a result's owned, wishlisted and Plus markers, adding and removing with their in-flight and failed states, an empty wishlist and a search that finds nothing; the search box's prefixes (a hint, the recognised filters as chips, on Library too), a series' books by position with their editions, and choosing between series that match a name
 - [x] Backend: `Audible` client methods for the catalogue (search, a book by ASIN, a series by ASIN, the categories, authors), mapped to a catalogue book that orders its series by the library's rule (`sort_series`, `primary_series`)
 - [x] Backend: `Audible` client methods for the wishlist (every page, add, remove)
