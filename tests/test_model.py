@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from audible_sync.model import Account, Book, BookStatus, sort_series
+from audible_sync.model import Account, Book, BookStatus, fold_text, sort_series
 from tests.conftest import make_book
 
 ALL_COLUMNS = (
@@ -302,3 +302,18 @@ def test_an_account_is_runnable_when_enabled_with_credentials(enabled, auth, run
     account = Account(id=1, name="A", country_code="uk", auth=auth, enabled=enabled)
 
     assert account.runnable is runnable
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Old Man\N{RIGHT SINGLE QUOTATION MARK}s War", "old man's war"),
+        ("  OLD   Man's War ", "old man's war"),
+        ("Kaij\N{LATIN SMALL LETTER U WITH MACRON}", "kaij\N{LATIN SMALL LETTER U WITH MACRON}"),
+        # SQLite hands `fold` whatever a JSON list holds
+        (None, ""),
+        (5, "5"),
+    ],
+)
+def test_fold_text_ignores_case_quotes_and_spacing(text, expected):
+    assert fold_text(text) == expected

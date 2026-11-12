@@ -10,7 +10,7 @@ for whatever it likes.
 import logging
 from typing import Any
 
-from audible_sync.model import CatalogAuthor, CatalogBook, CatalogPrice, fold_text, sort_series
+from audible_sync.model import CatalogAuthor, CatalogBook, CatalogPrice, sort_series
 
 logger = logging.getLogger(__name__)
 
@@ -132,13 +132,19 @@ def _price(product: dict) -> CatalogPrice | None:
         currency=currency,
         list_price=_money(list_price.get("base")),
         member_price=_money(member),
-        credits=price.get("credit_price"),
+        credits=_number(price.get("credit_price")),
     )
+
+
+def _number(value: Any) -> float | None:
+    # A bool is an int to Python, and no price
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else None
 
 
 def _money(value: Any) -> float | None:
     # Audible sends floats with their binary noise (8.609999656677246)
-    return round(float(value), 2) if isinstance(value, int | float) else None
+    number = _number(value)
+    return round(number, 2) if number is not None else None
 
 
 def _rating(product: dict) -> tuple[float | None, int]:
@@ -246,11 +252,6 @@ def _order(*values: Any) -> float:
         except (TypeError, ValueError):
             continue
     return float("inf")
-
-
-def normalise_title(title: str | None) -> str:
-    """A series title for comparing, as `fold_text` has it."""
-    return fold_text(title)
 
 
 def author_suggestions(answer: dict) -> list[dict[str, str | None]]:

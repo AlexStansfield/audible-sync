@@ -2601,3 +2601,24 @@ def test_catalogue_answers_are_cached(catalogue):
         catalogue.get("/api/catalog/categories", headers=AUTH)
 
     assert [name for name, _ in catalogue.fake.calls] == ["categories"]
+
+
+def test_catalogue_page_past_audibles_reach_never_asks_audible(catalogue):
+    response = catalogue.get(
+        "/api/catalog/search", params={"keywords": "x", "sort": "newest", "page": 60, "page_size": 20}, headers=AUTH
+    )
+
+    assert response.status_code == 422
+    assert "1000" in response.json()["detail"]
+    assert catalogue.fake.calls == []
+
+
+def test_catalogue_audibles_own_404_is_a_404(catalogue):
+    from audible.exceptions import NotFoundError
+
+    catalogue.fake.fail = NotFoundError(httpx.Response(404), {})
+
+    response = catalogue.get("/api/catalog/series/B00HNXRO2O", headers=AUTH)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "No series B00HNXRO2O in the catalogue"

@@ -148,12 +148,15 @@ _QUOTES = str.maketrans(
 )
 
 
-def fold_text(text: str | None) -> str:
+def fold_text(text: object) -> str:
     """
     Text for comparing a name or title: case, curly quotes and runs of spaces ignored,
     since Audible writes "Old Man\N{RIGHT SINGLE QUOTATION MARK}s War" where a person types "Old Man's War".
     """
-    return re.sub(r"\s+", " ", (text or "").translate(_QUOTES)).strip().casefold()
+    if not isinstance(text, str):
+        # SQLite hands `fold` whatever a JSON list holds, a number or null included
+        text = "" if text is None else str(text)
+    return re.sub(r"\s+", " ", text.translate(_QUOTES)).strip().casefold()
 
 
 def _book_status(value: str | None) -> BookStatus | None:
@@ -527,7 +530,7 @@ class CatalogPrice:
 @dataclass
 class CatalogBook:
     """
-    A book in the Audible catalogue, as `audible_api.catalog` maps one.
+    A book in the Audible catalogue, as `audible_api.products` maps one.
 
     Unlike `Book` it is never stored: it describes the title, not anyone's copy of it.
     Whether a library holds it is worked out per answer, by `catalog`. The series are

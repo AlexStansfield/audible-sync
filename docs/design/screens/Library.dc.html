@@ -42,6 +42,10 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1"></rect><rect x="14" y="3" width="7" height="5" rx="1"></rect><rect x="14" y="12" width="7" height="9" rx="1"></rect><rect x="3" y="16" width="7" height="5" rx="1"></rect></svg>Dashboard</a>
 <a href="Library.dc.html" aria-current="page" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; background: var(--raised); color: var(--text); text-decoration: none; font-weight: 600; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--accent)"><path d="M4 19.5V5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2.5z"></path><path d="M8 7h7"></path></svg>Library<span style="margin-left: auto; font-size: 12px; color: var(--muted)">354</span></a>
+<a href="Search.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>Search</a>
+<a href="Wishlist.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
+<svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>Wishlist<span style="margin-left: auto; font-size: 12px; color: var(--muted)">7</span></a>
 <a href="Activity.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
 <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg>Activity</a>
 <a href="Accounts.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--text-2); text-decoration: none; font-weight: 500; min-height: 44px; box-sizing: border-box">
@@ -84,7 +88,21 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <div style="flex: 1 1 280px; position: relative; display: flex; align-items: center">
 <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color: var(--muted); position: absolute; left: 12px"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
 <label for="q" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search the library</label>
-<input id="q" type="search" value="{{query}}" placeholder="Search title, author or series" style="width: 100%; min-height: 42px; padding: 0 14px 0 38px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; box-sizing: border-box">
+<input id="q" type="search" value="{{query}}" placeholder="Title, author or series, or author: narrator: series: title:" style="width: 100%; min-height: 42px; padding: 0 108px 0 38px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit; box-sizing: border-box">
+<button type="button" aria-expanded="{{tipsOpen}}" aria-controls="tips" onClick="{{toggleTips}}" style="position: absolute; right: 6px; min-height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid {{tipsBorder}}; background: var(--raised); color: var(--text-2); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17v.01"></path></svg>Search tips</button>
+<sc-if value="{{tipsOpen}}" hint-placeholder-val="{{ false }}">
+<div id="tips" role="dialog" aria-label="Search tips" style="position: absolute; top: calc(100% + 8px); right: 0; z-index: 12; width: min(420px, 100%); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; padding: 16px; box-shadow: 0 16px 40px rgba(0,0,0,0.28); display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+<div style="display: flex; align-items: center"><span style="font-weight: 600">Search tips</span><button type="button" aria-label="Close search tips" onClick="{{toggleTips}}" style="margin-left: auto; width: 32px; height: 32px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></div>
+<p style="margin: 0; font-size: 13px; color: var(--text-2)">Plain words match the title, author or series. Start a part with a prefix to match one field; a value runs to the next prefix or the end, so no quotes are needed.</p>
+<dl style="margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: 13px">
+<sc-for list="{{tips}}" as="t" hint-placeholder-count="4">
+<dt style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--accent-text); font-weight: 500">{{t.prefix}}</dt><dd style="margin: 0; color: var(--text-2)">{{t.what}}</dd>
+</sc-for>
+</dl>
+<div style="padding: 10px 12px; border-radius: 8px; background: var(--raised); font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text)">author:Mark Lawrence series:Broken Empire</div>
+<p style="margin: 0; font-size: 12px; color: var(--muted)">Only these four words count: “Star Wars: Trials of the Jedi” is searched as written.</p>
+</div>
+</sc-if>
 </div>
 <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted)">Account
 <select style="min-height: 42px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text); font: inherit"><option>All accounts</option><option>Alex (UK)</option><option>Alex (US)</option></select></label>
@@ -95,7 +113,17 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <button type="button" aria-label="Table view" aria-pressed="{{isTable}}" onClick="{{showTable}}" style="width: 44px; min-height: 40px; border: 0; border-left: 1px solid var(--line-strong); background: {{tableBg}}; color: var(--text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"></path></svg></button>
 </div>
 </div>
+<sc-if value="{{hasChips}}" hint-placeholder-val="{{ false }}">
+<div role="group" aria-label="Searching for" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<span style="width: 92px; font-size: 12px; color: var(--muted)">Searching for</span>
+<sc-for list="{{chips}}" as="c" hint-placeholder-count="2">
+<span style="display: inline-flex; align-items: center; min-height: 32px; padding: 0 4px 0 10px; border-radius: 6px; border: 1px solid {{c.border}}; background: var(--raised); font-size: 13px"><span style="color: var(--muted); margin-right: 5px">{{c.label}}</span><span style="font-weight: 600">{{c.value}}</span><button type="button" aria-label="Remove {{c.label}} {{c.value}}" style="width: 28px; height: 28px; margin-left: 2px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"></path></svg></button></span>
+</sc-for>
+<button type="button" style="border: 0; background: transparent; padding: 0 4px; min-height: 32px; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer">Clear search</button>
+</div>
+</sc-if>
 <div role="group" aria-label="Status" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+<sc-if value="{{hasChips}}" hint-placeholder-val="{{ false }}"><span style="width: 92px; font-size: 12px; color: var(--muted)">Status</span></sc-if>
 <sc-for list="{{filters}}" as="f" hint-placeholder-count="6">
 <button type="button" aria-pressed="{{f.on}}" style="min-height: 36px; padding: 0 12px; border-radius: 999px; border: 1px solid {{f.border}}; background: {{f.bg}}; color: var(--text); font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; gap: 7px"><span style="width: 8px; height: 8px; border-radius: 50%; background: {{f.dot}}"></span>{{f.label}}<span style="color: var(--muted)">{{f.count}}</span></button>
 </sc-for>
@@ -136,7 +164,7 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 <section aria-labelledby="nores-h" style="background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 56px 24px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center">
 <div style="width: 56px; height: 56px; border-radius: 14px; background: var(--raised); color: var(--muted); display: flex; align-items: center; justify-content: center"><svg aria-hidden="true" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path><path d="M8.5 11h5"></path></svg></div>
 <h2 id="nores-h" style="margin: 0; font-size: 18px; font-weight: 700">No books match these filters</h2>
-<p style="margin: 0; color: var(--text-2)">Nothing matches &quot;zelazny&quot; in Failed.</p>
+<p style="margin: 0; color: var(--text-2)">{{noResultsText}}</p>
 <button type="button" style="min-height: 42px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--raised); color: var(--text); font: inherit; font-weight: 600; cursor: pointer">Clear filters</button>
 </section>
 </sc-if>
@@ -194,7 +222,7 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 
 <sc-if value="{{showPager}}" hint-placeholder-val="{{ true }}">
 <nav aria-label="Pages" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; color: var(--muted); font-size: 13px">
-<span>1–24 of 354</span>
+<span>{{pagerLabel}}</span>
 <div style="margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px">
 <button type="button" disabled style="min-width: 40px; min-height: 40px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--faint); font: inherit">Prev</button>
 <button type="button" aria-current="page" style="min-width: 40px; min-height: 40px; border-radius: 8px; border: 1px solid var(--accent); background: rgba(242,165,65,0.14); color: var(--text); font: inherit; font-weight: 600">1</button>
@@ -222,13 +250,15 @@ a{color:var(--accent-text)}a:hover{color:var(--accent-hover)}
 </sc-if>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"mobileMenu":{"editor":"boolean","default":false},"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"view":{"editor":"enum","options":["grid","table"],"default":"grid"},"empty":{"editor":"enum","options":["none","noBooks","noResults"],"default":"none"},"bulk":{"editor":"enum","options":["off","selecting","confirmDelete","result"],"default":"off"},"$preview":{"width":1440,"height":1240}}'>
+<script type="text/x-dc" data-dc-script data-props='{"mobileMenu":{"editor":"boolean","default":false},"theme":{"editor":"enum","options":["dark","light"],"default":"dark"},"view":{"editor":"enum","options":["grid","table"],"default":"grid"},"empty":{"editor":"enum","options":["none","noBooks","noResults"],"default":"none"},"bulk":{"editor":"enum","options":["off","selecting","confirmDelete","result"],"default":"off"},"search":{"editor":"enum","options":["plain","prefix"],"default":"plain"},"tips":{"editor":"boolean","default":false},"$preview":{"width":1440,"height":1240}}'>
 class Component extends DCLogic {
   renderVals() {
     const st = this.state || {};
     const view = st.view || this.props.view || 'grid';
     const empty = this.props.empty || 'none';
     const bulk = st.bulk || this.props.bulk || 'off';
+    const prefix = (this.props.search || 'plain') === 'prefix';
+    const tipsOpen = st.tips != null ? st.tips : !!this.props.tips;
     const S = {
       downloaded: ['Downloaded', 'var(--ok)'],
       waiting: ['Waiting', 'var(--info)'],
@@ -268,7 +298,8 @@ class Component extends DCLogic {
     const allMatching = !!st.allMatching;
     const count = allMatching ? 354 : Object.keys(sel).filter((k) => sel[k]).length;
     const setBulk = (b, extra) => () => this.setState({ bulk: b, ...(extra || {}) });
-    const books = raw.map(([title, author, series, s, bg, fg, cc, monitored, added], i) => {
+    const shown = prefix ? raw.filter((r) => r[2].startsWith('The Broken Empire')) : raw;
+    const books = shown.map(([title, author, series, s, bg, fg, cc, monitored, added], i) => {
       const selected = allMatching || !!sel[i];
       return {
         title, author, series: series || '—', bg, fg, cc, added, monitored,
@@ -300,7 +331,19 @@ class Component extends DCLogic {
       subtitle: noBooks ? 'No books yet' : '354 books across 2 accounts',
       noBooks, noResults,
       hasBooks: !noBooks,
-      query: noResults ? 'zelazny' : '',
+      pagerLabel: prefix ? '1–3 of 3' : '1–24 of 354',
+      query: prefix ? 'author:Mark Lawrence series:Broken Empire' : noResults ? 'zelazny' : '',
+      hasChips: prefix,
+      chips: prefix ? [{ label: 'Author', value: 'Mark Lawrence', border: 'var(--line-strong)' }, { label: 'Series', value: 'Broken Empire', border: 'var(--line-strong)' }] : [],
+      noResultsText: prefix ? 'Nothing matches author Mark Lawrence and series “Broken Empire” in Failed.' : 'Nothing matches “zelazny” in Failed.',
+      tipsOpen, toggleTips: () => this.setState({ tips: !tipsOpen }),
+      tipsBorder: tipsOpen ? 'var(--accent)' : 'var(--line-strong)',
+      tips: [
+        { prefix: 'author:', what: 'Written by. author:Mark Lawrence' },
+        { prefix: 'narrator:', what: 'Read by. narrator:Ray Porter' },
+        { prefix: 'series:', what: 'In a series. series:Impossible Times' },
+        { prefix: 'title:', what: 'Words in the title. title:Thorns' },
+      ],
       isGrid: view === 'grid',
       isTable: view === 'table',
       showGridBooks: listed && view === 'grid',

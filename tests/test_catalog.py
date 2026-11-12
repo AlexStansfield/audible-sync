@@ -210,3 +210,42 @@ def test_no_books_hold_nothing(account):
 
 def test_the_module_caches_for_minutes():
     assert 60 <= catalog_module.CACHE_SECONDS <= 900
+
+
+def test_a_page_past_audibles_reach_is_refused_without_asking(account):
+    fake = FakeAudible(account, [catalogue_book("B000000001")])
+
+    with pytest.raises(catalog_module.PastReach) as refused:
+        make_catalog(fake).search(account, keywords="x", sort="newest", page=51, page_size=20)
+
+    assert refused.value.reachable == 1000
+    assert fake.calls == []
+
+
+def test_a_book_listing_a_series_twice_counts_once(account):
+    twice = catalogue_book("B000000001", ("S1", "Dune", "1"), ("S1", "Dune", "1.0"))
+    others = [catalogue_book(f"B00000000{n}", ("S2", "Dune Chronicles", "1")) for n in (2, 3)]
+
+    matches = make_catalog(FakeAudible(account, [twice, *others])).find_series(account, "dune")
+
+    assert [(match.asin, match.books_found) for match in matches] == [("S1", 1), ("S2", 2)]
+
+
+def test_the_client_is_closed_and_a_refreshed_token_kept_when_a_call_fails(account):
+    closed = []
+
+    class Failing(FakeAudible):
+        def get_catalog_book(self, asin):
+            raise RuntimeError("down")
+
+        def close(self):
+            closed.append(True)
+
+    fake = Failing(account)
+    fake.auth = FakeAuth({**account.auth, "access_token": "Atna|refreshed"})
+
+    with pytest.raises(RuntimeError):
+        make_catalog(fake).book(account, "B000000001")
+
+    assert closed == [True]
+    assert database.get_account(account.id).auth["access_token"] == "Atna|refreshed"

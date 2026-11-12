@@ -151,15 +151,12 @@ def test_series_children_are_in_reading_order():
     assert products.series_children(product) == [("B1", "1", 1.0), ("B2", "4", 4.0), ("B3", "4.5", 5.0)]
 
 
-@pytest.mark.parametrize(
-    ("title", "expected"),
-    [
-        ("Old Man\N{RIGHT SINGLE QUOTATION MARK}s War", "old man's war"),
-        ("  OLD   Man's War ", "old man's war"),
-    ],
-)
-def test_normalise_title_ignores_case_quotes_and_spacing(title, expected):
-    assert products.normalise_title(title) == expected
+@pytest.mark.parametrize("credits", ["1", {"amount": 1}, True])
+def test_a_credit_price_that_is_no_number_is_none(credits):
+    price = {"credit_price": credits, "list_price": {"base": 8.61, "currency_code": "GBP"}}
+
+    # Left as it came, it failed the response model and so the whole page
+    assert products.to_catalog_book(make_product(price=price)).price.credits is None
 
 
 def test_author_suggestions_keep_only_the_authors():

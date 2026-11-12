@@ -789,3 +789,46 @@ def test_a_failed_requeue_after_the_run_is_only_logged(db, monkeypatch, caplog):
     assert deregistered == ["Atna|old"]
     assert "Could not queue the parked books" in caplog.text
     _devices_at_rest()
+
+
+# --- keeping_credentials -----------------------------------------------------------------
+
+
+class _OneOffClient:
+    def __init__(self, auth):
+        self.auth = auth
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def test_keeping_credentials_stores_and_closes_even_when_the_request_fails(monkeypatch):
+    from audible_sync.audible_api import accounts as accounts_module
+
+    stored = []
+    monkeypatch.setattr(accounts_module, "persist_auth_if_changed", lambda account, auth: stored.append(auth))
+    client = _OneOffClient("auth")
+
+    with pytest.raises(RuntimeError, match="down"), accounts_module.keeping_credentials(make_account(), client):
+        raise RuntimeError("down")
+
+    assert stored == ["auth"]
+    assert client.closed
+
+
+def test_keeping_credentials_logs_a_failed_store_without_hiding_the_answer(monkeypatch, caplog):
+    from audible_sync.audible_api import accounts as accounts_module
+
+    def refuse(account, auth):
+        raise sqlite3.OperationalError("locked")
+
+    monkeypatch.setattr(accounts_module, "persist_auth_if_changed", refuse)
+    client = _OneOffClient("auth")
+
+    with accounts_module.keeping_credentials(make_account(), client) as used:
+        answer = used.auth
+
+    assert answer == "auth"
+    assert client.closed
+    assert "Could not store the refreshed credentials" in caplog.text

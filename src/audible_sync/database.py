@@ -1024,9 +1024,15 @@ def _contains(term: str) -> str:
 def _any_in(column: str, path: str | None = None) -> str:
     """
     SQL true when an entry of a JSON list column, or the field `path` of one, contains
-    the pattern bound to its `?`. A column that is NULL or not JSON holds no entries.
+    the pattern bound to its `?`. A column that is NULL or not JSON holds no entries, and
+    an entry of another shape than expected matches nothing rather than failing the query.
     """
-    value = "json_each.value" if path is None else f"json_extract(json_each.value, '{path}')"
+    # `json_extract` on an entry that is not an object raises, failing the whole query
+    value = (
+        "json_each.value"
+        if path is None
+        else f"CASE WHEN json_each.type = 'object' THEN json_extract(json_each.value, '{path}') END"
+    )
     return (
         f"EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid({column}) THEN {column} ELSE '[]' END) "
         f"WHERE fold({value}) LIKE ? ESCAPE '\\')"
