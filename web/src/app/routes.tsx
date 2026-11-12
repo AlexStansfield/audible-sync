@@ -15,7 +15,9 @@ import { DashboardPage } from "../pages/dashboard/DashboardPage";
 import { LibraryPage } from "../pages/library/LibraryPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 import { ProfilePage } from "../pages/ProfilePage";
+import { SearchPage } from "../pages/search/SearchPage";
 import { SettingsPage } from "../pages/settings/SettingsPage";
+import { WishlistPage } from "../pages/wishlist/WishlistPage";
 
 const page = (title: string): RouteHandle => ({ title });
 
@@ -31,6 +33,8 @@ export const routes: RouteObject[] = [
       { index: true, element: <DashboardPage />, handle: page("Dashboard") },
       { path: "library", element: <LibraryPage />, handle: page("Library") },
       { path: "library/:id", element: <BookPage />, handle: page("Library") },
+      { path: "search", element: <SearchPage />, handle: page("Search") },
+      { path: "wishlist", element: <WishlistPage />, handle: page("Wishlist") },
       { path: "activity", element: <ActivityPage />, handle: page("Activity") },
       { path: "accounts", element: <AccountsPage />, handle: page("Accounts") },
       { path: "settings", element: <SettingsPage />, handle: page("Settings") },

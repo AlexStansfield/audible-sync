@@ -1,0 +1,218 @@
+/* The Wishlist (Wishlist.dc.html) */
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.headerActions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.updated {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notices :global(.banner-warn) {
+  align-items: center;
+}
+
+.noticeText {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.noticeText strong {
+  color: var(--text);
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.selectLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.select {
+  min-height: 42px;
+  max-width: 240px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.heldCount {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.okDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.card > div {
+  border-bottom: 1px solid var(--line);
+}
+
+.card > div:last-child {
+  border-bottom: 0;
+}
+
+.dimmed {
+  opacity: 0.55;
+}
+
+.above {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-strong);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.accountName {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.dialogText {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.skeletonLines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.dashed {
+  border: 1px dashed var(--line-strong);
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--raised);
+  color: var(--accent-text);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.emptyText {
+  margin: 0;
+  max-width: 480px;
+  color: var(--text-2);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .headerActions {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .heldCount {
+    margin-left: 0;
+  }
+}

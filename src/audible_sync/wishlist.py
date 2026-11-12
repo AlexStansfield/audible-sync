@@ -69,11 +69,7 @@ def _read_and_store(audible: Audible, account: Account) -> bool:
         items = audible.get_wishlist(account.id)
     except Exception as error:
         # Anything at all: the run that called this must go on to its downloads
-        logger.warning("Could not read the wishlist of %r: %s", account, error, exc_info=True)
-        try:
-            record_wishlist_failure(account.id, f"{type(error).__name__}: {error}")
-        except Exception:
-            logger.exception("Could not record the failed wishlist read of %r", account)
+        _record_failure(account, error)
         return False
     try:
         stored = replace_wishlist(account.id, items)
@@ -85,6 +81,14 @@ def _read_and_store(audible: Audible, account: Account) -> bool:
         return False
     logger.info("%d books on the wishlist of %s", len(items), account.name)
     return True
+
+
+def _record_failure(account: Account, error: Exception) -> None:
+    logger.warning("Could not read the wishlist of %r: %s", account, error, exc_info=True)
+    try:
+        record_wishlist_failure(account.id, f"{type(error).__name__}: {error}")
+    except Exception:
+        logger.exception("Could not record the failed wishlist read of %r", account)
 
 
 class Wishlists:
@@ -100,8 +104,17 @@ class Wishlists:
         self.catalog = catalog or Catalog(client_for=self.client_for)
 
     def refresh(self, account: Account) -> bool:
-        """Read the account's wishlist again now; whether it could be (see `read_wishlist`)."""
-        with keeping_credentials(account, self.client_for(account)) as audible:
+        """
+        Read the account's wishlist again now; whether it could be. Never raises, as
+        `read_wishlist`, so Refresh from Audible reads the other accounts whatever one does.
+        """
+        try:
+            client = self.client_for(account)
+        except Exception as error:
+            # Credentials that do not even make a client (a blob Audible's library refuses)
+            _record_failure(account, error)
+            return False
+        with keeping_credentials(account, client) as audible:
             return read_wishlist(audible, account)
 
     def add(self, account: Account, asin: str) -> tuple[WishlistItem, bool]:

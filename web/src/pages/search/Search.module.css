@@ -1,0 +1,388 @@
+/* Search (Search.dc.html) */
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.filters {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.selectLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.select {
+  min-height: 42px;
+  max-width: 240px;
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+}
+
+.select:disabled {
+  color: var(--faint);
+}
+
+/* --- results ------------------------------------------------------------------ */
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.count {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Its own card: the rows carry their own padding */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cardHead p {
+  margin: 0;
+}
+
+.cappedNote {
+  margin: 0;
+  font-size: 13px;
+}
+
+.skeletonRow {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.skeletonLines,
+.skeletonSide {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeletonSide {
+  align-items: flex-end;
+}
+
+/* --- intro, nothing found, no account ------------------------------------------- */
+
+.intro {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 24px;
+  padding: 24px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.introText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.examples code,
+.prefixes dt {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.prefixes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 24px;
+  border-left: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.prefixes div {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  gap: 8px;
+}
+
+.prefixes dt {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.prefixes dd {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.emptyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+}
+
+.dashed {
+  border: 1px dashed var(--line-strong);
+}
+
+.emptyIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  background: var(--raised);
+  color: var(--muted);
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.emptyText {
+  margin: 0;
+  max-width: 480px;
+  color: var(--text-2);
+}
+
+/* --- series ------------------------------------------------------------------- */
+
+.matches {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.match {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 20px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.match:hover {
+  background: var(--raised);
+}
+
+.match > svg {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.matchTitle {
+  font-weight: 600;
+}
+
+.exact {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.back {
+  font-size: 13px;
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.seriesTitle {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.position {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  border-bottom: 1px solid var(--line);
+}
+
+.position:last-child {
+  border-bottom: 0;
+}
+
+.sequence {
+  padding: 18px 0 0 18px;
+  font-family: var(--mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.positionBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  padding-bottom: 12px;
+}
+
+.positionBody > article {
+  width: 100%;
+  border-bottom: 0;
+  padding-left: 0;
+}
+
+.editionsToggle {
+  margin-left: 80px;
+}
+
+.editions {
+  width: calc(100% - 80px);
+  margin: 10px 0 0 80px;
+  padding: 0 18px 0 14px;
+  list-style: none;
+  border-left: 2px solid var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.edition {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.editionCover {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.editionMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  min-width: 0;
+}
+
+.editionTitle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.editionTitle:hover {
+  color: var(--accent-text);
+}
+
+@media (max-width: 720px) {
+  .intro {
+    grid-template-columns: 1fr;
+  }
+
+  .prefixes {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .position {
+    grid-template-columns: 36px 1fr;
+  }
+
+  .sequence {
+    padding-left: 10px;
+    font-size: 16px;
+  }
+
+  .editionsToggle,
+  .editions {
+    margin-left: 0;
+  }
+
+  .editions {
+    width: 100%;
+  }
+
+  .edition {
+    grid-template-columns: auto 1fr;
+  }
+
+  .edition > :last-child {
+    grid-column: 1 / -1;
+  }
+}

@@ -87,3 +87,20 @@ The installable web app. A browser registers the service worker only over https 
 - [ ] Stop the service and open the installed app: it opens on Cannot reach Audible Sync, and comes back on its own when the service is started again
 - [ ] Deploy a new build with the app open: within the hour, or on coming back to the window, it says Update available; the open page stays on its build until Reload, which moves it to the new one; Dismiss puts the notice away. With another window of the app open, that one is not reloaded under you
 - [x] `/docs` and `/redoc` still open the service's own pages, not the web app's Page not found
+
+## Since v3.3.0
+
+Search and the Wishlist. Signed in with at least one account; two accounts of one marketplace for the menus.
+
+- [ ] Search by keywords, `author:`, `narrator:` and `title:`, alone and together: the chips show how the box was read, removing one searches again, and the URL keeps the box as typed (reload, Back). The results match Audible's own search on the marketplace
+- [ ] A search with more results than Audible pages through (`newest`, any broad word): the count line says only the first 1,000 are shown, and the pager stops at page 50 with the note under it
+- [ ] Category, then its child: the results narrow, and the two selects stay as chosen on reload
+- [ ] A book a library holds shows In library, linking to it; a Plus title shows Plus; the price is the member's with the list price struck through
+- [ ] Add to wishlist from Search: busy, then a toast and the On wishlist marker; the book is on Audible's own wishlist (the website or the app). Remove: it leaves. With two accounts of the marketplace, Add asks which; an account of another marketplace is never offered; a book the account owns has no Add
+- [ ] `series:` with a name that matches one series: its books by position, the editions of a position folded except the first, In library on the edition held. A name matching several: the choice, then the series, and back
+- [ ] A book's panel from a cover or a title: the description, the details, In your library with the account and status when held; Escape, × and the backdrop close it, and Back does too
+- [ ] The Wishlist matches Audible's own for each account, newest first; the account filter and the sort; a held book stands out and links to the library book; Remove asks, then takes it off Audible's wishlist too; Refresh from Audible is busy while it reads
+- [ ] With an account signed out (or its wishlist made to fail), the Wishlist says which account and still shows the others
+- [ ] Library: `author:`, `narrator:`, `series:` and `title:` in the box narrow the list, the chips sit above the status with Status labelled, and Select all matching acts on what is shown
+- [ ] Search and Wishlist at desktop and 390px in both themes, and in the phone's drawer; the sidebar counts the wishlist
+

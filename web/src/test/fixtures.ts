@@ -137,3 +137,40 @@ export function system(overrides: Partial<S["SystemInfo"]> = {}): S["SystemInfo"
     ...overrides,
   };
 }
+
+export type CatalogBook = S["CatalogBookOut"];
+export type WishlistItem = S["WishlistItemOut"];
+
+/** A book of the Audible catalogue, as a search answers with one: Old Man's War by default. */
+export function catalogBook(overrides: Partial<CatalogBook> = {}): CatalogBook {
+  return {
+    asin: "B06XNYQJTX",
+    title: "Old Man's War",
+    subtitle: "",
+    authors: [{ name: "John Scalzi", asin: "B001IGJOCA" }],
+    narrators: ["William Dufris"],
+    series: [{ title: "Old Man's War", sequence: "1", series_asin: "B00HNXRO2O" }],
+    primary_series: { title: "Old Man's War", sequence: "1", series_asin: "B00HNXRO2O" },
+    genres: ["Science Fiction"],
+    length_seconds: 35700,
+    release_date: "2007-03-21",
+    language: "en",
+    publisher: "Macmillan Digital Audio",
+    abridged: false,
+    cover_url: "https://example.invalid/omw.jpg",
+    rating: 4.47,
+    rating_count: 2325,
+    price: { currency: "GBP", list_price: 8.61, member_price: 6.49, credits: 1 },
+    plus: false,
+    multipart: false,
+    in_library: false,
+    library_book_id: null,
+    library: [],
+    on_wishlist: [],
+    ...overrides,
+  };
+}
+
+export function wishlistItem(overrides: Partial<WishlistItem> = {}): WishlistItem {
+  return { ...catalogBook(), account_id: 1, added_at: "2026-11-10T09:00:00Z", ...overrides };
+}

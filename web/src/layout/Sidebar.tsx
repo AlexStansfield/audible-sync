@@ -1,5 +1,6 @@
 import { Link, NavLink } from "react-router";
 import { useBookCount, useHealth, useMe, useStatus } from "../api/queries";
+import { useWishlistCount } from "../catalog/queries";
 import { Icon, type IconName } from "../components/Icon";
 import styles from "./Layout.module.css";
 import { accountsNeedLogin, serviceState } from "./serviceState";
@@ -7,6 +8,8 @@ import { accountsNeedLogin, serviceState } from "./serviceState";
 const LINKS: { to: string; label: string; icon: IconName; end?: boolean }[] = [
   { to: "/", label: "Dashboard", icon: "dashboard", end: true },
   { to: "/library", label: "Library", icon: "library" },
+  { to: "/search", label: "Search", icon: "search" },
+  { to: "/wishlist", label: "Wishlist", icon: "heart" },
   { to: "/activity", label: "Activity", icon: "activity" },
   { to: "/accounts", label: "Accounts", icon: "accounts" },
   { to: "/settings", label: "Settings", icon: "settings" },
@@ -22,6 +25,7 @@ export function SidebarContent({ onClose, onSignOut }: { onClose?: () => void; o
   const status = useStatus();
   const me = useMe();
   const count = useBookCount();
+  const wishlist = useWishlistCount();
   const state = serviceState(status.data, status.isError && !status.data);
   const needLogin = accountsNeedLogin(status.data);
   const initial = me.data?.username.charAt(0).toUpperCase() ?? "";
@@ -44,7 +48,7 @@ export function SidebarContent({ onClose, onSignOut }: { onClose?: () => void; o
       </div>
       <ul className={styles.links}>
         {LINKS.map((link) => {
-          const books = link.to === "/library" ? count.data : undefined;
+          const books = link.to === "/library" ? count.data : link.to === "/wishlist" ? wishlist.data : undefined;
           const alert = link.to === "/accounts" && needLogin;
           // One accessible name rather than hidden fragments, which read with stray spaces
           const name = [

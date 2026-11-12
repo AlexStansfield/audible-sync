@@ -1,0 +1,463 @@
+/* A catalogue book, its markers and the book's panel (DESIGN.md, "A catalogue book") */
+
+.strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* --- the row ------------------------------------------------------------------ */
+
+.row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+/* A book a library holds, on the Wishlist: the reason to remove it */
+.held {
+  box-shadow: inset 3px 0 0 var(--ok);
+  background: color-mix(in srgb, var(--ok) 5%, transparent);
+}
+
+.cover {
+  display: block;
+  flex: none;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--raised);
+}
+
+.coverPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--faint);
+}
+
+.coverButton {
+  align-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.titleButton {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.titleButton:hover {
+  color: var(--accent-text);
+}
+
+.subtitle {
+  font-weight: 400;
+  color: var(--text-2);
+}
+
+.byline,
+.series,
+.facts {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.facts {
+  color: var(--muted);
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+/* --- price -------------------------------------------------------------------- */
+
+.price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.member {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.priceLarge .member {
+  font-size: 20px;
+}
+
+.was {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.credits {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* --- markers ------------------------------------------------------------------ */
+
+.markers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.inLibrary {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.inLibrary:hover {
+  color: var(--ok);
+  text-decoration: underline;
+}
+
+.markerLarge {
+  align-self: flex-start;
+  font-size: 13px;
+  padding: 3px 11px;
+}
+
+.wished {
+  color: var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* Information, not a status: no status colour */
+.plus {
+  color: var(--text-2);
+  border: 1px solid var(--line-strong);
+}
+
+/* --- the action ------------------------------------------------------------- */
+
+.wishButton {
+  white-space: nowrap;
+}
+
+.heartOn {
+  color: var(--accent-text);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}
+
+.menuWrap {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.menuHeading,
+.menuFoot {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.menuHeading {
+  font-weight: 600;
+}
+
+.menuFoot {
+  border-top: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.menuItem:hover {
+  background: var(--raised);
+}
+
+.menuNote {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* --- the panel ---------------------------------------------------------------- */
+
+.panel {
+  position: fixed;
+  inset: 0 0 0 auto;
+  width: min(520px, 100vw);
+  max-width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--text);
+  overflow-y: auto;
+}
+
+.panel::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px 28px;
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+}
+
+.eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.panelClose {
+  margin-left: auto;
+}
+
+.panelTitleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.panelSubtitle {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.heldCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent);
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.heldCard > svg {
+  color: var(--ok);
+}
+
+.heldCard > span:nth-child(2) {
+  display: flex;
+  flex-direction: column;
+}
+
+.heldWhere {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.open {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--accent-text);
+}
+
+.panelPrice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.panelPrice .price {
+  align-items: flex-start;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.detailRow {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px;
+}
+
+.detailRow dt {
+  color: var(--muted);
+}
+
+.detailRow dd {
+  margin: 0;
+}
+
+.detailError {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.description {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.descriptionText {
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+
+.descriptionText p,
+.descriptionText ul,
+.descriptionText ol {
+  margin: 0 0 0.7em;
+}
+
+.descriptionText > :last-child {
+  margin-bottom: 0;
+}
+
+.descriptionText ul,
+.descriptionText ol {
+  padding-left: 1.4em;
+}
+
+.descriptionText strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* About six lines, then Show more */
+.folded {
+  max-height: calc(1.55em * 6);
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .row {
+    grid-template-columns: auto 1fr;
+    padding: 14px;
+  }
+
+  .side {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .price {
+    align-items: flex-start;
+  }
+
+  .panel {
+    width: 100vw;
+    border-left: 0;
+  }
+}

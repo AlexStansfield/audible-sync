@@ -33,7 +33,7 @@ describe("useRefreshAfterRun", () => {
 
     hook.rerender({ value: false });
 
-    expect(refreshed()).toEqual(["stats", "books", "runs", "queue", "accounts"]);
+    expect(refreshed()).toEqual(["stats", "books", "runs", "queue", "accounts", "wishlist", "catalog"]);
   });
 
   it("does nothing while idle, or when a run starts", () => {

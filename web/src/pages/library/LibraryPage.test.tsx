@@ -425,4 +425,46 @@ describe("the empty states", () => {
     expect(alert).toHaveTextContent("Could not load the library");
     expect(within(alert).getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
+
+  it("reads the search box's prefixes into the request, with chips beside the status", async () => {
+    const api = library();
+    renderApp("/library?q=dark%20author%3AJohn%20Scalzi%20series%3AOld%20Man%27s%20War");
+
+    await screen.findByRole("region", { name: "Books" });
+    const query = listRequests(api)[0];
+    expect(query?.get("q")).toBe("dark");
+    expect(query?.get("author")).toBe("John Scalzi");
+    expect(query?.get("series")).toBe("Old Man's War");
+
+    const chips = screen.getByRole("list", { name: "Searching for" });
+    expect(within(chips).getByText("John Scalzi")).toBeInTheDocument();
+    // "Status" is labelled in sight, as the second of two rows
+    expect(screen.getByText("Status")).toBeVisible();
+
+    await userEvent.click(within(chips).getByRole("button", { name: "Remove series Old Man's War" }));
+    await waitFor(() => expect(listRequests(api).at(-1)?.get("series")).toBeNull());
+    expect(screen.getByRole("searchbox", { name: "Search the library" })).toHaveValue("dark author:John Scalzi");
+  });
+
+  it("shows no chips for plain words, which search as they always did", async () => {
+    const api = library();
+    renderApp("/library?q=dune");
+
+    await screen.findByRole("region", { name: "Books" });
+    expect(listRequests(api)[0]?.get("q")).toBe("dune");
+    expect(screen.queryByRole("list", { name: "Searching for" })).not.toBeInTheDocument();
+  });
+
+  it("sends the prefixes with Select all matching", async () => {
+    const api = library({ "POST /api/books/bulk": ok({ updated: 50, queued: 0, skipped: [] }) });
+    renderApp("/library?q=author%3AScalzi");
+
+    await screen.findByRole("region", { name: "Books" });
+    await userEvent.click(screen.getByRole("button", { name: "Select" }));
+    await userEvent.click(screen.getByRole("button", { name: /Select all 50 matching/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Monitor" }));
+
+    await waitFor(() => expect(api.sent("POST /api/books/bulk")).toHaveLength(1));
+    expect(api.sent("POST /api/books/bulk")[0]).toMatchObject({ filter: { q: null, author: "Scalzi" } });
+  });
 });

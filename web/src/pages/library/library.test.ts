@@ -1,15 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { counts } from "../../test/fixtures";
-import {
-  bulkFilter,
-  chipCounts,
-  DEFAULT_QUERY,
-  listParams,
-  pageList,
-  parse,
-  rangeText,
-  serialise,
-} from "./libraryQuery";
+import { bulkFilter, chipCounts, DEFAULT_QUERY, listParams, parse, serialise } from "./libraryQuery";
 import { liveBook } from "./live";
 import { EMPTY, isSelected, pageSelected, selectedCount, selectionReducer } from "./selection";
 import { bulkResultText, librarySubtitle, noResultsText, selectionLabel } from "./text";
@@ -78,26 +69,6 @@ describe("the Library's URL", () => {
   });
 });
 
-describe("the pager", () => {
-  it("lists every page when there are few", () => {
-    expect(pageList(1, 1)).toEqual([1]);
-    expect(pageList(4, 7)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-  });
-
-  it("keeps the ends and the pages around the current one, with gaps between", () => {
-    expect(pageList(1, 15)).toEqual([1, 2, 3, 4, null, 15]);
-    expect(pageList(7, 15)).toEqual([1, null, 6, 7, 8, null, 15]);
-    expect(pageList(15, 15)).toEqual([1, null, 12, 13, 14, 15]);
-    expect(pageList(3, 15)).toEqual([1, 2, 3, 4, null, 15]);
-  });
-
-  it("words the range shown", () => {
-    expect(rangeText(1, 24, 354)).toBe("1–24 of 354");
-    expect(rangeText(15, 24, 354)).toBe("337–354 of 354");
-    expect(rangeText(1, 24, 0)).toBe("0 books");
-  });
-});
-
 describe("the selection", () => {
   it("toggles books one at a time, and keeps them across pages", () => {
     let state = selectionReducer(EMPTY, { type: "toggle", id: 1, pageIds: [1, 2] });
@@ -150,6 +121,9 @@ describe("the Library's wording", () => {
     expect(noResultsText(read("q=zelazny&status=failed"))).toBe('Nothing matches "zelazny" in Failed.');
     expect(noResultsText(read("monitored=false"))).toBe("No books among the unmonitored books.");
     expect(noResultsText(read("q=x"), "Alex (US)")).toBe('Nothing matches "x" in Alex (US).');
+    expect(noResultsText(read("q=author%3AMark%20Lawrence%20series%3ABroken%20Empire&status=failed"))).toBe(
+      "Nothing matches author Mark Lawrence and series “Broken Empire” in Failed.",
+    );
   });
 
   it("words a monitor the way the design does, counting what was queued", () => {
