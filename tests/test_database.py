@@ -1927,6 +1927,8 @@ def test_list_books_filters_by_author_narrator_and_series(db):
     # They combine, and match only their own field
     assert database.list_books(author="scalzi", narrator="bross")[0][0].asin == "B101"
     assert database.list_books(author="tale")[1] == 0
+    assert [b.asin for b in database.list_books(title="zoe's")[0]] == ["B102"]
+    assert database.list_books(title="scalzi")[1] == 0
     assert database.list_books(series="S1")[1] == 0
 
 

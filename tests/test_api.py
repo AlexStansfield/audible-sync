@@ -1305,6 +1305,7 @@ def test_list_books_filters_by_author_narrator_and_series(api):
     assert asins(narrator="campbell") == ["B001"]
     assert asins(series="old man's war", author="scalzi") == ["B002"]
     assert asins(author="old man") == []
+    assert asins(title="ghost", author="scalzi") == ["B002"]
 
 
 def test_bulk_by_filter_takes_the_new_filters(api):

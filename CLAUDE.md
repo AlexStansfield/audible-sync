@@ -142,7 +142,7 @@ All observed; the API is undocumented.
 - **SQLite foreign keys are off**, so `delete_account` deletes what it owns itself, and a run's book record reads `book_id` as None once the row has gone
 - **Rebuilding `library`** for a new primary key is `_migrate_library_to_accounts`; the DDL is shared with `init_db` so they cannot drift. Index creation is guarded by the columns present, so an old database migrates
 - **WAL** is a property of the file, so one `init_db` holds for every later connection
-- **`list_books`' search** (`q`, `author`, `narrator`, `series`) decodes the JSON list columns with `json_each` and compares through `fold`, `fold_text` registered on every connection: the JSON text escapes everything outside ASCII, and SQLite's `LIKE` folds ASCII case only. `%` and `_` are matched literally. A scan of every row: fine for a personal library, FTS if it ever reaches thousands
+- **`list_books`' search** (`q`, `title`, `author`, `narrator`, `series`) decodes the JSON list columns with `json_each` and compares through `fold`, `fold_text` registered on every connection: the JSON text escapes everything outside ASCII, and SQLite's `LIKE` folds ASCII case only. `%` and `_` are matched literally. A scan of every row: fine for a personal library, FTS if it ever reaches thousands
 
 ## Web app
 

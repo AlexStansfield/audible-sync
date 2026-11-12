@@ -1045,6 +1045,7 @@ def _book_filter(
     status: BookStatus | str | None = None,
     monitored: bool | None = None,
     q: str | None = None,
+    title: str | None = None,
     author: str | None = None,
     narrator: str | None = None,
     series: str | None = None,
@@ -1072,7 +1073,7 @@ def _book_filter(
         like = _contains(q)
         where.append(f"({_TITLE} OR {_AUTHOR} OR {_SERIES})")
         params.extend([like, like, like])
-    for clause, term in ((_AUTHOR, author), (_NARRATOR, narrator), (_SERIES, series)):
+    for clause, term in ((_TITLE, title), (_AUTHOR, author), (_NARRATOR, narrator), (_SERIES, series)):
         if term:
             where.append(clause)
             params.append(_contains(term))
@@ -1085,6 +1086,7 @@ def list_books(
     status: BookStatus | str | None = None,
     monitored: bool | None = None,
     q: str | None = None,
+    title: str | None = None,
     author: str | None = None,
     narrator: str | None = None,
     series: str | None = None,
@@ -1096,8 +1098,8 @@ def list_books(
     """
     A page of the library and the total that matched, for the API.
 
-    `q` matches the title, any author or any series; `author`, `narrator` and `series`
-    only those (see `_book_filter`). A scan of every row is enough at the size of a
+    `q` matches the title, any author or any series; `title`, `author`, `narrator` and
+    `series` only those (see `_book_filter`). A scan of every row is enough at the size of a
     personal library.
 
     Raises:
@@ -1111,6 +1113,7 @@ def list_books(
         status=status,
         monitored=monitored,
         q=q,
+        title=title,
         author=author,
         narrator=narrator,
         series=series,
@@ -1154,6 +1157,7 @@ def book_ids_matching(
     status: BookStatus | str | None = None,
     monitored: bool | None = None,
     q: str | None = None,
+    title: str | None = None,
     author: str | None = None,
     narrator: str | None = None,
     series: str | None = None,
@@ -1164,6 +1168,7 @@ def book_ids_matching(
         status=status,
         monitored=monitored,
         q=q,
+        title=title,
         author=author,
         narrator=narrator,
         series=series,

@@ -49,6 +49,7 @@ def router() -> APIRouter:
         status: BookStatus | None = None,
         monitored: bool | None = None,
         q: Annotated[str | None, Query(max_length=200)] = None,
+        title: Annotated[str | None, Query(max_length=200)] = None,
         author: Annotated[str | None, Query(max_length=200)] = None,
         narrator: Annotated[str | None, Query(max_length=200)] = None,
         series: Annotated[str | None, Query(max_length=200)] = None,
@@ -58,8 +59,8 @@ def router() -> APIRouter:
         page_size: Annotated[int, Query(ge=1, le=200)] = 50,
     ) -> BookList:
         """
-        A page of the library. `q` matches the title, any author or any series; `author`,
-        `narrator` and `series` only those. Each is a contains match ignoring case and
+        A page of the library. `q` matches the title, any author or any series; `title`,
+        `author`, `narrator` and `series` only those. Each is a contains match ignoring case and
         the kind of apostrophe, and they combine.
         """
         assert sort in BOOK_SORT_COLUMNS  # the Literal above is the same set; keep them in step
@@ -68,6 +69,7 @@ def router() -> APIRouter:
             status=status,
             monitored=monitored,
             q=q,
+            title=title,
             author=author,
             narrator=narrator,
             series=series,

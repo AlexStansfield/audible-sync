@@ -212,8 +212,8 @@ export interface paths {
         };
         /**
          * Get Books
-         * @description A page of the library. `q` matches the title, any author or any series; `author`,
-         *     `narrator` and `series` only those. Each is a contains match ignoring case and
+         * @description A page of the library. `q` matches the title, any author or any series; `title`,
+         *     `author`, `narrator` and `series` only those. Each is a contains match ignoring case and
          *     the kind of apostrophe, and they combine.
          */
         get: operations["get_books_api_books_get"];
@@ -1015,6 +1015,8 @@ export interface components {
             /** Series */
             series?: string | null;
             status?: components["schemas"]["BookStatus"] | null;
+            /** Title */
+            title?: string | null;
         };
         /** BookList */
         BookList: {
@@ -2281,6 +2283,7 @@ export interface operations {
                 status?: components["schemas"]["BookStatus"] | null;
                 monitored?: boolean | null;
                 q?: string | null;
+                title?: string | null;
                 author?: string | null;
                 narrator?: string | null;
                 series?: string | null;

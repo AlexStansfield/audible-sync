@@ -361,6 +361,7 @@ class BookFilter(BaseModel):
     status: BookStatus | None = None
     monitored: bool | None = None
     q: Annotated[str | None, Field(max_length=200)] = None
+    title: Annotated[str | None, Field(max_length=200)] = None
     author: Annotated[str | None, Field(max_length=200)] = None
     narrator: Annotated[str | None, Field(max_length=200)] = None
     series: Annotated[str | None, Field(max_length=200)] = None
