@@ -1,0 +1,11 @@
+info:
+  name: Catalogue
+  type: folder
+  seq: 7
+docs:
+  content: |
+    The Audible catalogue, through an account (`account_id`, or the oldest signed in):
+    search it, read a book or a series, list the categories, find authors. Answers are
+    cached for five minutes. 409 with no signed-in account, 502 when Audible does not
+    answer.
+  type: text/markdown

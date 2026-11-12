@@ -7,7 +7,16 @@ import stat
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
-from audible_sync.model import Account, Book, BookStatus, RunBook, RunBookOutcome, SyncOutcome, SyncRun
+from audible_sync.model import (
+    Account,
+    Book,
+    BookStatus,
+    RunBook,
+    RunBookOutcome,
+    SyncOutcome,
+    SyncRun,
+    fold_text,
+)
 from audible_sync.paths import REPO_ROOT
 from audible_sync.security import crypto
 
@@ -39,6 +48,9 @@ def _get_connection() -> sqlite3.Connection:
     """
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
+    # For the library's searches: SQLite's own LIKE folds ASCII case only, and the list
+    # columns hold JSON, which escapes everything else ("Kaij\\u016b")
+    conn.create_function("fold", 1, fold_text, deterministic=True)
     return conn
 
 
@@ -1003,18 +1015,48 @@ BOOK_SORT_COLUMNS = {
 }
 
 
+def _contains(term: str) -> str:
+    """A `LIKE` pattern (with `ESCAPE '\\'`) for text containing `term`, folded."""
+    escaped = fold_text(term).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def _any_in(column: str, path: str | None = None) -> str:
+    """
+    SQL true when an entry of a JSON list column, or the field `path` of one, contains
+    the pattern bound to its `?`. A column that is NULL or not JSON holds no entries.
+    """
+    value = "json_each.value" if path is None else f"json_extract(json_each.value, '{path}')"
+    return (
+        f"EXISTS (SELECT 1 FROM json_each(CASE WHEN json_valid({column}) THEN {column} ELSE '[]' END) "
+        f"WHERE fold({value}) LIKE ? ESCAPE '\\')"
+    )
+
+
+_TITLE = "fold(title) LIKE ? ESCAPE '\\'"
+_AUTHOR = _any_in("authors")
+_NARRATOR = _any_in("narrators")
+_SERIES = _any_in("series", "$.title")
+
+
 def _book_filter(
     *,
     account_id: int | None = None,
     status: BookStatus | str | None = None,
     monitored: bool | None = None,
     q: str | None = None,
+    title: str | None = None,
+    author: str | None = None,
+    narrator: str | None = None,
+    series: str | None = None,
 ) -> tuple[str, list]:
     """
     The `WHERE` clause and its parameters for the library filters.
 
     Shared by `list_books` and `book_ids_matching`, so a bulk action on "everything
-    matching these filters" acts on exactly the books the listing showed.
+    matching these filters" acts on exactly the books the listing showed. Every text
+    filter is a contains match ignoring case and the kind of quote (`fold_text`), on
+    the decoded entries of the list columns.
     """
     where = []
     params: list = []
@@ -1028,9 +1070,13 @@ def _book_filter(
         where.append("monitored = ?")
         params.append(monitored)
     if q:
-        like = f"%{q}%"
-        where.append("(title LIKE ? OR authors LIKE ? OR series LIKE ?)")
+        like = _contains(q)
+        where.append(f"({_TITLE} OR {_AUTHOR} OR {_SERIES})")
         params.extend([like, like, like])
+    for clause, term in ((_TITLE, title), (_AUTHOR, author), (_NARRATOR, narrator), (_SERIES, series)):
+        if term:
+            where.append(clause)
+            params.append(_contains(term))
     return (f" WHERE {' AND '.join(where)}" if where else ""), params
 
 
@@ -1040,6 +1086,10 @@ def list_books(
     status: BookStatus | str | None = None,
     monitored: bool | None = None,
     q: str | None = None,
+    title: str | None = None,
+    author: str | None = None,
+    narrator: str | None = None,
+    series: str | None = None,
     sort: str = "date_added",
     descending: bool = True,
     limit: int = 50,
@@ -1048,8 +1098,9 @@ def list_books(
     """
     A page of the library and the total that matched, for the API.
 
-    `q` matches the title, any author or any series, case-insensitively for ASCII (a
-    `LIKE` over the JSON text is enough at the size of a personal library).
+    `q` matches the title, any author or any series; `title`, `author`, `narrator` and
+    `series` only those (see `_book_filter`). A scan of every row is enough at the size of a
+    personal library.
 
     Raises:
         ValueError: for a `sort` not in `BOOK_SORT_COLUMNS`
@@ -1057,7 +1108,16 @@ def list_books(
     if sort not in BOOK_SORT_COLUMNS:
         raise ValueError(f"sort must be one of {', '.join(BOOK_SORT_COLUMNS)}, got {sort!r}")
 
-    clause, params = _book_filter(account_id=account_id, status=status, monitored=monitored, q=q)
+    clause, params = _book_filter(
+        account_id=account_id,
+        status=status,
+        monitored=monitored,
+        q=q,
+        title=title,
+        author=author,
+        narrator=narrator,
+        series=series,
+    )
     order = f" ORDER BY {BOOK_SORT_COLUMNS[sort]} {'DESC' if descending else 'ASC'}, id"
 
     with closing(_get_connection()) as conn:
@@ -1066,15 +1126,53 @@ def list_books(
         return [Book.from_row(row) for row in rows], total
 
 
+def library_book_ids(asins: list[str], country_code: str) -> dict[str, int]:
+    """
+    Which of these ASINs a library of the marketplace holds, as ASIN to row id.
+
+    Every account of the marketplace counts, since a book in another login's library is
+    as much at hand; of two copies the older row is the one named.
+    """
+    found: dict[str, int] = {}
+    unique = list(dict.fromkeys(asins))
+    with closing(_get_connection()) as conn:
+        # In chunks, well under SQLite's limit on parameters
+        for start in range(0, len(unique), 500):
+            chunk = unique[start : start + 500]
+            marks = ", ".join("?" * len(chunk))
+            rows = conn.execute(
+                "SELECT library.asin, MIN(library.id) FROM library "
+                "JOIN accounts ON accounts.id = library.account_id "
+                f"WHERE lower(accounts.country_code) = lower(?) AND library.asin IN ({marks}) "
+                "GROUP BY library.asin",
+                (country_code, *chunk),
+            )
+            found.update((row[0], row[1]) for row in rows)
+    return found
+
+
 def book_ids_matching(
     *,
     account_id: int | None = None,
     status: BookStatus | str | None = None,
     monitored: bool | None = None,
     q: str | None = None,
+    title: str | None = None,
+    author: str | None = None,
+    narrator: str | None = None,
+    series: str | None = None,
 ) -> list[int]:
     """The row ids of every book the same filters as `list_books` match, in id order."""
-    clause, params = _book_filter(account_id=account_id, status=status, monitored=monitored, q=q)
+    clause, params = _book_filter(
+        account_id=account_id,
+        status=status,
+        monitored=monitored,
+        q=q,
+        title=title,
+        author=author,
+        narrator=narrator,
+        series=series,
+    )
     with closing(_get_connection()) as conn:
         return [row[0] for row in conn.execute(f"SELECT id FROM library{clause} ORDER BY id", params)]
 

@@ -39,6 +39,25 @@ http:
       type: query
       description: matches the title, authors and series
       disabled: true
+    - name: title
+      value: "ghost brigades"
+      type: query
+      description: matches part of the title only
+      disabled: true
+    - name: author
+      value: "scalzi"
+      type: query
+      description: matches part of an author's name
+      disabled: true
+    - name: narrator
+      value: "dufris"
+      type: query
+      disabled: true
+    - name: series
+      value: "old man's war"
+      type: query
+      description: matches part of a series title
+      disabled: true
   auth: inherit
 settings:
   encodeUrl: true

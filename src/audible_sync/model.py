@@ -1,5 +1,6 @@
 import json
 import math
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -124,6 +125,35 @@ def sort_series(series: list[dict[str, str | None]]) -> list[dict[str, str | Non
     every sync, and any listing built on top of it is deterministic.
     """
     return sorted(series, key=_series_sort_key)
+
+
+def primary_series(series: list[dict[str, str | None]]) -> dict[str, str | None] | None:
+    """
+    The one series of these a book is filed and tagged under, or None.
+
+    The rule is `_series_sort_key`'s; an entry with no series title is never a
+    candidate (see `Book.primary_series`).
+    """
+    named = [entry for entry in series if entry.get("title")]
+    return min(named, key=_series_sort_key, default=None)
+
+
+_QUOTES = str.maketrans(
+    {
+        "\N{RIGHT SINGLE QUOTATION MARK}": "'",
+        "\N{LEFT SINGLE QUOTATION MARK}": "'",
+        "\N{RIGHT DOUBLE QUOTATION MARK}": '"',
+        "\N{LEFT DOUBLE QUOTATION MARK}": '"',
+    }
+)
+
+
+def fold_text(text: str | None) -> str:
+    """
+    Text for comparing a name or title: case, curly quotes and runs of spaces ignored,
+    since Audible writes "Old Man\N{RIGHT SINGLE QUOTATION MARK}s War" where a person types "Old Man's War".
+    """
+    return re.sub(r"\s+", " ", (text or "").translate(_QUOTES)).strip().casefold()
 
 
 def _book_status(value: str | None) -> BookStatus | None:
@@ -282,8 +312,7 @@ class Book:
         loses the series context entirely. Reads defensively, so a row written
         before `series_asin` was stored still resolves.
         """
-        named = [entry for entry in self.series if entry.get("title")]
-        return min(named, key=_series_sort_key, default=None)
+        return primary_series(self.series)
 
     @property
     def description_text(self) -> str:
@@ -470,3 +499,95 @@ class RunBook:
             seconds=data.get("seconds"),
             cover_url=data.get("cover_url"),
         )
+
+
+@dataclass
+class CatalogAuthor:
+    """An author as a catalogue book names them; `asin` is None when Audible gives no id."""
+
+    name: str
+    asin: str | None = None
+
+
+@dataclass
+class CatalogPrice:
+    """
+    What a catalogue book costs, in the marketplace's currency.
+
+    `member_price` is the price a member of the account pays, which Audible only says to a
+    signed-in request; `credits` is the price in credits.
+    """
+
+    currency: str
+    list_price: float | None = None
+    member_price: float | None = None
+    credits: float | None = None
+
+
+@dataclass
+class CatalogBook:
+    """
+    A book in the Audible catalogue, as `audible_api.catalog` maps one.
+
+    Unlike `Book` it is never stored: it describes the title, not anyone's copy of it.
+    Whether a library holds it is worked out per answer, by `catalog`. The series are
+    in `sort_series`' order and `primary_series` follows the library's rule, so a book
+    found here files under the series it would once downloaded.
+    """
+
+    asin: str
+    title: str
+    subtitle: str = ""
+    authors: list[CatalogAuthor] = field(default_factory=list)
+    narrators: list[str] = field(default_factory=list)
+    series: list[dict[str, str | None]] = field(default_factory=list)
+    genres: list[str] = field(default_factory=list)
+    # None when Audible gives no length, as for a title not released yet
+    length_seconds: int | None = None
+    release_date: str | None = None
+    # ISO 639-1 where Audible's word for the language is known ("english" is "en")
+    language: str | None = None
+    publisher: str | None = None
+    abridged: bool | None = None
+    cover_url: str | None = None
+    # The average of every rating, out of 5, and how many there are
+    rating: float | None = None
+    rating_count: int = 0
+    price: CatalogPrice | None = None
+    # Included in the membership's Plus catalogue, from the title's `plans`
+    plus: bool = False
+    # HTML as Audible gives it; only a single book's answer carries it
+    description: str | None = None
+
+    @property
+    def primary_series(self) -> dict[str, str | None] | None:
+        return primary_series(self.series)
+
+    @property
+    def description_text(self) -> str:
+        return html_to_text(self.description)
+
+    @property
+    def description_html(self) -> str:
+        return safe_html(self.description)
+
+
+@dataclass
+class CatalogSeries:
+    """
+    A series in the catalogue: its own ASIN, its title, and every book Audible lists in
+    it, in reading order. A position often has several books, the editions of one
+    title (another narrator, the same audio in parts).
+    """
+
+    asin: str
+    title: str
+    books: list["SeriesBook"] = field(default_factory=list)
+
+
+@dataclass
+class SeriesBook:
+    """One book of a series and where it sits: `sequence` as Audible writes it ("4.5")."""
+
+    sequence: str | None
+    book: CatalogBook

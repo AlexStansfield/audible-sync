@@ -2,7 +2,8 @@ import logging
 
 import audible
 
-from audible_sync.model import Book, sort_series
+from audible_sync.audible_api import products
+from audible_sync.model import Book, CatalogBook, CatalogSeries, SeriesBook, sort_series
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,114 @@ class Audible:
         """
         response = self.client.get(path=f"library/{asin}", params={"response_groups": "product_attrs"})
         return _is_podcast(response.get("item") or {})
+
+    # The catalogue. It is the marketplace's whole range, not the customer's library;
+    # it answers without credentials too, but only a signed-in request is told the
+    # member's price
+
+    def search_catalog(
+        self,
+        *,
+        keywords: str | None = None,
+        title: str | None = None,
+        author: str | None = None,
+        narrator: str | None = None,
+        category_id: str | None = None,
+        sort: str = "relevance",
+        page: int = 1,
+        page_size: int = products.MAX_PAGE_SIZE,
+    ) -> tuple[list[CatalogBook], int]:
+        """
+        One page of a catalogue search and Audible's count of everything it matched;
+        `page` counts from 1.
+
+        Podcasts are left out of the page, so a page can hold fewer books than
+        `page_size`; the total is Audible's, podcasts included.
+
+        Raises:
+            ValueError: for a sort not in `products.SORTS`
+        """
+        if sort not in products.SORTS:
+            raise ValueError(f"sort must be one of {', '.join(products.SORTS)}, got {sort!r}")
+        params = {
+            "response_groups": products.SEARCH_RESPONSE_GROUPS,
+            "image_sizes": products.IMAGE_SIZES,
+            "num_results": min(page_size, products.MAX_PAGE_SIZE),
+            # The catalogue counts its pages from 0, unlike the library (checked 2026-11-12)
+            "page": page - 1,
+        }
+        if products.SORTS[sort] is not None:
+            params["products_sort_by"] = products.SORTS[sort]
+        filters = {"keywords": keywords, "title": title, "author": author, "narrator": narrator}
+        params.update({key: value for key, value in filters.items() if value})
+        if category_id:
+            params["category_id"] = category_id
+        answer = self.client.get("catalog/products", params=params)
+        return products.to_catalog_books(answer.get("products") or []), int(answer.get("total_results") or 0)
+
+    def get_catalog_book(self, asin: str) -> CatalogBook | None:
+        """One book of the catalogue with its description; None when Audible has no such book."""
+        answer = self.client.get(
+            f"catalog/products/{asin}",
+            params={"response_groups": products.BOOK_RESPONSE_GROUPS, "image_sizes": products.IMAGE_SIZES},
+        )
+        books = products.to_catalog_books([answer.get("product") or {}])
+        return books[0] if books else None
+
+    def get_catalog_books(self, asins: list[str]) -> list[CatalogBook]:
+        """
+        The books of these ASINs, in fifties (Audible's limit), leaving out any it does
+        not know. Never asks with none: `asins=` empty answers with arbitrary products.
+        """
+        books: list[CatalogBook] = []
+        for start in range(0, len(asins), products.MAX_PAGE_SIZE):
+            chunk = asins[start : start + products.MAX_PAGE_SIZE]
+            answer = self.client.get(
+                "catalog/products",
+                params={
+                    "asins": ",".join(chunk),
+                    "response_groups": products.SEARCH_RESPONSE_GROUPS,
+                    "image_sizes": products.IMAGE_SIZES,
+                },
+            )
+            books.extend(products.to_catalog_books(answer.get("products") or []))
+        return books
+
+    def get_series(self, asin: str) -> CatalogSeries | None:
+        """
+        A series and every book it lists, in reading order; None when the ASIN is not
+        a series Audible knows.
+        """
+        answer = self.client.get(
+            f"catalog/products/{asin}", params={"response_groups": "product_desc,product_attrs,relationships"}
+        )
+        product = answer.get("product") or {}
+        if not products.exists(product) or not products.is_series(product):
+            return None
+        children = products.series_children(product)
+        found = {book.asin: book for book in self.get_catalog_books([child[0] for child in children])}
+        return CatalogSeries(
+            asin=asin,
+            title=product.get("title") or "",
+            books=[
+                SeriesBook(sequence=sequence, book=found[child_asin])
+                for child_asin, sequence, _ in children
+                if child_asin in found
+            ],
+        )
+
+    def get_categories(self) -> list[dict]:
+        """The catalogue's categories, two levels deep, as {id, name, children}."""
+        return products.categories(self.client.get("catalog/categories"))
+
+    def search_authors(self, name: str) -> list[dict[str, str | None]]:
+        """
+        Authors whose name matches, from Audible's search suggestions: ASIN, name and
+        picture. The ASIN can differ from the one the same author has on their books.
+        """
+        # Without `site_variant` the endpoint answers 400
+        answer = self.client.get("searchsuggestions", params={"key_strokes": name, "site_variant": "desktop"})
+        return products.author_suggestions(answer)
 
 
 def _prepare_books(items: list[dict]) -> list[Book]:

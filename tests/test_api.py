@@ -1284,6 +1284,45 @@ def test_list_books_pages_and_filters(api):
     assert len(body["items"]) == 1
 
 
+def test_list_books_filters_by_author_narrator_and_series(api):
+    account_id = _account()
+    _shelve(
+        account_id,
+        make_book("B001", "Zoe's Tale", authors=["John Scalzi"], narrators=["Cassandra Campbell"]),
+        make_book(
+            "B002",
+            "The Ghost Brigades",
+            authors=["John Scalzi"],
+            narrators=["William Dufris"],
+            series=[{"title": "Old Man\N{RIGHT SINGLE QUOTATION MARK}s War", "sequence": "2"}],
+        ),
+    )
+
+    def asins(**params):
+        return [b["asin"] for b in api.get("/api/books", headers=AUTH, params=params).json()["items"]]
+
+    assert sorted(asins(author="scalzi")) == ["B001", "B002"]
+    assert asins(narrator="campbell") == ["B001"]
+    assert asins(series="old man's war", author="scalzi") == ["B002"]
+    assert asins(author="old man") == []
+    assert asins(title="ghost", author="scalzi") == ["B002"]
+
+
+def test_bulk_by_filter_takes_the_new_filters(api):
+    account_id = _account()
+    _shelve(
+        account_id,
+        make_book("B001", "Dune", authors=["Frank Herbert"]),
+        make_book("B002", "Foundation", authors=["Isaac Asimov"]),
+        monitor_new=False,
+    )
+
+    response = api.post("/api/books/bulk", json={"action": "monitor", "filter": {"author": "herbert"}}, headers=AUTH)
+
+    assert response.json()["updated"] == 1
+    assert database.get_book_by_asin("B001").monitored and not database.get_book_by_asin("B002").monitored
+
+
 @pytest.mark.parametrize(
     "params", [{"sort": "colour"}, {"order": "sideways"}, {"page": 0}, {"page_size": 201}, {"status": "lost"}]
 )
@@ -2319,3 +2358,246 @@ def test_a_symlinked_index_html_still_gets_its_base(db, tmp_path):
 
     assert '<base href="/audible-sync/">' in response.text
     assert response.headers["cache-control"] == "no-cache"
+
+
+# --- catalogue ---------------------------------------------------------------------
+
+
+class FakeCatalogue:
+    """Stands in for `Audible`'s catalogue calls; `fail` makes every call raise it."""
+
+    def __init__(self, auth):
+        self.auth = auth
+        self.fail = None
+        self.calls = []
+        self.books = {}
+        self.total = None
+        self.series = {}
+
+    def _call(self, name, *args):
+        self.calls.append((name, args))
+        if self.fail is not None:
+            raise self.fail
+
+    def search_catalog(self, **params):
+        self._call("search", params)
+        books = list(self.books.values())
+        return books, len(books) if self.total is None else self.total
+
+    def get_catalog_book(self, asin):
+        self._call("book", asin)
+        return self.books.get(asin)
+
+    def get_series(self, asin):
+        self._call("series", asin)
+        return self.series.get(asin)
+
+    def get_categories(self):
+        self._call("categories")
+        return [{"id": "1", "name": "Fiction", "children": [{"id": "2", "name": "Crime", "children": []}]}]
+
+    def search_authors(self, name):
+        self._call("authors", name)
+        return [{"asin": "B001IGJOCA", "name": "John Scalzi", "image_url": None}]
+
+
+@pytest.fixture
+def catalogue(db):
+    """An app whose catalogue calls reach a fake, with one signed-in UK account."""
+    from audible_sync.catalog import Catalog
+    from audible_sync.model import CatalogBook, CatalogPrice
+
+    account_id = database.add_account("Alex (UK)", "uk", auth=dict(AUTH_BLOB))
+    fakes = {}
+
+    class Auth:
+        def __init__(self, blob):
+            self.blob = blob
+
+        def to_dict(self):
+            return self.blob
+
+    def client_for(account):
+        fake = fakes.setdefault("audible", FakeCatalogue(Auth(account.auth)))
+        fake.auth = Auth(account.auth)
+        return fake
+
+    app = create_app(
+        scheduler=FakeScheduler(),
+        state=RunState(),
+        api_token=ApiToken(TOKEN, "stored"),
+        version="test",
+        catalog=Catalog(client_for=client_for),
+    )
+    client = TestClient(app)
+    fake = client_for(database.get_account(account_id))
+    fake.books = {
+        asin: CatalogBook(
+            asin=asin,
+            title=f"Title {asin}",
+            series=[{"title": "Old Man's War", "sequence": "1", "series_asin": "B00HNXRO2O"}],
+            price=CatalogPrice(currency="GBP", list_price=8.61, member_price=6.49, credits=1.0),
+            description="<p>Old <b>soldiers</b>.</p>",
+        )
+        for asin in ("B000000001", "B000000002")
+    }
+    client.fake = fake
+    client.account_id = account_id
+    return client
+
+
+def test_catalogue_search_marks_the_books_a_library_holds(catalogue):
+    database.update_books(catalogue.account_id, [make_book("B000000002", id=None, account_id=None)])
+    held = database.get_book_by_asin("B000000002").id
+
+    response = catalogue.get("/api/catalog/search", params={"author": "John Scalzi"}, headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["total"], body["reachable"], body["account_id"]) == (2, 2, catalogue.account_id)
+    marks = {item["asin"]: (item["in_library"], item["library_book_id"]) for item in body["items"]}
+    assert marks == {"B000000001": (False, None), "B000000002": (True, held)}
+    first = body["items"][0]
+    assert first["price"] == {"currency": "GBP", "list_price": 8.61, "member_price": 6.49, "credits": 1.0}
+    assert first["primary_series"]["series_asin"] == "B00HNXRO2O"
+    # A list leaves the description out
+    assert "description" not in first
+    assert catalogue.fake.calls[0][1][0]["author"] == "John Scalzi"
+
+
+def test_catalogue_search_needs_a_term(catalogue):
+    response = catalogue.get("/api/catalog/search", params={"sort": "newest"}, headers=AUTH)
+
+    assert response.status_code == 422
+    assert catalogue.fake.calls == []
+
+
+def test_catalogue_search_refuses_a_page_audible_will_not_reach(catalogue):
+    catalogue.fake.total = 40_000
+
+    ok = catalogue.get("/api/catalog/search", params={"keywords": "x", "page": 50, "page_size": 20}, headers=AUTH)
+    beyond = catalogue.get("/api/catalog/search", params={"keywords": "x", "page": 51, "page_size": 20}, headers=AUTH)
+
+    assert ok.status_code == 200
+    assert ok.json()["reachable"] == 1000
+    assert beyond.status_code == 422
+    assert "1000" in beyond.json()["detail"]
+
+
+def test_catalogue_search_refuses_an_unknown_sort(catalogue):
+    response = catalogue.get("/api/catalog/search", params={"keywords": "x", "sort": "price"}, headers=AUTH)
+
+    assert response.status_code == 422
+
+
+def test_catalogue_needs_the_token(catalogue):
+    response = TestClient(catalogue.app).get("/api/catalog/search", params={"keywords": "x"})
+
+    assert response.status_code == 401
+
+
+def test_catalogue_book_has_the_description(catalogue):
+    response = catalogue.get("/api/catalog/books/B000000001", headers=AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["description"] == "Old soldiers."
+    assert response.json()["description_html"] == "<p>Old <strong>soldiers</strong>.</p>"
+
+
+def test_catalogue_book_audible_does_not_know_is_a_404(catalogue):
+    assert catalogue.get("/api/catalog/books/B0ZZZZZZZZ", headers=AUTH).status_code == 404
+
+
+@pytest.mark.parametrize("asin", ["short", "B000000001X", "B00000000%2F"])
+def test_catalogue_refuses_what_is_no_asin(catalogue, asin):
+    response = catalogue.get(f"/api/catalog/books/{asin}", headers=AUTH)
+
+    assert response.status_code in (404, 422)
+    assert catalogue.fake.calls == []
+
+
+def test_catalogue_without_a_signed_in_account_is_a_409(db):
+    database.add_account("Pending", "us", auth=None)
+    client = TestClient(
+        create_app(scheduler=FakeScheduler(), state=RunState(), api_token=ApiToken(TOKEN, "stored"), version="test")
+    )
+
+    response = client.get("/api/catalog/search", params={"keywords": "x"}, headers=AUTH)
+
+    assert response.status_code == 409
+    assert "sign in" in response.json()["detail"]
+
+
+def test_catalogue_for_an_unknown_account_is_a_404(catalogue):
+    response = catalogue.get("/api/catalog/categories", params={"account_id": 999}, headers=AUTH)
+
+    assert response.status_code == 404
+
+
+def test_catalogue_when_audible_does_not_answer_is_a_502(catalogue):
+    from audible.exceptions import NetworkError
+
+    catalogue.fake.fail = NetworkError()
+
+    response = catalogue.get("/api/catalog/search", params={"keywords": "x"}, headers=AUTH)
+
+    assert response.status_code == 502
+    assert "Audible did not answer" in response.json()["detail"]
+
+
+def test_catalogue_when_audible_refuses_the_account_is_a_409(catalogue):
+    from audible.exceptions import Unauthorized
+
+    catalogue.fake.fail = Unauthorized(httpx.Response(401), {})
+
+    response = catalogue.get("/api/catalog/categories", headers=AUTH)
+
+    assert response.status_code == 409
+    assert "sign in again" in response.json()["detail"]
+
+
+def test_catalogue_series_lists_its_books_by_position(catalogue):
+    from audible_sync.model import CatalogSeries, SeriesBook
+
+    books = catalogue.fake.books
+    catalogue.fake.series["B00HNXRO2O"] = CatalogSeries(
+        asin="B00HNXRO2O",
+        title="Old Man's War",
+        books=[SeriesBook("1", books["B000000001"]), SeriesBook("1", books["B000000002"])],
+    )
+    database.update_books(catalogue.account_id, [make_book("B000000002", id=None, account_id=None)])
+
+    response = catalogue.get("/api/catalog/series/B00HNXRO2O", headers=AUTH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["title"] == "Old Man's War"
+    assert [(entry["sequence"], entry["book"]["asin"], entry["book"]["in_library"]) for entry in body["books"]] == [
+        ("1", "B000000001", False),
+        ("1", "B000000002", True),
+    ]
+    assert catalogue.get("/api/catalog/series/B0ZZZZZZZZ", headers=AUTH).status_code == 404
+
+
+def test_catalogue_series_by_name(catalogue):
+    response = catalogue.get(
+        "/api/catalog/series", params={"name": "old man\N{RIGHT SINGLE QUOTATION MARK}s war"}, headers=AUTH
+    )
+
+    assert response.status_code == 200
+    assert response.json() == [{"asin": "B00HNXRO2O", "title": "Old Man's War", "books_found": 2, "exact": True}]
+
+
+def test_catalogue_categories_and_authors(catalogue):
+    categories = catalogue.get("/api/catalog/categories", headers=AUTH)
+    authors = catalogue.get("/api/catalog/authors", params={"name": "Scalzi"}, headers=AUTH)
+
+    assert categories.json()[0]["children"][0] == {"id": "2", "name": "Crime", "children": []}
+    assert authors.json() == [{"asin": "B001IGJOCA", "name": "John Scalzi", "image_url": None}]
+
+
+def test_catalogue_answers_are_cached(catalogue):
+    for _ in range(3):
+        catalogue.get("/api/catalog/categories", headers=AUTH)
+
+    assert [name for name, _ in catalogue.fake.calls] == ["categories"]

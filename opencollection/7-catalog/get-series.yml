@@ -1,0 +1,12 @@
+info:
+  name: Get a series
+  type: http
+  seq: 4
+http:
+  method: GET
+  url: "{{baseUrl}}/api/catalog/series/B00HNXRO2O"
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  A series and every book in it, in reading order; a position can hold several editions.

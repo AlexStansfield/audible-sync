@@ -1882,6 +1882,72 @@ def test_list_books_searches_title_author_and_series(db):
     assert database.list_books(q="nothing here")[1] == 0
 
 
+def _foreign_shelf(db):
+    database.update_books(
+        ACCOUNT,
+        [
+            make_book(
+                "B101",
+                "Die Gesellschaft zur Erhaltung der Kaij\N{LATIN SMALL LETTER U WITH MACRON}",
+                authors=["John Scalzi"],
+                narrators=["Martin Bross"],
+            ),
+            make_book(
+                "B102",
+                "Zoe's Tale",
+                authors=["John Scalzi"],
+                narrators=["Cassandra Campbell", "William Dufris"],
+                series=[{"title": "Old Man\N{RIGHT SINGLE QUOTATION MARK}s War", "sequence": "4", "series_asin": "S1"}],
+            ),
+            make_book(
+                "B103",
+                "100% Proof",
+                authors=["\N{LATIN CAPITAL LETTER O WITH DIAERESIS}rjan Str\N{LATIN SMALL LETTER O WITH DIAERESIS}m"],
+            ),
+        ],
+    )
+
+
+def test_list_books_search_reaches_past_ascii(db):
+    # The list columns are JSON, which escapes everything outside ASCII
+    _foreign_shelf(db)
+
+    assert [b.asin for b in database.list_books(q="kaij\N{LATIN SMALL LETTER U WITH MACRON}")[0]] == ["B101"]
+    assert [b.asin for b in database.list_books(q="\N{LATIN SMALL LETTER O WITH DIAERESIS}rjan")[0]] == ["B103"]
+    # A typed apostrophe finds Audible's curly one
+    assert [b.asin for b in database.list_books(q="old man's war")[0]] == ["B102"]
+
+
+def test_list_books_filters_by_author_narrator_and_series(db):
+    _foreign_shelf(db)
+
+    assert {b.asin for b in database.list_books(author="scalzi")[0]} == {"B101", "B102"}
+    assert [b.asin for b in database.list_books(narrator="dufris")[0]] == ["B102"]
+    assert [b.asin for b in database.list_books(series="Old Man's War")[0]] == ["B102"]
+    # They combine, and match only their own field
+    assert database.list_books(author="scalzi", narrator="bross")[0][0].asin == "B101"
+    assert database.list_books(author="tale")[1] == 0
+    assert [b.asin for b in database.list_books(title="zoe's")[0]] == ["B102"]
+    assert database.list_books(title="scalzi")[1] == 0
+    assert database.list_books(series="S1")[1] == 0
+
+
+def test_list_books_search_takes_wildcards_literally(db):
+    _foreign_shelf(db)
+
+    assert [b.asin for b in database.list_books(q="100%")[0]] == ["B103"]
+    assert database.list_books(q="%")[1] == 1
+    assert database.list_books(author="_")[1] == 0
+
+
+def test_list_books_search_survives_a_list_column_that_is_not_json(db):
+    _foreign_shelf(db)
+    _set("B101", authors="", series=None)
+
+    assert {b.asin for b in database.list_books(q="scalzi")[0]} == {"B102"}
+    assert database.list_books(series="old")[1] == 1
+
+
 def test_list_books_sorts(db):
     _shelf(db)
 
@@ -1893,7 +1959,15 @@ def test_list_books_sorts(db):
 
 @pytest.mark.parametrize(
     "filters",
-    [{}, {"q": "dune"}, {"status": BookStatus.DOWNLOADED}, {"monitored": False}, {"account_id": ACCOUNT, "q": "a"}],
+    [
+        {},
+        {"q": "dune"},
+        {"status": BookStatus.DOWNLOADED},
+        {"monitored": False},
+        {"account_id": ACCOUNT, "q": "a"},
+        {"author": "herbert"},
+        {"series": "known"},
+    ],
 )
 def test_book_ids_matching_selects_what_the_listing_shows(db, filters):
     _shelf(db)

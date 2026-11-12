@@ -161,6 +161,36 @@
         "title": "ApiTokenInfo",
         "type": "object"
       },
+      "AuthorOut": {
+        "properties": {
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asin",
+          "name",
+          "image_url"
+        ],
+        "title": "AuthorOut",
+        "type": "object"
+      },
       "BookAction": {
         "description": "What a per-book action did.",
         "properties": {
@@ -500,6 +530,18 @@
             ],
             "title": "Account Id"
           },
+          "author": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
           "monitored": {
             "anyOf": [
               {
@@ -510,6 +552,18 @@
               }
             ],
             "title": "Monitored"
+          },
+          "narrator": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrator"
           },
           "q": {
             "anyOf": [
@@ -523,6 +577,18 @@
             ],
             "title": "Q"
           },
+          "series": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series"
+          },
           "status": {
             "anyOf": [
               {
@@ -532,6 +598,18 @@
                 "type": "null"
               }
             ]
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           }
         },
         "title": "BookFilter",
@@ -965,6 +1043,559 @@
           "reason"
         ],
         "title": "BulkSkip",
+        "type": "object"
+      },
+      "CatalogAuthorOut": {
+        "properties": {
+          "asin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asin"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "asin"
+        ],
+        "title": "CatalogAuthorOut",
+        "type": "object"
+      },
+      "CatalogBookDetail": {
+        "description": "One catalogue book, with the description a list leaves out (as `BookDetail`'s).",
+        "properties": {
+          "abridged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abridged"
+          },
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "authors": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAuthorOut"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "description_html": {
+            "title": "Description Html",
+            "type": "string"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "in_library": {
+            "default": false,
+            "title": "In Library",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "length_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Seconds"
+          },
+          "library_book_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Book Id"
+          },
+          "narrators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Narrators",
+            "type": "array"
+          },
+          "plus": {
+            "title": "Plus",
+            "type": "boolean"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogPriceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primary_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SeriesEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "rating_count": {
+            "title": "Rating Count",
+            "type": "integer"
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesEntry"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "subtitle": {
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asin",
+          "title",
+          "subtitle",
+          "authors",
+          "narrators",
+          "series",
+          "primary_series",
+          "genres",
+          "length_seconds",
+          "release_date",
+          "language",
+          "publisher",
+          "abridged",
+          "cover_url",
+          "rating",
+          "rating_count",
+          "price",
+          "plus",
+          "description",
+          "description_html"
+        ],
+        "title": "CatalogBookDetail",
+        "type": "object"
+      },
+      "CatalogBookOut": {
+        "description": "A book of the Audible catalogue, and whether a library here already holds it.",
+        "properties": {
+          "abridged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Abridged"
+          },
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "authors": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAuthorOut"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
+          "cover_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cover Url"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Genres",
+            "type": "array"
+          },
+          "in_library": {
+            "default": false,
+            "title": "In Library",
+            "type": "boolean"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "length_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Length Seconds"
+          },
+          "library_book_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Library Book Id"
+          },
+          "narrators": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Narrators",
+            "type": "array"
+          },
+          "plus": {
+            "title": "Plus",
+            "type": "boolean"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogPriceOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "primary_series": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SeriesEntry"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rating"
+          },
+          "rating_count": {
+            "title": "Rating Count",
+            "type": "integer"
+          },
+          "release_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Date"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesEntry"
+            },
+            "title": "Series",
+            "type": "array"
+          },
+          "subtitle": {
+            "title": "Subtitle",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asin",
+          "title",
+          "subtitle",
+          "authors",
+          "narrators",
+          "series",
+          "primary_series",
+          "genres",
+          "length_seconds",
+          "release_date",
+          "language",
+          "publisher",
+          "abridged",
+          "cover_url",
+          "rating",
+          "rating_count",
+          "price",
+          "plus"
+        ],
+        "title": "CatalogBookOut",
+        "type": "object"
+      },
+      "CatalogPriceOut": {
+        "properties": {
+          "credits": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credits"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "list_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "List Price"
+          },
+          "member_price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Price"
+          }
+        },
+        "required": [
+          "currency",
+          "list_price",
+          "member_price",
+          "credits"
+        ],
+        "title": "CatalogPriceOut",
+        "type": "object"
+      },
+      "CatalogSearchOut": {
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogBookOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "reachable": {
+            "title": "Reachable",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "reachable",
+          "page",
+          "page_size",
+          "account_id"
+        ],
+        "title": "CatalogSearchOut",
+        "type": "object"
+      },
+      "CatalogSeriesOut": {
+        "properties": {
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "books": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesBookOut"
+            },
+            "title": "Books",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asin",
+          "title",
+          "books"
+        ],
+        "title": "CatalogSeriesOut",
+        "type": "object"
+      },
+      "CategoryOut": {
+        "properties": {
+          "children": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CategoryOut"
+            },
+            "title": "Children",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CategoryOut",
         "type": "object"
       },
       "DiskOut": {
@@ -1704,6 +2335,30 @@
         "title": "SchedulerStatus",
         "type": "object"
       },
+      "SeriesBookOut": {
+        "properties": {
+          "book": {
+            "$ref": "#/components/schemas/CatalogBookOut"
+          },
+          "sequence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sequence"
+          }
+        },
+        "required": [
+          "sequence",
+          "book"
+        ],
+        "title": "SeriesBookOut",
+        "type": "object"
+      },
       "SeriesEntry": {
         "properties": {
           "sequence": {
@@ -1745,6 +2400,34 @@
           "sequence"
         ],
         "title": "SeriesEntry",
+        "type": "object"
+      },
+      "SeriesMatchOut": {
+        "properties": {
+          "asin": {
+            "title": "Asin",
+            "type": "string"
+          },
+          "books_found": {
+            "title": "Books Found",
+            "type": "integer"
+          },
+          "exact": {
+            "title": "Exact",
+            "type": "boolean"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "asin",
+          "title",
+          "books_found",
+          "exact"
+        ],
+        "title": "SeriesMatchOut",
         "type": "object"
       },
       "SettingsOut": {
@@ -3009,6 +3692,7 @@
     },
     "/api/books": {
       "get": {
+        "description": "A page of the library. `q` matches the title, any author or any series; `title`,\n`author`, `narrator` and `series` only those. Each is a contains match ignoring case and\nthe kind of apostrophe, and they combine.",
         "operationId": "get_books_api_books_get",
         "parameters": [
           {
@@ -3074,6 +3758,74 @@
                 }
               ],
               "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          },
+          {
+            "in": "query",
+            "name": "author",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Author"
+            }
+          },
+          {
+            "in": "query",
+            "name": "narrator",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Narrator"
+            }
+          },
+          {
+            "in": "query",
+            "name": "series",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Series"
             }
           },
           {
@@ -3573,6 +4325,519 @@
           }
         ],
         "summary": "Retry Book"
+      }
+    },
+    "/api/catalog/authors": {
+      "get": {
+        "description": "Authors whose name matches, from Audible's search suggestions. Audible knows\nlittle more than the name; an author's books are a search by `author` name, as\nthe id here can differ from the one on their books.",
+        "operationId": "catalog_authors_api_catalog_authors_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 2,
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuthorOut"
+                  },
+                  "title": "Response Catalog Authors Api Catalog Authors Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Catalog Authors"
+      }
+    },
+    "/api/catalog/books/{asin}": {
+      "get": {
+        "description": "One book of the catalogue, with its description. 404 when Audible has no such book.",
+        "operationId": "catalog_book_api_catalog_books__asin__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asin",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9]{10}$",
+              "title": "Asin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogBookDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Catalog Book"
+      }
+    },
+    "/api/catalog/categories": {
+      "get": {
+        "description": "The marketplace's categories, two levels deep; an id is a search's `category_id`.",
+        "operationId": "catalog_categories_api_catalog_categories_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryOut"
+                  },
+                  "title": "Response Catalog Categories Api Catalog Categories Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Catalog Categories"
+      }
+    },
+    "/api/catalog/search": {
+      "get": {
+        "description": "A page of a catalogue search by any of `keywords`, `title`, `author`, `narrator`\nand `category_id` (at least one), in the account's marketplace.\n\nAudible pages through only so many results (`reachable`) and repeats its last\npage beyond that, so a page past them is a 422. Podcasts are left out, so a\npage can hold fewer than `page_size`; `total` is Audible's.",
+        "operationId": "search_catalog_api_catalog_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "keywords",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Keywords"
+            }
+          },
+          {
+            "in": "query",
+            "name": "title",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          },
+          {
+            "in": "query",
+            "name": "author",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Author"
+            }
+          },
+          {
+            "in": "query",
+            "name": "narrator",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Narrator"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^[0-9]{1,20}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "relevance",
+              "enum": [
+                "relevance",
+                "bestsellers",
+                "newest",
+                "oldest",
+                "title"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSearchOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Catalog"
+      }
+    },
+    "/api/catalog/series": {
+      "get": {
+        "description": "The series called `name`, or whose title contains it, best first: the exact\nmatches, then by how many books of a keyword search for the name are in each.\nAudible has no search by series, so this finds a series through its books;\n`author` narrows the search. Each is then read with `GET /api/catalog/series/{asin}`.",
+        "operationId": "find_series_api_catalog_series_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "author",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Author"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SeriesMatchOut"
+                  },
+                  "title": "Response Find Series Api Catalog Series Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Find Series"
+      }
+    },
+    "/api/catalog/series/{asin}": {
+      "get": {
+        "description": "A series and every book Audible lists in it, in reading order. A position often\nhas several books, the editions of one title. 404 when the ASIN is not a series.",
+        "operationId": "catalog_series_api_catalog_series__asin__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "asin",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Za-z0-9]{10}$",
+              "title": "Asin",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogSeriesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Catalog Series"
       }
     },
     "/api/health": {

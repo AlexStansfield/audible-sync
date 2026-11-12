@@ -361,6 +361,10 @@ class BookFilter(BaseModel):
     status: BookStatus | None = None
     monitored: bool | None = None
     q: Annotated[str | None, Field(max_length=200)] = None
+    title: Annotated[str | None, Field(max_length=200)] = None
+    author: Annotated[str | None, Field(max_length=200)] = None
+    narrator: Annotated[str | None, Field(max_length=200)] = None
+    series: Annotated[str | None, Field(max_length=200)] = None
 
 
 MAX_BULK_IDS = 10_000
@@ -590,3 +594,114 @@ class SettingsUpdate(BaseModel):
         if value is None:
             raise ValueError("cannot be null; omit the field to leave it unchanged")
         return value
+
+
+# The catalogue. Made to be read by other applications as well as the web app: every
+# book is keyed by its ASIN, lengths are seconds, languages ISO 639-1 codes. Audible
+# has no ISBNs, so there are none.
+
+
+class CatalogAuthorOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    # Audible's id for the author, when it gives one
+    asin: str | None
+
+
+class CatalogPriceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    currency: str
+    list_price: float | None
+    # What a member pays; null when Audible did not say
+    member_price: float | None
+    credits: float | None
+
+
+class CatalogBookOut(BaseModel):
+    """A book of the Audible catalogue, and whether a library here already holds it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    asin: str
+    title: str
+    subtitle: str
+    authors: list[CatalogAuthorOut]
+    narrators: list[str]
+    # Primary first, by the rule the library files books by
+    series: list[SeriesEntry]
+    primary_series: SeriesEntry | None
+    genres: list[str]
+    length_seconds: int | None
+    release_date: str | None
+    language: str | None
+    publisher: str | None
+    abridged: bool | None
+    cover_url: str | None
+    # Out of 5, the average of `rating_count` ratings
+    rating: float | None
+    rating_count: int
+    price: CatalogPriceOut | None
+    # Included in the membership's Plus catalogue (checked for the UK and US marketplaces)
+    plus: bool
+    # Held by a library of this marketplace, any account's; the id is that library book's
+    in_library: bool = False
+    library_book_id: int | None = None
+
+
+class CatalogBookDetail(CatalogBookOut):
+    """One catalogue book, with the description a list leaves out (as `BookDetail`'s)."""
+
+    description: str = Field(validation_alias="description_text")
+    description_html: str
+
+
+class CatalogSearchOut(BaseModel):
+    items: list[CatalogBookOut]
+    # Audible's count of everything matched; `reachable` is how many of those it will
+    # page through, since it repeats its last page beyond that rather than say so
+    total: int
+    reachable: int
+    page: int
+    page_size: int
+    # The account whose marketplace was searched
+    account_id: int
+
+
+class SeriesMatchOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    asin: str
+    title: str
+    # How many books of the name search are in it
+    books_found: int
+    # The title is the name asked for, rather than containing it
+    exact: bool
+
+
+class SeriesBookOut(BaseModel):
+    # The position as Audible writes it ("4.5"); several books can share one, the
+    # editions of a title
+    sequence: str | None
+    book: CatalogBookOut
+
+
+class CatalogSeriesOut(BaseModel):
+    asin: str
+    title: str
+    books: list[SeriesBookOut]
+
+
+class CategoryOut(BaseModel):
+    id: str
+    name: str
+    children: list["CategoryOut"] = []
+
+
+class AuthorOut(BaseModel):
+    # Audible's id from its search suggestions, which can differ from the one the same
+    # author carries on their books: look books up by `name`
+    asin: str
+    name: str
+    image_url: str | None
