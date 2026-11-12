@@ -2760,6 +2760,56 @@ def test_wishlist_refresh_that_fails_says_so_and_keeps_the_books(wishlist_api):
     assert wishlist_api.get("/api/wishlist", headers=AUTH).json()["total"] == 1
 
 
+def test_wishlist_add_for_an_account_removed_meanwhile_is_a_404(wishlist_api):
+    fake = wishlist_api.fake
+    tell_audible = fake.add_to_wishlist
+
+    def removed_meanwhile(asin):
+        tell_audible(asin)
+        database.delete_account(wishlist_api.account_id)
+
+    fake.add_to_wishlist = removed_meanwhile
+
+    response = wishlist_api.post(
+        "/api/wishlist", json={"account_id": wishlist_api.account_id, "asin": "B000000001"}, headers=AUTH
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": f"No account with id {wishlist_api.account_id}"}
+
+
+def test_wishlist_refresh_reads_the_others_when_one_account_makes_no_client(wishlist_api):
+    from audible_sync.catalog import Catalog
+    from audible_sync.wishlist import Wishlists
+
+    # The first account read is the one whose credentials make no client
+    broken = wishlist_api.account_id
+    other = database.add_account("Sam (UK)", "uk", auth=dict(AUTH_BLOB))
+    fake = wishlist_api.fake
+
+    def client_for(account):
+        if account.id == broken:
+            raise ValueError("bad credentials")
+        return fake
+
+    app = create_app(
+        scheduler=FakeScheduler(),
+        state=RunState(),
+        api_token=ApiToken(TOKEN, "stored"),
+        version="test",
+        catalog=Catalog(client_for=client_for),
+        wishlists=Wishlists(client_for=client_for),
+    )
+
+    response = TestClient(app).post("/api/wishlist/refresh", headers=AUTH)
+
+    assert response.status_code == 200
+    states = {state["account_id"]: state for state in response.json()}
+    assert states[broken]["error"] == "ValueError: bad credentials"
+    assert states[other]["read_at"] is not None
+    assert states[other]["error"] is None
+
+
 def test_wishlist_marks_a_book_a_library_holds(wishlist_api):
     other = database.add_account("Sam (UK)", "uk", auth=dict(AUTH_BLOB))
     database.update_books(other, [make_book("B000000001", id=None, account_id=None)])

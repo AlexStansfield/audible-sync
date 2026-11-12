@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
+import { parseSearch } from "../lib/prefixSearch";
 import { account, catalogBook } from "../test/fixtures";
-import { byPosition, editionDifference, factsLine, priceParts, shownEdition, wishlistChoices } from "./text";
+import {
+  byPosition,
+  editionDifference,
+  factsLine,
+  narrowsSeries,
+  priceParts,
+  shownEdition,
+  wishlistChoices,
+} from "./text";
 
 const UK = account();
 const UK2 = account({ id: 2, name: "Sam (UK)" });
@@ -34,6 +43,13 @@ describe("a catalogue book's wording", () => {
     expect(wishlistChoices(catalogBook(), [UK, UK2, US], "uk").add).toEqual([UK, UK2]);
   });
 
+  it("offers no Add when the marketplace is not known, rather than every marketplace's", () => {
+    expect(wishlistChoices(catalogBook({ on_wishlist: [3] }), [UK, UK2, US], undefined)).toEqual({
+      add: [],
+      remove: [US],
+    });
+  });
+
   it("shows first the edition a library holds, then one wished for, then the most rated", () => {
     const plain = { sequence: "1", book: catalogBook({ asin: "A", rating_count: 10 }) };
     const rated = { sequence: "1", book: catalogBook({ asin: "B", rating_count: 900 }) };
@@ -47,6 +63,7 @@ describe("a catalogue book's wording", () => {
 
   it("groups a series by position in reading order", () => {
     const entries = [
+      { sequence: null, book: catalogBook({ asin: "E" }) },
       { sequence: "1", book: catalogBook({ asin: "A" }) },
       { sequence: "1", book: catalogBook({ asin: "B" }) },
       { sequence: "4.5", book: catalogBook({ asin: "C" }) },
@@ -56,8 +73,24 @@ describe("a catalogue book's wording", () => {
     expect(byPosition(entries).map((group) => [group.sequence, group.editions.length])).toEqual([
       ["1", 2],
       ["4.5", 1],
-      [null, 1],
+      [null, 2],
     ]);
+  });
+
+  it("narrows a series' books by the rest of the box, as the service compares", () => {
+    const zoe = catalogBook({ title: "Zoe’s Tale", narrators: ["Tavia Gilbert"] });
+    const omw = catalogBook();
+    const narrows = (text: string, book = zoe) => narrowsSeries(book, parseSearch(`${text} series:Old Man's War`));
+
+    // Curly apostrophes and case folded, as `fold_text` does
+    expect(narrows("title:zoe's tale")).toBe(true);
+    // Keywords word by word, anywhere in the title, authors or narrators
+    expect(narrows("tale scalzi")).toBe(true);
+    expect(narrows("tale gilbert")).toBe(true);
+    expect(narrows("colonial")).toBe(false);
+    expect(narrows("narrator:Tavia")).toBe(true);
+    expect(narrows("narrator:Dufris")).toBe(false);
+    expect(narrows("", omw)).toBe(true);
   });
 
   it("says what tells an edition apart", () => {

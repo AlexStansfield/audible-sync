@@ -167,6 +167,24 @@ describe("Search", () => {
     expect(api.calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
   });
 
+  it("reads the markers again when an add fails, as Audible may have made the change", async () => {
+    let wished: number[] = [];
+    const api = catalogue([UK], {
+      "GET /api/catalog/search": (request: Request) => results([catalogBook({ on_wishlist: wished })])(request),
+      "POST /api/wishlist": () => {
+        wished = [1];
+        return fail(502, "Audible did not answer: timed out")();
+      },
+    });
+    renderApp("/search?q=scalzi");
+
+    const omw = await screen.findByRole("article", { name: "Old Man's War" });
+    await userEvent.click(within(omw).getByRole("button", { name: "Add to wishlist" }));
+
+    expect(await within(omw).findByRole("button", { name: "Remove from wishlist" })).toBeEnabled();
+    expect(api.calls.filter((call) => call.method === "POST")).toHaveLength(1);
+  });
+
   it("stops the pager where Audible stops paging, and says so", async () => {
     catalogue([UK], { "GET /api/catalog/search": results([OMW], 4210, 1000) });
     renderApp("/search?q=science&page=50");

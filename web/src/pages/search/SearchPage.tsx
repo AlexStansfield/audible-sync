@@ -21,7 +21,7 @@ import {
   useSeries,
   useSeriesMatches,
 } from "../../catalog/queries";
-import { byPosition, type CatalogBook, editionDifference, shownEdition } from "../../catalog/text";
+import { byPosition, editionDifference, narrowsSeries, shownEdition } from "../../catalog/text";
 import { ErrorCard } from "../../components/ErrorCard";
 import { Icon } from "../../components/Icon";
 import { Pager } from "../../components/Pager";
@@ -444,17 +444,6 @@ function NoAccount() {
 
 // --- series --------------------------------------------------------------------
 
-/** The other parts of the box narrow a series' books, here rather than at Audible. */
-function narrows(book: CatalogBook, parsed: Parsed): boolean {
-  const has = (haystack: string, needle: string | undefined) =>
-    !needle || haystack.toLowerCase().includes(needle.toLowerCase());
-  return (
-    has(`${book.title} ${book.subtitle}`, parsed.keywords || undefined) &&
-    has(`${book.title} ${book.subtitle}`, parsed.title) &&
-    has(book.narrators.join(" "), parsed.narrator)
-  );
-}
-
 function SeriesSection({
   parsed,
   query,
@@ -524,7 +513,7 @@ function SeriesSection({
   }
   if (!series.data) return <ResultsSkeleton />;
 
-  const books = series.data.books.filter((entry) => narrows(entry.book, parsed));
+  const books = series.data.books.filter((entry) => narrowsSeries(entry.book, parsed));
   const groups = byPosition(books);
   const held = books.filter((entry) => entry.book.in_library).length;
   const firstWithEditions = groups.find((group) => group.editions.length > 1);

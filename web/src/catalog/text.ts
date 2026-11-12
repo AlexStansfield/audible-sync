@@ -3,7 +3,9 @@
  * components so it can be tested on its own.
  */
 import type { components } from "../api/schema";
+import { foldText } from "../lib/fold";
 import { formatLength, plural } from "../lib/format";
+import type { Parsed } from "../lib/prefixSearch";
 
 export type CatalogBook = components["schemas"]["CatalogBookOut"];
 export type Account = components["schemas"]["AccountOut"];
@@ -94,7 +96,8 @@ export function wishlistChoices(
   const owners = new Set(book.library.map((copy) => copy.account_id));
   const wished = new Set(book.on_wishlist);
   return {
-    add: market.filter((account) => !owners.has(account.id) && !wished.has(account.id)),
+    // Not knowing the marketplace offers no Add, never every marketplace's accounts
+    add: countryCode ? market.filter((account) => !owners.has(account.id) && !wished.has(account.id)) : [],
     remove: market.filter((account) => wished.has(account.id)),
   };
 }
@@ -137,5 +140,27 @@ export function byPosition<T extends { sequence: string | null }>(
     group.editions.push(entry);
     groups.set(key, group);
   }
-  return [...groups.values()];
+  const unplaced = groups.get("");
+  groups.delete("");
+  return unplaced ? [...groups.values(), unplaced] : [...groups.values()];
+}
+
+/**
+ * Whether the other parts of the box let a series' book through, as the service's
+ * search would: folded (`foldText`), each keyword anywhere in the title, subtitle,
+ * authors or narrators, and the title and narrator each as one phrase.
+ */
+export function narrowsSeries(book: CatalogBook, parsed: Parsed): boolean {
+  const titled = foldText([book.title, book.subtitle].filter(Boolean).join(" "));
+  const anywhere = foldText(
+    [book.title, book.subtitle, ...book.authors.map((author) => author.name), ...book.narrators]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const words = foldText(parsed.keywords).split(" ").filter(Boolean);
+  return (
+    words.every((word) => anywhere.includes(word)) &&
+    (!parsed.title || titled.includes(foldText(parsed.title))) &&
+    (!parsed.narrator || book.narrators.some((name) => foldText(name).includes(foldText(parsed.narrator))))
+  );
 }

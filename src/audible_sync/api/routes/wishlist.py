@@ -119,9 +119,13 @@ def router(*, catalog: Catalog | None = None, wishlists: Wishlists | None = None
             raise HTTPException(status_code=409, detail=str(error)) from None
         except NotInCatalogue as error:
             raise HTTPException(status_code=404, detail=str(error)) from None
+        out = items_out([item])
+        if not out:
+            # The account was removed while the book was being added, and its rows with it
+            raise HTTPException(status_code=404, detail=f"No account with id {body.account_id}")
         if not added:
             response.status_code = 200
-        return items_out([item])[0]
+        return out[0]
 
     @router.delete("/wishlist/{account_id}/{asin}", response_model=Message)
     def remove_from_wishlist(account_id: Annotated[int, Path()], asin: Asin) -> Message:

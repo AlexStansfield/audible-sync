@@ -4,7 +4,7 @@
  * refetches both, since a book's markers are worked out per answer by the service.
  */
 import { keepPreviousData, type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, unwrap } from "../api/client";
+import { ApiError, api, unwrap } from "../api/client";
 import type { components } from "../api/schema";
 import type { Parsed } from "../lib/prefixSearch";
 
@@ -169,7 +169,8 @@ export function useWishlistCount() {
 
 /**
  * Adding a book to a wishlist, and taking one off. The busy state lasts until the
- * refetch has the new markers, so a marker changes only once the service has said so.
+ * refetch has the new markers, so a marker changes only once the service has said so,
+ * and a failure refetches too: Audible may have made the change before the error.
  */
 export function useWishlistChange() {
   const client = useQueryClient();
@@ -177,12 +178,22 @@ export function useWishlistChange() {
   const add = useMutation({
     mutationFn: ({ accountId, asin }: { accountId: number; asin: string }) =>
       unwrap(api.POST("/api/wishlist", { body: { account_id: accountId, asin } })),
-    onSuccess: refresh,
+    onSettled: refresh,
   });
   const remove = useMutation({
-    mutationFn: ({ accountId, asin }: { accountId: number; asin: string }) =>
-      unwrap(api.DELETE("/api/wishlist/{account_id}/{asin}", { params: { path: { account_id: accountId, asin } } })),
-    onSuccess: refresh,
+    mutationFn: async ({ accountId, asin }: { accountId: number; asin: string }) => {
+      try {
+        return await unwrap(
+          api.DELETE("/api/wishlist/{account_id}/{asin}", { params: { path: { account_id: accountId, asin } } }),
+        );
+      } catch (error) {
+        // Not on the list as last read (a sync saw it go): Audible was told all the same,
+        // so it is off the wishlist either way
+        if (error instanceof ApiError && error.status === 404) return { status: "removed" };
+        throw error;
+      }
+    },
+    onSettled: refresh,
   });
   return { add, remove };
 }

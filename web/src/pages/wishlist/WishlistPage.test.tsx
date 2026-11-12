@@ -102,6 +102,25 @@ describe("the Wishlist", () => {
     expect(screen.getByRole("article", { name: "Old Man's War" })).toBeInTheDocument();
   });
 
+  it("takes a book off that a sync already saw go, without calling it a failure", async () => {
+    let items = [OMW];
+    wishlist([OMW], {
+      "GET /api/wishlist": (request: Request) => listing(items)(request),
+      "DELETE /api/wishlist/1/B06XNYQJTX": () => {
+        items = [];
+        return fail(404, "B06XNYQJTX was not on Alex (UK)'s wishlist")();
+      },
+    });
+    renderApp("/wishlist");
+
+    const omw = await screen.findByRole("article", { name: "Old Man's War" });
+    await userEvent.click(within(omw).getByRole("button", { name: "Remove" }));
+    await userEvent.click(screen.getByRole("button", { name: "Remove from wishlist" }));
+
+    await waitFor(() => expect(screen.queryByRole("article", { name: "Old Man's War" })).not.toBeInTheDocument());
+    expect(screen.queryByText("Could not remove Old Man's War")).not.toBeInTheDocument();
+  });
+
   it("reads the wishlists again on Refresh from Audible", async () => {
     let release: () => void = () => undefined;
     const api = wishlist([OMW, GHOST], {
