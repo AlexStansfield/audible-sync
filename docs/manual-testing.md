@@ -65,6 +65,11 @@ A quick local version with no Audible access is a scratch database with an accou
 - [ ] Follow a podcast on Audible and run a sync: no new book appears and the run has nothing to say about it. A show stored by an earlier version is removed by the next sync, with a line in the log, whether it is still followed or not
 - [ ] Sign in again on an account while a run is downloading on it: the run carries on and ends as it would have, the log says the previous device waits for the run, and once the run has ended the device is deregistered (it leaves Amazon's device list) and any book it was refused meanwhile is back in the queue
 
+## Since v3.3.0: the subtitle
+
+- [x] A book with a subtitle, written by the pipeline's own metadata through real FFmpeg: `ffprobe` shows `title` and `album` as the title alone and `subtitle` as its own tag, in M4B and Ogg (checked 2026-11-12 on the silence fixture)
+- [ ] Redownload a book with a long Audible subtitle and scan it in Audiobookshelf: the title is the title alone and the subtitle shows as the subtitle, without Match
+
 ## Since v3.1.0
 
 - [x] Refresh all from Audible on the Dashboard: the run card says Refreshing all while it reads, the log reads the whole library once per account, Activity marks the run Full refresh, and a book's title edited in the database by hand is put back
