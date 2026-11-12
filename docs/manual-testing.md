@@ -68,7 +68,7 @@ A quick local version with no Audible access is a scratch database with an accou
 ## Since v3.3.0: the subtitle
 
 - [x] A book with a subtitle, written by the pipeline's own metadata through real FFmpeg: `ffprobe` shows `title` and `album` as the title alone and `subtitle` as its own tag, in M4B and Ogg (checked 2026-11-12 on the silence fixture)
-- [ ] Redownload a book with a long Audible subtitle and scan it in Audiobookshelf: the title is the title alone and the subtitle shows as the subtitle, without Match
+- [x] Redownload a book with a long Audible subtitle and scan it in Audiobookshelf: the title is the title alone and the subtitle shows as the subtitle, without Match (checked 2026-11-12: Down Cemetery Road, `©nam`/`©alb` the title alone and the `subtitle` atom; Audiobookshelf shows both)
 
 ## Since v3.1.0
 
