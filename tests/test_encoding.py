@@ -189,6 +189,14 @@ def test_write_m4b_extra_tags_adds_freeform_atoms_and_keeps_native_tags(m4b):
     assert "----:com.apple.iTunes:title" not in tags
 
 
+def test_the_subtitle_reaches_an_m4b_as_its_own_tag(m4b):
+    """The muxer drops `subtitle`; a freeform atom is how Audiobookshelf finds it."""
+    written = write_m4b_extra_tags(m4b, {"title": "Down Cemetery Road", "subtitle": "Zoë Boehm Thrillers 1"})
+
+    assert written == ["subtitle"]
+    assert bytes(MP4(m4b).tags["----:com.apple.iTunes:subtitle"][0]).decode() == "Zoë Boehm Thrillers 1"
+
+
 def test_write_m4b_extra_tags_skips_empty_values_and_non_audiobooks(m4b):
     written = write_m4b_extra_tags(m4b, {"series": "", "series-part": None, "title": "x", "media_type": "music"})
 

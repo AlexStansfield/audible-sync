@@ -77,8 +77,10 @@ def test_generate_metadata_maps_fields():
         genres=("G1", "G2"),
     )
     meta = generate_metadata(book)
-    assert meta["title"] == "Title: Sub"
-    assert meta["album"] == "Title: Sub"
+    # Kept apart: joined, Audible's marketing subtitles became the title in every player
+    assert meta["title"] == "Title"
+    assert meta["album"] == "Title"
+    assert meta["subtitle"] == "Sub"
     assert meta["artist"] == "A; B"
     assert meta["composer"] == "N"
     assert meta["series"] == "Series"
@@ -86,6 +88,13 @@ def test_generate_metadata_maps_fields():
     assert meta["genre"] == "G1; G2"
     assert meta["date"] == "2020"
     assert meta["comment"] == "ASIN: B001"
+
+
+def test_generate_metadata_writes_no_subtitle_when_there_is_none():
+    meta = generate_metadata(make_book(title="Dune", subtitle=""))
+
+    assert meta["title"] == "Dune"
+    assert "subtitle" not in meta
 
 
 def test_generate_metadata_tags_the_primary_series_not_the_first_one():
