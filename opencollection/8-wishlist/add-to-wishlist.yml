@@ -1,0 +1,19 @@
+info:
+  name: Add to a wishlist
+  type: http
+  seq: 2
+http:
+  method: POST
+  url: "{{baseUrl}}/api/wishlist"
+  body:
+    type: json
+    data: |-
+      {
+        "account_id": 1,
+        "asin": "B06XNYQJTX"
+      }
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  201 when added, 200 when it was there already; 409 for a book the account owns.

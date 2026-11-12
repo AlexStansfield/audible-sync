@@ -2,7 +2,7 @@
 
 A python app that will fetch your library from audible, download the books and convert them to DRM free M4B or Ogg Opus files.
 
-It runs as a background service: on a schedule (every six hours by default) it syncs the latest purchases from your audible library to the app database and downloads whatever is waiting. A web app shows what it is doing - the book being downloaded, your library, the run history and the service log - and is where you add accounts, pick which books to download and change the settings. Served over https, it can be installed on a phone or a computer. Underneath is an HTTP API for scripts and other applications, which can also search the Audible catalogue and read a book's or a series' details from it; a one-shot command line run is still there too.
+It runs as a background service: on a schedule (every six hours by default) it syncs the latest purchases from your audible library to the app database and downloads whatever is waiting. A web app shows what it is doing - the book being downloaded, your library, the run history and the service log - and is where you add accounts, pick which books to download and change the settings. Served over https, it can be installed on a phone or a computer. Underneath is an HTTP API for scripts and other applications, which can also search the Audible catalogue, read a book's or a series' details from it, and read and change each account's wishlist; a one-shot command line run is still there too.
 
 It records the download status of each book so will only fetch the missing books. A book that keeps failing is retried up to `max-attempts` times and then left alone, with the reason recorded, rather than re-downloaded on every run forever.
 
@@ -37,7 +37,7 @@ Open `http://localhost:8080`, sign in as `admin` with that password, and go to *
  - [Installation](docs/installation.md): Docker in full, backups, a forgotten password or API token, running without Docker, installing the web app, and running behind a reverse proxy
  - [Accounts](docs/accounts.md): signing in, several marketplaces, and what to do if Audible refuses every download
  - [Configuration](docs/configuration.md): every setting, file naming templates, audio formats and environment variables
- - [API](docs/api.md): the HTTP API for scripts, the catalogue search, and a ready-made request collection
+ - [API](docs/api.md): the HTTP API for scripts, the catalogue search, the wishlists, and a ready-made request collection
  - [Contributing](CONTRIBUTING.md): developing the web app
 
 ## Todo

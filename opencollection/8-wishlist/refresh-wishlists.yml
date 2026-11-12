@@ -1,0 +1,16 @@
+info:
+  name: Read the wishlists again
+  type: http
+  seq: 4
+http:
+  method: POST
+  url: "{{baseUrl}}/api/wishlist/refresh"
+  body:
+    type: json
+    data: |-
+      {}
+  auth: inherit
+settings:
+  encodeUrl: true
+docs: |
+  Every signed-in account's, or one with `{"account_id": 1}`.
