@@ -1330,6 +1330,24 @@ def test_list_books_rejects_bad_parameters(api, params):
     assert api.get("/api/books", headers=AUTH, params=params).status_code == 422
 
 
+def test_the_book_list_and_a_book_give_the_language_as_its_code(api):
+    (book,) = _shelve(_account(), make_book("B001", language="english"))
+
+    (item,) = api.get("/api/books", headers=AUTH).json()["items"]
+    assert item["language"] == "en"
+    assert api.get(f"/api/books/{book.id}", headers=AUTH).json()["language"] == "en"
+
+
+@pytest.mark.parametrize("word", [None, "klingon"])
+def test_a_book_not_yet_read_or_in_a_language_without_a_code_has_a_null_language(api, word):
+    (book,) = _shelve(_account(), make_book("B001", language=word))
+
+    body = api.get(f"/api/books/{book.id}", headers=AUTH).json()
+
+    assert "language" in body
+    assert body["language"] is None
+
+
 def test_get_book_gives_the_description_as_plain_text(api):
     account_id = _account()
     (book,) = _shelve(

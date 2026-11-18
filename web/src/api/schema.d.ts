@@ -1052,6 +1052,8 @@ export interface components {
             is_consumable: boolean;
             /** Is Finished */
             is_finished: boolean;
+            /** Language */
+            language: string | null;
             /** Last Attempt At */
             last_attempt_at: string | null;
             /** Last Error */
@@ -1146,6 +1148,8 @@ export interface components {
             is_consumable: boolean;
             /** Is Finished */
             is_finished: boolean;
+            /** Language */
+            language: string | null;
             /** Last Attempt At */
             last_attempt_at: string | null;
             /** Last Error */

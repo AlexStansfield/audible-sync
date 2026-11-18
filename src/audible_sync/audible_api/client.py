@@ -102,6 +102,9 @@ def _prepare_book(item: dict) -> Book:
         # HTML; cleaned where it is shown or tagged (`html_to_text`), so a change to the
         # cleaning applies without reading the library again
         "description": item.get("publisher_summary") or None,
+        # Audible's word ("english"), from `product_attrs`; `Book.language_code` is the
+        # ISO 639-1 code the API gives, worked out on read
+        "language": item.get("language") or None,
     }
 
     return Book(**data_row)

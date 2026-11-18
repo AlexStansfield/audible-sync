@@ -281,6 +281,7 @@ def _migrate_schema(conn):
         "claim_token": "TEXT",
         "description": "TEXT",
         "claim_renewed_at": "TEXT",
+        "language": "TEXT",
     }
 
     for column, column_type in new_columns.items():
@@ -315,7 +316,7 @@ _LIBRARY_COLUMNS = (
     "is_finished", "percent_complete", "date_added", "release_date", "cover_url", "status",
     "monitored", "file_path", "pdf_path", "cover_path", "annotations_path", "has_pdf", "encoding_format",
     "downloaded_at", "is_consumable", "attempts", "last_error", "last_attempt_at", "claim_token",
-    "description", "claim_renewed_at",
+    "description", "claim_renewed_at", "language",
 )  # fmt: skip
 
 
@@ -412,6 +413,9 @@ def _library_ddl() -> str:
             claim_renewed_at TEXT,
             -- The publisher's summary, HTML as Audible gives it; NULL until a sync reads it
             description TEXT,
+            -- Audible's word for it ("english"); NULL until a sync reads it (a full
+            -- refresh does for every book)
+            language TEXT,
             UNIQUE (account_id, asin)
         )
     """
@@ -468,6 +472,7 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
             book.has_pdf,
             book.is_consumable,
             book.description,
+            book.language,
             # Bound for the CASE in the conflict clause below
             BookStatus.WAITING_DOWNLOAD,
             BookStatus.UNAVAILABLE,
@@ -488,8 +493,8 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
             """
             INSERT INTO library (account_id, asin, title, subtitle, authors, narrators, series, genres,
                                  length, is_finished, percent_complete, date_added, release_date,
-                                 cover_url, status, monitored, has_pdf, is_consumable, description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                 cover_url, status, monitored, has_pdf, is_consumable, description, language)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(account_id, asin) DO UPDATE SET
                 title = excluded.title,
                 subtitle = excluded.subtitle,
@@ -507,6 +512,8 @@ def update_books(account_id: int, books: list[Book], *, monitor_new: bool = True
                 -- Publishers edit them, so every read refreshes it; a response without
                 -- the field leaves the one stored rather than forgetting it
                 description = COALESCE(excluded.description, library.description),
+                -- Likewise: a response that names none forgets nothing
+                language = COALESCE(excluded.language, library.language),
                 -- The only status the sync may change, in either direction. A book
                 -- Audible has withdrawn leaves the queue; one it has offered again
                 -- rejoins it, which is how a restored Plus title comes back on its own.

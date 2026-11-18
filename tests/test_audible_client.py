@@ -55,6 +55,30 @@ def test_prepare_book_without_a_summary_has_no_description(summary):
     assert _prepare_book(item).description is None
 
 
+@pytest.mark.parametrize(
+    ("overrides", "word", "code"),
+    [
+        ({"language": "english"}, "english", "en"),
+        ({"language": "German"}, "German", "de"),
+        # A word with no code is kept all the same, so adding it later needs no re-read
+        ({"language": "klingon"}, "klingon", None),
+        ({"language": ""}, None, None),
+        ({}, None, None),
+    ],
+)
+def test_prepare_book_keeps_audibles_word_for_the_language(overrides, word, code):
+    book = _prepare_book(make_item(**overrides))
+
+    assert book.language == word
+    # The catalogue's code, so a library book and a catalogue book compare
+    assert book.language_code == code
+
+
+def test_the_response_groups_ask_for_the_language():
+    # `language` comes with `product_attrs`, as it does for the catalogue
+    assert "product_attrs" in [group.strip() for group in RESPONSE_GROUPS.split(",")]
+
+
 def test_the_response_groups_ask_for_the_description():
     assert "product_extended_attrs" in [group.strip() for group in RESPONSE_GROUPS.split(",")]
 

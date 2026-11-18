@@ -29,6 +29,7 @@ export function book(overrides: Partial<Book> = {}): Book {
     cover_url: "https://example.invalid/cover.jpg",
     has_pdf: false,
     is_consumable: true,
+    language: "en",
     status: "waiting_download",
     monitored: true,
     attempts: 0,

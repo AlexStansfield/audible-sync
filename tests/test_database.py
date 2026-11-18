@@ -65,6 +65,7 @@ def test_init_db_creates_library_table_with_all_columns(db):
         "claim_token",
         "description",
         "claim_renewed_at",
+        "language",
     }
 
 
@@ -94,6 +95,7 @@ def test_migrate_schema_adds_missing_columns(tmp_path, monkeypatch):
         "last_attempt_at",
         "claim_token",
         "description",
+        "language",
     }
     assert expected <= columns
 
@@ -730,6 +732,23 @@ def test_update_books_stores_and_refreshes_the_description(db):
     # Publishers edit them, so every read brings the stored one up to date
     database.update_books(ACCOUNT, [make_book("B001", description="<p>Edited.</p>")])
     assert database.get_book_by_asin("B001").description == "<p>Edited.</p>"
+
+
+def test_update_books_stores_and_refreshes_the_language(db):
+    database.update_books(ACCOUNT, [make_book("B001", language="english")])
+    assert database.get_book_by_asin("B001").language == "english"
+
+    # Even to a word with no code: Audible's correction is not lost to the stored one
+    database.update_books(ACCOUNT, [make_book("B001", language="klingon")])
+    assert database.get_book_by_asin("B001").language == "klingon"
+
+
+def test_update_books_keeps_the_language_when_a_response_has_none(db):
+    database.update_books(ACCOUNT, [make_book("B001", language="english")])
+
+    database.update_books(ACCOUNT, [make_book("B001", language=None)])
+
+    assert database.get_book_by_asin("B001").language == "english"
 
 
 def test_update_books_keeps_the_description_when_a_response_has_none(db):

@@ -293,6 +293,9 @@ class BookOut(BaseModel):
     cover_url: str
     has_pdf: bool
     is_consumable: bool
+    # ISO 639-1, as a catalogue book's; null until a sync has read it, or for a language
+    # without a code. Stored as Audible's word and worked out on read (`Book.language_code`)
+    language: str | None = Field(validation_alias="language_code")
     status: BookStatus | None
     monitored: bool
     attempts: int
