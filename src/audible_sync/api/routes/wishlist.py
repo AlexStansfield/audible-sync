@@ -81,7 +81,9 @@ def router(*, catalog: Catalog | None = None, wishlists: Wishlists | None = None
         `sort` is `date_added` (newest first), `title` (A to Z) or `release_date` (newest
         first); `order` turns it round. A book on two accounts' wishlists is two items.
         Each is a catalogue book (marked in a library and on wishlists, as the catalogue's
-        are) with its `account_id` and `added_at`. `accounts` says when each account's
+        are) with its `account_id`, `added_at` and `description` (plain text; empty when
+        Audible has none, or until the wishlist is read again after an upgrade, which every
+        run does). `accounts` says when each account's
         wishlist was last read, and the error of a read that failed since: its books are
         then as of the last read that worked.
         """

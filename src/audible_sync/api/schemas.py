@@ -739,6 +739,10 @@ class WishlistItemOut(CatalogBookOut):
     account_id: int
     # As Audible gives it, UTC
     added_at: str | None
+    # Plain text, as `BookDetail`'s. Unlike a catalogue list's books a wishlist's carry it,
+    # since the list is served from what a run stored rather than asked of Audible.
+    # Empty when Audible has none, or until a read since the upgrade
+    description: str = Field(validation_alias="description_text")
 
 
 class WishlistAccountOut(BaseModel):

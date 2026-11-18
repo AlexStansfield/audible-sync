@@ -173,5 +173,5 @@ export function catalogBook(overrides: Partial<CatalogBook> = {}): CatalogBook {
 }
 
 export function wishlistItem(overrides: Partial<WishlistItem> = {}): WishlistItem {
-  return { ...catalogBook(), account_id: 1, added_at: "2026-11-10T09:00:00Z", ...overrides };
+  return { ...catalogBook(), account_id: 1, added_at: "2026-11-10T09:00:00Z", description: "", ...overrides };
 }

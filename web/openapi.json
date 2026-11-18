@@ -3389,6 +3389,10 @@
             ],
             "title": "Cover Url"
           },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
           "genres": {
             "items": {
               "type": "string"
@@ -3559,7 +3563,8 @@
           "plus",
           "multipart",
           "account_id",
-          "added_at"
+          "added_at",
+          "description"
         ],
         "title": "WishlistItemOut",
         "type": "object"
@@ -5934,7 +5939,7 @@
     },
     "/api/wishlist": {
       "get": {
-        "description": "Every account's wishlist in one list, or one account's, as last read from Audible.\n\n`sort` is `date_added` (newest first), `title` (A to Z) or `release_date` (newest\nfirst); `order` turns it round. A book on two accounts' wishlists is two items.\nEach is a catalogue book (marked in a library and on wishlists, as the catalogue's\nare) with its `account_id` and `added_at`. `accounts` says when each account's\nwishlist was last read, and the error of a read that failed since: its books are\nthen as of the last read that worked.",
+        "description": "Every account's wishlist in one list, or one account's, as last read from Audible.\n\n`sort` is `date_added` (newest first), `title` (A to Z) or `release_date` (newest\nfirst); `order` turns it round. A book on two accounts' wishlists is two items.\nEach is a catalogue book (marked in a library and on wishlists, as the catalogue's\nare) with its `account_id`, `added_at` and `description` (plain text; empty when\nAudible has none, or until the wishlist is read again after an upgrade, which every\nrun does). `accounts` says when each account's\nwishlist was last read, and the error of a read that failed since: its books are\nthen as of the last read that worked.",
         "operationId": "get_wishlist_api_wishlist_get",
         "parameters": [
           {

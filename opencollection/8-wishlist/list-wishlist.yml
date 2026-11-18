@@ -30,4 +30,7 @@ http:
 settings:
   encodeUrl: true
 docs: |
-  Every account's wishlist in one list, and when each was last read.
+  Every account's wishlist in one list, and when each was last read. Each item is a
+  catalogue book with its `account_id`, `added_at` and `description` (plain text; empty
+  when Audible has none, or until the wishlist is read again after an upgrade, which
+  every run does).
