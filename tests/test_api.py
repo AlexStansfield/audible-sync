@@ -16,7 +16,7 @@ from audible_sync.api.routes import settings as api_settings
 from audible_sync.audible_api import login as login_module
 from audible_sync.audible_api.login import PendingLogins
 from audible_sync.logbuffer import RingBufferHandler
-from audible_sync.model import StoredLogin, SyncOutcome
+from audible_sync.model import CatalogBook, StoredLogin, SyncOutcome, WishlistItem
 from audible_sync.paths import REPO_ROOT
 from audible_sync.pipeline.runstate import RunStage, RunState
 from audible_sync.security import webauth
@@ -2695,6 +2695,30 @@ def test_wishlist_add_then_add_again_then_remove(wishlist_api):
     assert removed.json() == {"status": "removed"}
     assert gone.status_code == 404
     assert wishlist_api.get("/api/wishlist", headers=AUTH).json()["total"] == 0
+
+
+def test_wishlist_items_give_the_description_as_plain_text(wishlist_api):
+    database.replace_wishlist(
+        wishlist_api.account_id,
+        [
+            WishlistItem(
+                account_id=wishlist_api.account_id,
+                book=CatalogBook(asin="B000000001", title="Told", description="<p>A <b>war</b>.</p><p>Two.</p>"),
+                added_at="2026-01-02T00:00:00Z",
+            ),
+            WishlistItem(
+                account_id=wishlist_api.account_id,
+                book=CatalogBook(asin="B000000002", title="Untold"),
+                added_at="2026-01-01T00:00:00Z",
+            ),
+        ],
+    )
+
+    items = wishlist_api.get("/api/wishlist", headers=AUTH).json()["items"]
+
+    assert {item["asin"]: item["description"] for item in items} == {"B000000001": "A war.\n\nTwo.", "B000000002": ""}
+    # Plain text only: the formatted one stays with the book's own endpoint
+    assert "description_html" not in items[0]
 
 
 def test_wishlist_refuses_a_book_the_account_owns(wishlist_api):

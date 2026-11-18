@@ -63,3 +63,6 @@ settings:
   encodeUrl: true
 docs: |
   A page of books and the `total` that matched. Enable the optional filters as needed.
+  Each book's `language` is an ISO 639-1 code (`en`); null for a language with no code,
+  and until a sync has read it (a book stored before the upgrade gets it at the next
+  full refresh).

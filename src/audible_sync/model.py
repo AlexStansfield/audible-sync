@@ -571,7 +571,8 @@ class CatalogBook:
     plus: bool = False
     # Delivered in parts (`MultiPartBook`): an edition of a title whose name does not say so
     multipart: bool = False
-    # HTML as Audible gives it; only a single book's answer carries it
+    # HTML as Audible gives it. Only a single book's answer and a wishlist read carry it,
+    # and the wishlist table keeps it (`catalog_book_to_json`); a search's books have none
     description: str | None = None
 
     @property

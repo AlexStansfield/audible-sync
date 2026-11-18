@@ -280,7 +280,10 @@ class Audible:
                     "num_results": products.MAX_PAGE_SIZE,
                     "page": page,
                     "sort_by": "-DateAdded",
-                    "response_groups": products.SEARCH_RESPONSE_GROUPS,
+                    # With the description, as for one book: the wishlist is stored and
+                    # served from here, so it is read once a run, and the group makes a
+                    # read about 14% larger (checked 2026-11-18)
+                    "response_groups": products.BOOK_RESPONSE_GROUPS,
                     "image_sizes": products.IMAGE_SIZES,
                 },
             )

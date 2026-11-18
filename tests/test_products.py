@@ -349,6 +349,18 @@ def test_the_wishlist_is_read_in_fifties_from_page_0_with_the_dates_added():
     assert audible.client.calls[0][1]["sort_by"] == "-DateAdded"
 
 
+def test_the_wishlist_is_read_with_the_descriptions():
+    audible = Audible.__new__(Audible)
+    audible.client = FakeWishlistClient(
+        {"wishlist": lambda params: {"products": [make_product("B000000001", publisher_summary="<p>A war.</p>")]}}
+    )
+
+    (item,) = audible.get_wishlist(7)
+
+    assert item.book.description == "<p>A war.</p>"
+    assert audible.client.calls[0][1]["response_groups"] == products.BOOK_RESPONSE_GROUPS
+
+
 def test_the_wishlist_is_changed_by_asin():
     audible = Audible.__new__(Audible)
     audible.client = FakeWishlistClient({})

@@ -16,7 +16,9 @@ from audible_sync.model import CatalogAuthor, CatalogBook, CatalogPrice, sort_se
 logger = logging.getLogger(__name__)
 
 # A search result: everything a list shows. The description (`product_extended_attrs`)
-# makes an answer about 45% larger, so only a single book asks for it.
+# made a library page about 45% larger and a wishlist read about 14%, so only a single
+# book and the wishlist ask for it: the wishlist because it is read once a run and
+# served from the table.
 SEARCH_RESPONSE_GROUPS = (
     "contributors,media,price,product_attrs,product_desc,product_plans,rating,series,category_ladders"
 )
