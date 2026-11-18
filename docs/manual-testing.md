@@ -104,3 +104,10 @@ Search and the Wishlist. Signed in with at least one account; two accounts of on
 - [ ] Library: `author:`, `narrator:`, `series:` and `title:` in the box narrow the list, the chips sit above the status with Status labelled, and Select all matching acts on what is shown
 - [ ] Search and Wishlist at desktop and 390px in both themes, and in the phone's drawer; the sidebar counts the wishlist
 
+
+## Since v3.4.0
+
+Each book's language and each wishlist book's description, for applications using the API.
+
+- [x] After the upgrade, Refresh all from Audible: every book has a `language` in `GET /api/books` and `GET /api/books/{id}`, as an ISO 639-1 code, the unavailable books included (checked 2026-11-18: 316 of 316 `en`, 16 unavailable)
+- [x] The same run reads the wishlist again: every item of `GET /api/wishlist` has its `description` as plain text (checked 2026-11-18: 30 of 30)
