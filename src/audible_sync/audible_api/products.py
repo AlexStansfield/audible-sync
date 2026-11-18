@@ -10,6 +10,7 @@ for whatever it likes.
 import logging
 from typing import Any
 
+from audible_sync.languages import language_code
 from audible_sync.model import CatalogAuthor, CatalogBook, CatalogPrice, sort_series
 
 logger = logging.getLogger(__name__)
@@ -47,41 +48,6 @@ _REACHABLE_DEFAULT = 1000
 # on every title and means nothing here
 PLUS_PLANS = frozenset({"Audible-AYCL", "US Minerva"})
 
-# Audible names a language by a word; the marketplaces' common ones as ISO 639-1
-_LANGUAGES = {
-    "english": "en",
-    "german": "de",
-    "french": "fr",
-    "spanish": "es",
-    "italian": "it",
-    "japanese": "ja",
-    "portuguese": "pt",
-    "dutch": "nl",
-    "danish": "da",
-    "swedish": "sv",
-    "norwegian": "no",
-    "finnish": "fi",
-    "polish": "pl",
-    "russian": "ru",
-    "turkish": "tr",
-    "hindi": "hi",
-    "arabic": "ar",
-    "hebrew": "he",
-    "korean": "ko",
-    "mandarin_chinese": "zh",
-    "chinese": "zh",
-    "catalan": "ca",
-    "greek": "el",
-    "czech": "cs",
-    "hungarian": "hu",
-    "romanian": "ro",
-    "ukrainian": "uk",
-    "welsh": "cy",
-    "irish": "ga",
-    "afrikaans": "af",
-    "latin": "la",
-}
-
 
 def reachable_results(sort: str) -> int:
     """How many results of a search sorted this way Audible will page through."""
@@ -106,16 +72,6 @@ def exists(product: dict) -> bool:
     200 holding only the ASIN back.
     """
     return bool(product.get("title"))
-
-
-def language_code(word: str | None) -> str | None:
-    """Audible's word for a language ("english") as ISO 639-1 ("en"); None when unknown."""
-    if not word:
-        return None
-    code = _LANGUAGES.get(word.strip().lower())
-    if code is None:
-        logger.debug("No language code for %r", word)
-    return code
 
 
 def _price(product: dict) -> CatalogPrice | None:

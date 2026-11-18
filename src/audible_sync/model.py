@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any, NamedTuple
 
 from audible_sync.htmltext import html_to_text, safe_html
+from audible_sync.languages import language_code
 
 
 class StoredLogin(NamedTuple):
@@ -232,6 +233,9 @@ class Book:
     # The publisher's summary, HTML as Audible gives it; `description_text` is how it is
     # shown and tagged. None when the response did not carry it
     description: str | None = None
+    # Audible's word for it ("english"), as it gave it; `language_code` is how it is shown.
+    # None when the response did not carry it
+    language: str | None = None
 
     # Database only, so None on a book that came straight from the Audible API
     status: BookStatus | None = None
@@ -286,6 +290,7 @@ class Book:
             # legacy library as unavailable.
             is_consumable=bool(data["is_consumable"]) if data.get("is_consumable") is not None else True,
             description=data.get("description"),
+            language=data.get("language"),
             status=parse_book_status(data.get("status")),
             # A row from before the column existed is wanted, like every row was then
             monitored=bool(monitored) if monitored is not None else True,
@@ -326,6 +331,11 @@ class Book:
     def description_html(self) -> str:
         """The description as HTML rebuilt from an allow-list (`safe_html`), safe to show."""
         return safe_html(self.description)
+
+    @property
+    def language_code(self) -> str | None:
+        """The language as ISO 639-1 ("en"), as a catalogue book's; None when not known."""
+        return language_code(self.language)
 
     def __repr__(self):
         # Kept deliberately: the generated repr would put the cover URL and three

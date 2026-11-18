@@ -385,6 +385,17 @@
             "title": "Is Finished",
             "type": "boolean"
           },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "last_attempt_at": {
             "anyOf": [
               {
@@ -503,6 +514,7 @@
           "cover_url",
           "has_pdf",
           "is_consumable",
+          "language",
           "status",
           "monitored",
           "attempts",
@@ -766,6 +778,17 @@
             "title": "Is Finished",
             "type": "boolean"
           },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
           "last_attempt_at": {
             "anyOf": [
               {
@@ -884,6 +907,7 @@
           "cover_url",
           "has_pdf",
           "is_consumable",
+          "language",
           "status",
           "monitored",
           "attempts",
